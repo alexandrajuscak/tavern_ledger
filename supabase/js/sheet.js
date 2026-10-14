@@ -1,0 +1,1008 @@
+import {
+  ABILITIES, ABILITY_BY_KEY, SKILLS, SKILL_BY_KEY, CLASSES, HIT_DICE, ALIGNMENTS,
+  RESOURCE_PRESETS, RESET_LABELS, FEATURE_CATEGORIES,
+  mod, fmt, profBonus, xpForNextLevel, levelForXp,
+} from './dnd.js';
+import { saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, state, isDM } from './store.js';
+import { $, $$, esc, clamp, toast, confirmDialog, cacheSet, debounce, autoResize } from './utils.js';
+import { openLevelUp } from './levelup.js';
+
+// -----------------------------------------------------------------------------
+// Module state — one sheet is mounted at a time.
+// -----------------------------------------------------------------------------
+
+let B = null; // bundle: { character, inventory, notes, slots, trackers, features }
+let root = null;
+let ctx = null; // { reload, onDeleted }
+let unsubscribe = null;
+
+const TABS = [
+  { key: 'stats', label: 'Stats' },
+  { key: 'spells', label: 'Spells' },
+  { key: 'inventory', label: 'Inventory' },
+  { key: 'features', label: 'Features' },
+  { key: 'resources', label: 'Resources' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'bio', label: 'Bio' },
+];
+
+const LIST_KEY = {
+  inventory_items: 'inventory',
+  notes: 'notes',
+  spell_slots: 'slots',
+  feature_trackers: 'trackers',
+  features: 'features',
+};
+
+const C = () => B.character;
+const rowsOf = (table) => (table === 'characters' ? [B.character] : B[LIST_KEY[table]]);
+const findRow = (table, id) => rowsOf(table).find((r) => r.id === id);
+const note = (kind) => B.notes.find((n) => n.kind === kind);
+
+const getTab = () => { try { return localStorage.getItem('tavern-ledger:tab') || 'stats'; } catch { return 'stats'; } };
+const setTab = (t) => { try { localStorage.setItem('tavern-ledger:tab', t); } catch { /* ignore */ } };
+
+const cacheLater = debounce(() => { if (B) cacheSet(`bundle:${C().id}`, B); }, 1000);
+
+// -----------------------------------------------------------------------------
+// Derived values
+// -----------------------------------------------------------------------------
+
+const pb = () => profBonus(C().level);
+const abilityMod = (key) => mod(C()[ABILITY_BY_KEY[key].col]);
+const saveProf = (key) => !!C().save_proficiencies?.[key];
+const skillProf = (key) => Number(C().skill_proficiencies?.[key] || 0);
+const saveBonus = (key) => abilityMod(key) + (saveProf(key) ? pb() : 0);
+const skillBonus = (key) => abilityMod(SKILL_BY_KEY[key].ability) + skillProf(key) * pb();
+const initiative = () => abilityMod('dex') + (C().initiative_bonus || 0);
+
+function subtitle() {
+  const c = C();
+  const cls = [c.class_name, c.subclass && `(${c.subclass})`].filter(Boolean).join(' ');
+  return [`Level ${c.level}`, c.race, cls].filter(Boolean).join(' · ');
+}
+
+function deriveValue(key) {
+  const [kind, arg] = key.split(':');
+  const c = C();
+  switch (kind) {
+    case 'name': return c.name || 'Unnamed';
+    case 'subtitle': return subtitle();
+    case 'mod': return fmt(abilityMod(arg));
+    case 'save': return fmt(saveBonus(arg));
+    case 'skill': return fmt(skillBonus(arg));
+    case 'passive': return String(10 + skillBonus(arg));
+    case 'pb': return fmt(pb());
+    case 'init': return fmt(initiative());
+    case 'level': return String(c.level);
+    case 'spelldc': return c.spellcasting_ability ? String(8 + pb() + abilityMod(c.spellcasting_ability)) : '—';
+    case 'spellatk': return c.spellcasting_ability ? fmt(pb() + abilityMod(c.spellcasting_ability)) : '—';
+    case 'xpnext': {
+      const next = xpForNextLevel(c.level);
+      if (next == null) return 'Max level';
+      const ready = levelForXp(c.experience) > c.level;
+      return ready ? `Ready to level up! (${next.toLocaleString()} XP)` : `Next level at ${next.toLocaleString()} XP`;
+    }
+    case 'weight': {
+      const w = B.inventory.reduce((sum, i) => sum + Number(i.weight || 0) * Number(i.quantity || 0), 0);
+      return `${Math.round(w * 100) / 100} lb`;
+    }
+    default: return '';
+  }
+}
+
+function refreshDerived() {
+  $$('[data-derive]', root).forEach((el) => {
+    const v = deriveValue(el.dataset.derive);
+    if (el.textContent !== v) el.textContent = v;
+  });
+}
+
+function refreshToggles() {
+  const c = C();
+  $$('[data-action="toggle-save"]', root).forEach((el) => {
+    const on = saveProf(el.dataset.k);
+    el.classList.toggle('on', on);
+    el.setAttribute('aria-pressed', on);
+  });
+  $$('[data-action="cycle-skill"]', root).forEach((el) => {
+    const lvl = skillProf(el.dataset.k);
+    el.dataset.level = lvl;
+    el.title = ['Not proficient', 'Proficient', 'Expertise'][lvl];
+  });
+  $$('[data-action="toggle-inspiration"]', root).forEach((el) => {
+    el.classList.toggle('on', !!c.inspiration);
+    el.setAttribute('aria-pressed', !!c.inspiration);
+  });
+  $$('[data-action="death"]', root).forEach((el) => {
+    const count = el.dataset.kind === 'success' ? c.death_successes : c.death_failures;
+    el.classList.toggle('on', Number(el.dataset.i) < count);
+  });
+}
+
+function refreshHp() {
+  const c = C();
+  const max = Math.max(1, c.hp_max);
+  const pct = clamp((c.hp_current / max) * 100, 0, 100);
+  const tempPct = clamp((c.hp_temp / max) * 100, 0, 100 - pct);
+  const card = $('#hp-card', root);
+  if (!card) return;
+  $('.hp-fill', card).style.width = `${pct}%`;
+  $('.hp-temp-fill', card).style.left = `${pct}%`;
+  $('.hp-temp-fill', card).style.width = `${tempPct}%`;
+  card.dataset.state = c.hp_current <= 0 ? 'down' : pct <= 25 ? 'critical' : pct <= 50 ? 'bloodied' : 'healthy';
+}
+
+// -----------------------------------------------------------------------------
+// Binding helpers
+// -----------------------------------------------------------------------------
+
+const bind = (table, row, field, type = 'text') =>
+  `data-t="${table}" data-id="${row.id}" data-f="${field}" data-type="${type}"`;
+const cbind = (field, type) => bind('characters', B.character, field, type);
+
+const numInput = (table, row, field, cls = '', extra = '') =>
+  `<input type="number" inputmode="numeric" class="${cls}" ${bind(table, row, field, 'int')} value="${esc(row[field])}" ${extra}>`;
+const textInput = (table, row, field, cls = '', extra = '') =>
+  `<input type="text" class="${cls}" ${bind(table, row, field)} value="${esc(row[field])}" ${extra}>`;
+const textArea = (table, row, field, cls = '', extra = '') =>
+  `<textarea class="autosize ${cls}" ${bind(table, row, field)} ${extra}>${esc(row[field])}</textarea>`;
+
+function parseValue(el) {
+  switch (el.dataset.type) {
+    case 'int': {
+      if (el.value.trim() === '' || el.value === '-') return undefined;
+      const n = parseInt(el.value, 10);
+      return Number.isFinite(n) ? n : undefined;
+    }
+    case 'num': {
+      if (el.value.trim() === '') return undefined;
+      const n = parseFloat(el.value);
+      return Number.isFinite(n) ? n : undefined;
+    }
+    case 'bool': return el.checked;
+    default: return el.value;
+  }
+}
+
+function clampField(table, field, v, row) {
+  if (table === 'characters') {
+    if (field === 'level') return clamp(v, 1, 20);
+    if (ABILITIES.some((a) => a.col === field)) return clamp(v, 1, 30);
+    if (field === 'hp_max') return Math.max(1, v);
+    if (field === 'hp_current') return clamp(v, 0, 9999);
+    if (['hp_temp', 'experience', 'hit_dice_current', 'cp', 'sp', 'ep', 'gp', 'pp'].includes(field)) return Math.max(0, v);
+  }
+  if (table === 'feature_trackers') {
+    if (field === 'max') return clamp(v, 0, 999);
+    if (field === 'current') return clamp(v, 0, row.max);
+  }
+  if (table === 'inventory_items' && (field === 'quantity' || field === 'weight')) return Math.max(0, v);
+  return v;
+}
+
+function syncInputs(table, id) {
+  const row = findRow(table, id);
+  if (!row) return;
+  $$(`[data-t="${table}"][data-id="${id}"]`, root).forEach((el) => {
+    if (el === document.activeElement) return;
+    const v = row[el.dataset.f];
+    if (el.type === 'checkbox') el.checked = !!v;
+    else if (String(el.value) !== String(v ?? '')) {
+      el.value = v ?? '';
+      if (el.tagName === 'TEXTAREA') autoResize(el);
+    }
+  });
+}
+
+/** Apply a patch locally, queue it for saving and refresh the UI. */
+function setRow(table, row, patch) {
+  Object.assign(row, patch);
+  saver.queue(table, row.id, patch);
+  syncInputs(table, row.id);
+  afterChange(table);
+}
+
+function afterChange(table) {
+  refreshDerived();
+  refreshToggles();
+  refreshHp();
+  if (table === 'feature_trackers' || table === 'spell_slots') refreshPips();
+  cacheLater();
+}
+
+function commitField(el) {
+  const { t: table, id, f: field } = el.dataset;
+  const row = findRow(table, id);
+  if (!row) return;
+  let v = parseValue(el);
+  if (v === undefined) return;
+  v = clampField(table, field, v, row);
+  if (row[field] === v) return;
+  row[field] = v;
+  // Keep tracker current within a lowered max.
+  if (table === 'feature_trackers' && field === 'max' && row.current > v) {
+    row.current = v;
+    saver.queue(table, id, { [field]: v, current: v });
+    syncInputs(table, id);
+  } else {
+    saver.queue(table, id, { [field]: v });
+  }
+  afterChange(table);
+  if (table === 'feature_trackers' && field === 'name') renderStrip();
+}
+
+// -----------------------------------------------------------------------------
+// Rendering
+// -----------------------------------------------------------------------------
+
+function trackerPips(t) {
+  if (t.max <= 12) {
+    const pips = Array.from({ length: t.max }, (_, i) =>
+      `<button type="button" class="pip ${i < t.current ? 'on' : ''}" data-action="tracker-pip" data-id="${t.id}" data-i="${i}" aria-label="${esc(t.name)} ${i + 1}"></button>`).join('');
+    return `<div class="pips">${pips || '<span class="muted small">max 0</span>'}</div>`;
+  }
+  return `<div class="counter">
+    <button type="button" class="step" data-action="tracker-step" data-id="${t.id}" data-d="-1" aria-label="Spend">−</button>
+    <span class="counter-val">${t.current}<small>/${t.max}</small></span>
+    <button type="button" class="step" data-action="tracker-step" data-id="${t.id}" data-d="1" aria-label="Restore">+</button>
+  </div>`;
+}
+
+function slotBoxes(s) {
+  const boxes = Array.from({ length: s.total }, (_, i) =>
+    `<button type="button" class="slot-box ${i < s.used ? 'used' : ''}" data-action="slot-pip" data-id="${s.id}" data-i="${i}" aria-label="Level ${s.level} slot ${i + 1}${i < s.used ? ' (used)' : ''}"></button>`).join('');
+  return `<div class="slot-boxes">${boxes}</div>`;
+}
+
+function refreshPips() {
+  $$('[data-pips]', root).forEach((el) => {
+    const [kind, id] = el.dataset.pips.split(':');
+    if (kind === 'tracker') {
+      const t = findRow('feature_trackers', id);
+      if (t) el.innerHTML = trackerPips(t);
+    } else {
+      const s = findRow('spell_slots', id);
+      if (s) el.innerHTML = slotBoxes(s);
+    }
+  });
+  $$('[data-slot-total]', root).forEach((el) => {
+    const s = findRow('spell_slots', el.dataset.slotTotal);
+    if (s) el.textContent = s.total;
+  });
+  renderStrip();
+}
+
+function stripHTML() {
+  const trackers = B.trackers.map((t) => `
+    <div class="res-chip">
+      <div class="res-name">${esc(t.name)}</div>
+      <div data-pips="tracker:${t.id}">${trackerPips(t)}</div>
+    </div>`);
+  const slots = B.slots.filter((s) => s.total > 0).map((s) => `
+    <div class="res-chip slot-chip">
+      <div class="res-name">Lvl ${s.level} slots</div>
+      <div data-pips="slot:${s.id}">${slotBoxes(s)}</div>
+    </div>`);
+  const all = [...trackers, ...slots];
+  return all.length
+    ? all.join('')
+    : `<button type="button" class="res-empty" data-action="tab" data-tab="resources">+ Add resources (Ki, Rage, Bardic Inspiration…)</button>`;
+}
+
+function renderStrip() {
+  const el = $('#resource-strip', root);
+  if (el) el.innerHTML = stripHTML();
+}
+
+function headerHTML() {
+  const owner = isDM() ? state.profiles.find((p) => p.id === C().owner_id) : null;
+  return `
+  <header class="sheet-header">
+    <div class="sheet-id">
+      <h1 class="char-name" data-derive="name"></h1>
+      <div class="char-sub" data-derive="subtitle"></div>
+      ${owner && owner.id !== state.profile.id ? `<div class="owner-tag">Player: ${esc(owner.display_name || owner.email)}</div>` : ''}
+    </div>
+    <div class="sheet-actions">
+      <button type="button" class="btn btn-gold" data-action="level-up">▲ Level Up</button>
+      <button type="button" class="btn" data-action="short-rest" title="Restore short-rest resources">☾ Short Rest</button>
+      <button type="button" class="btn" data-action="long-rest" title="Restore HP, slots and resources">☀ Long Rest</button>
+    </div>
+  </header>`;
+}
+
+function deathSavesHTML() {
+  const row = (kind, label) => `
+    <div class="death-row">
+      <span class="death-label">${label}</span>
+      ${[0, 1, 2].map((i) => `<button type="button" class="death-pip ${kind}" data-action="death" data-kind="${kind}" data-i="${i}" aria-label="${label} ${i + 1}"></button>`).join('')}
+    </div>`;
+  return `<div class="death-saves">${row('success', 'Successes')}${row('failure', 'Failures')}</div>`;
+}
+
+function combatHTML() {
+  const c = C();
+  return `
+  <div class="combat-grid">
+    <div class="hp-card" id="hp-card">
+      <div class="hp-top">
+        <span class="stat-label">Hit Points</span>
+        <label class="temp-hp">Temp ${numInput('characters', c, 'hp_temp', 'temp-input', 'min="0" aria-label="Temporary hit points"')}</label>
+      </div>
+      <div class="hp-row">
+        ${numInput('characters', c, 'hp_current', 'hp-current', 'aria-label="Current hit points"')}
+        <span class="hp-sep">/</span>
+        ${numInput('characters', c, 'hp_max', 'hp-max', 'min="1" aria-label="Maximum hit points"')}
+      </div>
+      <div class="hp-bar"><div class="hp-fill"></div><div class="hp-temp-fill"></div></div>
+      <div class="hp-controls">
+        <button type="button" class="btn btn-bad" data-action="hp-damage">Damage</button>
+        <input type="number" inputmode="numeric" min="0" id="hp-amount" placeholder="0" aria-label="Amount">
+        <button type="button" class="btn btn-good" data-action="hp-heal">Heal</button>
+      </div>
+      <div class="down-only">${deathSavesHTML()}</div>
+    </div>
+    <div class="tiles">
+      <div class="tile tile-ac"><span class="stat-label"><span class="lbl-long">Armor Class</span><span class="lbl-short">AC</span></span>${numInput('characters', c, 'ac', 'big-num', 'aria-label="Armor class"')}</div>
+      <div class="tile"><span class="stat-label">Initiative</span><span class="big-num" data-derive="init"></span></div>
+      <div class="tile"><span class="stat-label">Speed</span><div class="with-unit">${numInput('characters', c, 'speed', 'big-num', 'aria-label="Speed"')}<span class="unit">ft</span></div></div>
+      <div class="tile"><span class="stat-label">Proficiency</span><span class="big-num" data-derive="pb"></span></div>
+    </div>
+  </div>
+  <div class="resource-strip" id="resource-strip">${stripHTML()}</div>
+  <button type="button" class="compact-toggle" data-action="toggle-compact" aria-label="Collapse or expand combat bar"></button>`;
+}
+
+const getCompact = () => { try { return localStorage.getItem('tavern-ledger:compact') === '1'; } catch { return false; } };
+const setCompact = (on) => { try { localStorage.setItem('tavern-ledger:compact', on ? '1' : '0'); } catch { /* ignore */ } };
+
+function statsHTML() {
+  const c = C();
+  const abilities = ABILITIES.map((a) => `
+    <div class="ability">
+      <span class="ability-name" title="${a.name}">${a.short}</span>
+      <span class="ability-mod" data-derive="mod:${a.key}"></span>
+      ${numInput('characters', c, a.col, 'ability-score', `min="1" max="30" aria-label="${a.name} score"`)}
+    </div>`).join('');
+
+  const saves = ABILITIES.map((a) => `
+    <li>
+      <button type="button" class="prof-dot" data-action="toggle-save" data-k="${a.key}" aria-label="${a.name} save proficiency"></button>
+      <span class="bonus" data-derive="save:${a.key}"></span>
+      <span class="li-name">${a.name}</span>
+    </li>`).join('');
+
+  const skills = SKILLS.map((s) => `
+    <li>
+      <button type="button" class="prof-dot" data-action="cycle-skill" data-k="${s.key}" aria-label="${s.name} proficiency"></button>
+      <span class="bonus" data-derive="skill:${s.key}"></span>
+      <span class="li-name">${s.name}</span>
+      <span class="abil-tag">${ABILITY_BY_KEY[s.ability].short}</span>
+    </li>`).join('');
+
+  return `
+  <div class="stats-layout">
+    <div class="abilities">${abilities}</div>
+
+    <div class="stats-cols">
+      <div class="col">
+        <section class="card">
+          <h3>Saving Throws</h3>
+          <ul class="prof-list">${saves}</ul>
+        </section>
+        <section class="card">
+          <h3>Senses & Status</h3>
+          <div class="kv-list">
+            <div class="kv"><span>Passive Perception</span><strong data-derive="passive:perception"></strong></div>
+            <div class="kv"><span>Passive Insight</span><strong data-derive="passive:insight"></strong></div>
+            <div class="kv"><span>Passive Investigation</span><strong data-derive="passive:investigation"></strong></div>
+            <div class="kv"><span>Inspiration</span><button type="button" class="toggle" data-action="toggle-inspiration" aria-label="Inspiration"></button></div>
+            <div class="kv"><span>Initiative misc. bonus</span>${numInput('characters', c, 'initiative_bonus', 'small-num', 'aria-label="Initiative bonus"')}</div>
+          </div>
+        </section>
+        <section class="card">
+          <h3>Hit Dice</h3>
+          <div class="hd-row">
+            ${numInput('characters', c, 'hit_dice_current', 'small-num', 'min="0" aria-label="Hit dice remaining"')}
+            <span class="muted">of <span data-derive="level"></span></span>
+            <select ${cbind('hit_die')} aria-label="Hit die">
+              ${HIT_DICE.map((d) => `<option ${c.hit_die === d ? 'selected' : ''}>${d}</option>`).join('')}
+            </select>
+          </div>
+          <h3 class="mt">Death Saves</h3>
+          ${deathSavesHTML()}
+        </section>
+      </div>
+
+      <div class="col">
+        <section class="card">
+          <h3>Skills <span class="hint">tap ○ to cycle: none → proficient → expertise</span></h3>
+          <ul class="prof-list skills-list">${skills}</ul>
+        </section>
+      </div>
+
+      <div class="col">
+        <section class="card">
+          <h3>Attacks & Actions</h3>
+          ${textArea('notes', note('attacks'), 'content', 'notes-area', 'placeholder="Longsword +5, 1d8+3 slashing&#10;Shortbow +4, 1d6+2 piercing (80/320)"')}
+        </section>
+        <section class="card">
+          <h3>Proficiencies & Languages</h3>
+          ${textArea('characters', c, 'proficiencies', 'notes-area', 'placeholder="Armor, weapons, tools, languages…"')}
+        </section>
+      </div>
+    </div>
+  </div>`;
+}
+
+function spellsHTML() {
+  const c = C();
+  const slots = B.slots.map((s) => `
+    <div class="slot-row">
+      <span class="slot-level">${s.level}</span>
+      <div class="slot-pips" data-pips="slot:${s.id}">${slotBoxes(s)}</div>
+      <div class="slot-total">
+        <button type="button" class="step" data-action="slot-total" data-id="${s.id}" data-d="-1" aria-label="Fewer level ${s.level} slots">−</button>
+        <span data-slot-total="${s.id}">${s.total}</span>
+        <button type="button" class="step" data-action="slot-total" data-id="${s.id}" data-d="1" aria-label="More level ${s.level} slots">+</button>
+      </div>
+    </div>`).join('');
+
+  return `
+  <div class="two-col">
+    <section class="card">
+      <h3>Spellcasting</h3>
+      <div class="spell-stats">
+        <label class="field"><span>Ability</span>
+          <select ${cbind('spellcasting_ability')}>
+            <option value="">—</option>
+            ${ABILITIES.map((a) => `<option value="${a.key}" ${c.spellcasting_ability === a.key ? 'selected' : ''}>${a.name}</option>`).join('')}
+          </select>
+        </label>
+        <div class="mini-tile"><span class="stat-label">Save DC</span><span class="big-num" data-derive="spelldc"></span></div>
+        <div class="mini-tile"><span class="stat-label">Attack</span><span class="big-num" data-derive="spellatk"></span></div>
+      </div>
+      <h3 class="mt">Spell Slots <span class="hint">tap a box to mark it used</span></h3>
+      <div class="slot-list">${slots}</div>
+      <button type="button" class="btn btn-sm mt" data-action="reset-slots">Restore all slots</button>
+    </section>
+    <section class="card">
+      <h3>Spells Known & Prepared</h3>
+      ${textArea('notes', note('spells'), 'content', 'notes-area tall', 'placeholder="Cantrips: Fire Bolt, Mage Hand&#10;1st: Shield, Magic Missile, Detect Magic&#10;…"')}
+    </section>
+  </div>`;
+}
+
+function inventoryItemHTML(item) {
+  return `
+  <div class="item card" data-item="${item.id}">
+    <div class="item-row">
+      <label class="equip" title="Equipped">
+        <input type="checkbox" ${bind('inventory_items', item, 'equipped', 'bool')} ${item.equipped ? 'checked' : ''}>
+        <span></span>
+      </label>
+      ${textInput('inventory_items', item, 'name', 'item-name', 'aria-label="Item name" placeholder="Item name"')}
+      <label class="item-qty"><span>Qty</span>${numInput('inventory_items', item, 'quantity', '', 'min="0"')}</label>
+      <label class="item-wt"><span>lb</span><input type="number" inputmode="decimal" step="0.1" min="0" ${bind('inventory_items', item, 'weight', 'num')} value="${esc(item.weight)}"></label>
+      <button type="button" class="icon-btn danger" data-action="delete-item" data-id="${item.id}" aria-label="Delete item">🗑</button>
+    </div>
+    ${textArea('inventory_items', item, 'description', 'item-desc', 'rows="1" placeholder="Description, properties, charges…"')}
+  </div>`;
+}
+
+function inventoryHTML() {
+  const c = C();
+  const coins = ['cp', 'sp', 'ep', 'gp', 'pp'].map((k) => `
+    <label class="coin coin-${k}"><span>${k.toUpperCase()}</span>${numInput('characters', c, k, '', 'min="0"')}</label>`).join('');
+  return `
+  <section class="card">
+    <h3>Coins</h3>
+    <div class="coins">${coins}</div>
+  </section>
+  <div class="section-head">
+    <h3>Items <span class="hint">total weight <span data-derive="weight"></span></span></h3>
+    <button type="button" class="btn btn-gold btn-sm" data-action="add-item">+ Add item</button>
+  </div>
+  <div id="inventory-list" class="item-list">${inventoryListHTML()}</div>`;
+}
+
+function inventoryListHTML() {
+  return B.inventory.length
+    ? B.inventory.map(inventoryItemHTML).join('')
+    : '<p class="empty">Your pack is empty.</p>';
+}
+
+function featureHTML(f) {
+  return `
+  <div class="feature card" data-feature="${f.id}">
+    <div class="feature-head">
+      ${textInput('features', f, 'name', 'feature-name', 'aria-label="Feature name" placeholder="Feature name"')}
+      <select ${bind('features', f, 'category')} aria-label="Category">
+        ${FEATURE_CATEGORIES.map((c) => `<option value="${c.key}" ${f.category === c.key ? 'selected' : ''}>${c.label}</option>`).join('')}
+      </select>
+      <button type="button" class="icon-btn danger" data-action="delete-feature" data-id="${f.id}" aria-label="Delete feature">🗑</button>
+    </div>
+    ${textArea('features', f, 'description', 'feature-desc', 'rows="2" placeholder="What does it do?"')}
+  </div>`;
+}
+
+function featuresHTML() {
+  return `<div id="features-list">${featuresListHTML()}</div>`;
+}
+
+function featuresListHTML() {
+  return FEATURE_CATEGORIES.map((cat) => {
+    const list = B.features.filter((f) => f.category === cat.key);
+    return `
+    <section class="feature-group">
+      <div class="section-head">
+        <h3>${cat.label} <span class="count">${list.length || ''}</span></h3>
+        <button type="button" class="btn btn-sm" data-action="add-feature" data-cat="${cat.key}">+ Add</button>
+      </div>
+      ${list.map(featureHTML).join('') || '<p class="empty">None yet.</p>'}
+    </section>`;
+  }).join('');
+}
+
+function trackerRowHTML(t) {
+  return `
+  <div class="tracker card" data-tracker="${t.id}">
+    ${textInput('feature_trackers', t, 'name', 'tracker-name', 'aria-label="Resource name"')}
+    <label class="field-inline"><span>Current</span>${numInput('feature_trackers', t, 'current', 'small-num', 'min="0"')}</label>
+    <label class="field-inline"><span>Max</span>${numInput('feature_trackers', t, 'max', 'small-num', 'min="0"')}</label>
+    <label class="field-inline"><span>Resets</span>
+      <select ${bind('feature_trackers', t, 'reset_on')}>
+        ${Object.entries(RESET_LABELS).map(([k, l]) => `<option value="${k}" ${t.reset_on === k ? 'selected' : ''}>${l}</option>`).join('')}
+      </select>
+    </label>
+    <button type="button" class="icon-btn danger" data-action="delete-tracker" data-id="${t.id}" aria-label="Delete resource">🗑</button>
+  </div>`;
+}
+
+function resourcesHTML() {
+  return `
+  <section class="card">
+    <h3>Add a resource</h3>
+    <div class="add-tracker">
+      <select id="tracker-preset" aria-label="Resource type">
+        ${RESOURCE_PRESETS.map((p, i) => `<option value="${i}">${p.name}</option>`).join('')}
+        <option value="custom">Custom…</option>
+      </select>
+      <input type="text" id="tracker-custom" placeholder="Custom name" hidden>
+      <button type="button" class="btn btn-gold" data-action="add-tracker">+ Add</button>
+    </div>
+    <p class="muted small">Resources appear in the combat bar at the top. Short and long rests restore them automatically.</p>
+  </section>
+  <div id="trackers-list" class="tracker-list">${trackersListHTML()}</div>`;
+}
+
+function trackersListHTML() {
+  return B.trackers.length ? B.trackers.map(trackerRowHTML).join('') : '<p class="empty">No resources yet.</p>';
+}
+
+function notesHTML() {
+  const block = (kind, title, placeholder) => `
+    <section class="card">
+      <h3>${title}</h3>
+      ${textArea('notes', note(kind), 'content', 'notes-area tall', `placeholder="${placeholder}"`)}
+    </section>`;
+  return `
+  <div class="notes-grid">
+    ${block('character', 'Character Notes', 'Personality, ideals, bonds, flaws, backstory…')}
+    ${block('quest', 'Quest Log', 'Active quests, leads, rewards…')}
+    ${block('campaign', 'Campaign Notes', 'NPCs, places, factions, session recaps…')}
+  </div>
+  <p class="muted small center">Notes save automatically as you type.</p>`;
+}
+
+function bioHTML() {
+  const c = C();
+  const ownerSelect = isDM() && state.profiles.length ? `
+    <label class="field"><span>Player (owner)</span>
+      <select ${cbind('owner_id')}>
+        ${state.profiles.map((p) => `<option value="${p.id}" ${p.id === c.owner_id ? 'selected' : ''}>${esc(p.display_name || p.email)}${p.role === 'dm' ? ' (DM)' : ''}</option>`).join('')}
+      </select>
+    </label>` : '';
+  return `
+  <section class="card">
+    <h3>Identity</h3>
+    <div class="form-grid">
+      <label class="field span-2"><span>Name</span>${textInput('characters', c, 'name')}</label>
+      <label class="field"><span>Race</span>${textInput('characters', c, 'race')}</label>
+      <label class="field"><span>Class</span>${textInput('characters', c, 'class_name', '', 'list="class-list"')}</label>
+      <label class="field"><span>Subclass</span>${textInput('characters', c, 'subclass')}</label>
+      <label class="field"><span>Background</span>${textInput('characters', c, 'background')}</label>
+      <label class="field"><span>Alignment</span>${textInput('characters', c, 'alignment', '', 'list="alignment-list"')}</label>
+      <label class="field"><span>Level</span>${numInput('characters', c, 'level', '', 'min="1" max="20"')}</label>
+      <label class="field"><span>Experience</span>${numInput('characters', c, 'experience', '', 'min="0"')}<small class="muted" data-derive="xpnext"></small></label>
+      ${ownerSelect}
+    </div>
+    <datalist id="class-list">${CLASSES.map((x) => `<option value="${x}">`).join('')}</datalist>
+    <datalist id="alignment-list">${ALIGNMENTS.map((x) => `<option value="${x}">`).join('')}</datalist>
+  </section>
+  <section class="card danger-zone">
+    <h3>Danger zone</h3>
+    <p class="muted small">Deleting a character removes its inventory, notes, features and resources permanently.</p>
+    <button type="button" class="btn btn-bad" data-action="delete-character">Delete character</button>
+  </section>`;
+}
+
+function render() {
+  const active = TABS.some((t) => t.key === getTab()) ? getTab() : 'stats';
+  root.innerHTML = `
+  <div class="sheet">
+    ${headerHTML()}
+    <section class="combat-bar ${getCompact() ? 'compact' : ''}" aria-label="Combat">${combatHTML()}</section>
+    <nav class="tabs" role="tablist">
+      ${TABS.map((t) => `<button type="button" role="tab" class="tab" data-action="tab" data-tab="${t.key}" aria-selected="${t.key === active}">${t.label}</button>`).join('')}
+    </nav>
+    <div class="panels">
+      <section class="panel" data-panel="stats">${statsHTML()}</section>
+      <section class="panel" data-panel="spells">${spellsHTML()}</section>
+      <section class="panel" data-panel="inventory">${inventoryHTML()}</section>
+      <section class="panel" data-panel="features">${featuresHTML()}</section>
+      <section class="panel" data-panel="resources">${resourcesHTML()}</section>
+      <section class="panel" data-panel="notes">${notesHTML()}</section>
+      <section class="panel" data-panel="bio">${bioHTML()}</section>
+    </div>
+  </div>`;
+  showTab(active, false);
+  refreshDerived();
+  refreshToggles();
+  refreshHp();
+}
+
+function showTab(key, scroll = true) {
+  setTab(key);
+  $$('.tab', root).forEach((t) => t.setAttribute('aria-selected', t.dataset.tab === key));
+  $$('.panel', root).forEach((p) => { p.hidden = p.dataset.panel !== key; });
+  $$(`.panel[data-panel="${key}"] textarea.autosize`, root).forEach(autoResize);
+  if (scroll) {
+    const tabs = $('.tabs', root);
+    const top = tabs.getBoundingClientRect().top + window.scrollY - 70;
+    if (window.scrollY > top) window.scrollTo({ top, behavior: 'smooth' });
+    $(`.tab[data-tab="${key}"]`, root)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+}
+
+/** Re-render a container while keeping the focused field (if any) focused. */
+function rerender(selector, html) {
+  const el = $(selector, root);
+  if (!el) return;
+  const a = document.activeElement;
+  const keep = a && el.contains(a) && a.dataset.f
+    ? { t: a.dataset.t, id: a.dataset.id, f: a.dataset.f, s: a.selectionStart, e: a.selectionEnd }
+    : null;
+  el.innerHTML = html;
+  $$('textarea.autosize', el).forEach(autoResize);
+  if (keep) {
+    const next = $(`[data-t="${keep.t}"][data-id="${keep.id}"][data-f="${keep.f}"]`, el);
+    if (next) {
+      next.focus();
+      try { next.setSelectionRange(keep.s, keep.e); } catch { /* not a text field */ }
+    }
+  }
+}
+
+function rerenderList(table) {
+  if (table === 'inventory_items') rerender('#inventory-list', inventoryListHTML());
+  if (table === 'features') rerender('#features-list', featuresListHTML());
+  if (table === 'feature_trackers') { rerender('#trackers-list', trackersListHTML()); renderStrip(); }
+  if (table === 'spell_slots') refreshPips();
+  afterChange(table);
+}
+
+// -----------------------------------------------------------------------------
+// Actions
+// -----------------------------------------------------------------------------
+
+function applyHp(sign) {
+  const input = $('#hp-amount', root);
+  const amt = parseInt(input.value, 10);
+  if (!amt || amt < 0) {
+    input.focus();
+    toast('Enter an amount first');
+    return;
+  }
+  const c = C();
+  if (sign < 0) {
+    const absorbed = Math.min(c.hp_temp, amt);
+    setRow('characters', c, {
+      hp_temp: c.hp_temp - absorbed,
+      hp_current: Math.max(0, c.hp_current - (amt - absorbed)),
+    });
+  } else {
+    const patch = { hp_current: Math.min(c.hp_max, c.hp_current + amt) };
+    if (c.hp_current <= 0) Object.assign(patch, { death_successes: 0, death_failures: 0 });
+    setRow('characters', c, patch);
+  }
+  input.value = '';
+}
+
+async function rest(kind) {
+  const long = kind === 'long';
+  const ok = await confirmDialog(
+    long
+      ? 'Restore HP, spell slots, half your hit dice and all short/long-rest resources?'
+      : 'Restore all short-rest resources? (Spend hit dice by editing them on the Stats tab.)',
+    { title: long ? 'Long Rest' : 'Short Rest', okLabel: long ? 'Take long rest' : 'Take short rest' },
+  );
+  if (!ok) return;
+
+  for (const t of B.trackers) {
+    const resets = long ? t.reset_on !== 'none' : t.reset_on === 'short';
+    if (resets && t.current !== t.max) setRow('feature_trackers', t, { current: t.max });
+  }
+  if (long) {
+    const c = C();
+    setRow('characters', c, {
+      hp_current: c.hp_max,
+      hp_temp: 0,
+      death_successes: 0,
+      death_failures: 0,
+      hit_dice_current: Math.min(c.level, c.hit_dice_current + Math.max(1, Math.floor(c.level / 2))),
+    });
+    for (const s of B.slots) if (s.used) setRow('spell_slots', s, { used: 0 });
+  }
+  toast(long ? 'Long rest taken. You feel refreshed.' : 'Short rest taken.', 'good');
+}
+
+async function addTracker() {
+  const sel = $('#tracker-preset', root);
+  let name;
+  let reset = 'long';
+  if (sel.value === 'custom') {
+    name = $('#tracker-custom', root).value.trim();
+    if (!name) { $('#tracker-custom', root).focus(); toast('Give the resource a name'); return; }
+  } else {
+    ({ name, reset } = RESOURCE_PRESETS[Number(sel.value)]);
+  }
+  const row = await insertRow('feature_trackers', {
+    character_id: C().id, name, current: 1, max: 1, reset_on: reset, sort_order: B.trackers.length,
+  });
+  if (!B.trackers.some((t) => t.id === row.id)) B.trackers.push(row);
+  $('#tracker-custom', root).value = '';
+  rerenderList('feature_trackers');
+  const maxInput = $(`[data-t="feature_trackers"][data-id="${row.id}"][data-f="max"]`, root);
+  maxInput?.focus();
+  maxInput?.select();
+  toast(`${name} added — set its maximum.`, 'good');
+}
+
+async function addItem() {
+  const row = await insertRow('inventory_items', {
+    character_id: C().id, name: 'New item', sort_order: B.inventory.length,
+  });
+  if (!B.inventory.some((i) => i.id === row.id)) B.inventory.push(row);
+  rerenderList('inventory_items');
+  const input = $(`[data-t="inventory_items"][data-id="${row.id}"][data-f="name"]`, root);
+  input?.focus();
+  input?.select();
+}
+
+async function addFeature(category) {
+  const row = await insertRow('features', {
+    character_id: C().id, category, name: 'New feature', sort_order: B.features.length,
+  });
+  if (!B.features.some((f) => f.id === row.id)) B.features.push(row);
+  rerenderList('features');
+  const input = $(`[data-t="features"][data-id="${row.id}"][data-f="name"]`, root);
+  input?.focus();
+  input?.select();
+}
+
+async function removeRow(table, id, label) {
+  const row = findRow(table, id);
+  if (!row) return;
+  const ok = await confirmDialog(`Delete “${row.name || label}”?`, { okLabel: 'Delete', danger: true });
+  if (!ok) return;
+  await deleteRow(table, id);
+  const list = rowsOf(table);
+  const i = list.findIndex((r) => r.id === id);
+  if (i >= 0) list.splice(i, 1);
+  rerenderList(table);
+}
+
+const actions = {
+  tab: (el) => showTab(el.dataset.tab),
+  'toggle-compact': () => {
+    const bar = $('.combat-bar', root);
+    setCompact(bar.classList.toggle('compact'));
+  },
+  'hp-damage': () => applyHp(-1),
+  'hp-heal': () => applyHp(1),
+  'tracker-pip': (el) => {
+    const t = findRow('feature_trackers', el.dataset.id);
+    const i = Number(el.dataset.i);
+    setRow('feature_trackers', t, { current: i < t.current ? i : i + 1 });
+  },
+  'tracker-step': (el) => {
+    const t = findRow('feature_trackers', el.dataset.id);
+    setRow('feature_trackers', t, { current: clamp(t.current + Number(el.dataset.d), 0, t.max) });
+  },
+  'slot-pip': (el) => {
+    const s = findRow('spell_slots', el.dataset.id);
+    const i = Number(el.dataset.i);
+    setRow('spell_slots', s, { used: i < s.used ? i : i + 1 });
+  },
+  'slot-total': (el) => {
+    const s = findRow('spell_slots', el.dataset.id);
+    const total = clamp(s.total + Number(el.dataset.d), 0, 9);
+    setRow('spell_slots', s, { total, used: Math.min(s.used, total) });
+  },
+  'reset-slots': () => { for (const s of B.slots) if (s.used) setRow('spell_slots', s, { used: 0 }); },
+  'toggle-save': (el) => {
+    const k = el.dataset.k;
+    setRow('characters', C(), { save_proficiencies: { ...C().save_proficiencies, [k]: !saveProf(k) } });
+  },
+  'cycle-skill': (el) => {
+    const k = el.dataset.k;
+    setRow('characters', C(), { skill_proficiencies: { ...C().skill_proficiencies, [k]: (skillProf(k) + 1) % 3 } });
+  },
+  'toggle-inspiration': () => setRow('characters', C(), { inspiration: !C().inspiration }),
+  death: (el) => {
+    const field = el.dataset.kind === 'success' ? 'death_successes' : 'death_failures';
+    const i = Number(el.dataset.i);
+    setRow('characters', C(), { [field]: i < C()[field] ? i : i + 1 });
+  },
+  'short-rest': () => rest('short'),
+  'long-rest': () => rest('long'),
+  'add-item': addItem,
+  'delete-item': (el) => removeRow('inventory_items', el.dataset.id, 'item'),
+  'add-feature': (el) => addFeature(el.dataset.cat),
+  'delete-feature': (el) => removeRow('features', el.dataset.id, 'feature'),
+  'add-tracker': addTracker,
+  'delete-tracker': (el) => removeRow('feature_trackers', el.dataset.id, 'resource'),
+  'level-up': async () => {
+    await saver.flush();
+    openLevelUp(B, { onApplied: () => ctx.reload() });
+  },
+  'delete-character': async () => {
+    const ok = await confirmDialog(`Permanently delete ${C().name}? This cannot be undone.`, {
+      title: 'Delete character', okLabel: 'Delete forever', danger: true,
+    });
+    if (!ok) return;
+    await deleteCharacter(C().id);
+    toast('Character deleted.');
+    ctx.onDeleted();
+  },
+};
+
+// -----------------------------------------------------------------------------
+// Events
+// -----------------------------------------------------------------------------
+
+function onInput(e) {
+  const el = e.target;
+  if (el.tagName === 'TEXTAREA' && el.classList.contains('autosize')) autoResize(el);
+  if (!el.dataset.f || el.type === 'checkbox' || el.tagName === 'SELECT') return;
+  commitField(el);
+}
+
+function onChange(e) {
+  const el = e.target;
+  if (el.id === 'tracker-preset') {
+    $('#tracker-custom', root).hidden = el.value !== 'custom';
+    if (el.value === 'custom') $('#tracker-custom', root).focus();
+    return;
+  }
+  if (!el.dataset.f) return;
+  if (el.type === 'checkbox' || el.tagName === 'SELECT') {
+    commitField(el);
+    if (el.dataset.t === 'features' && el.dataset.f === 'category') rerenderList('features');
+    return;
+  }
+  // Normalise numeric fields on blur (e.g. emptied or clamped values).
+  const row = findRow(el.dataset.t, el.dataset.id);
+  if (row && (el.dataset.type === 'int' || el.dataset.type === 'num')) el.value = row[el.dataset.f];
+}
+
+async function onClick(e) {
+  const el = e.target.closest('[data-action]');
+  if (!el || !root.contains(el)) return;
+  const fn = actions[el.dataset.action];
+  if (!fn) return;
+  try {
+    await fn(el);
+  } catch (err) {
+    console.error(err);
+    toast(err.message || 'Something went wrong', 'bad');
+  }
+}
+
+function onKeyDown(e) {
+  if (e.target.id === 'hp-amount' && e.key === 'Enter') {
+    e.preventDefault();
+    applyHp(e.shiftKey ? 1 : -1);
+  }
+  if (e.target.id === 'tracker-custom' && e.key === 'Enter') {
+    e.preventDefault();
+    addTracker().catch((err) => toast(err.message, 'bad'));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Realtime: changes from other devices / the DM
+// -----------------------------------------------------------------------------
+
+function applyRemote(table, row, incoming) {
+  const guarded = saver.protectedFields(table, row.id);
+  let changed = false;
+  for (const [k, v] of Object.entries(incoming)) {
+    if (k in guarded) continue;
+    if (JSON.stringify(row[k]) !== JSON.stringify(v)) {
+      row[k] = v;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function onRemote(table, event, nw, old) {
+  if (!B) return;
+  if (table === 'characters') {
+    if (applyRemote('characters', C(), nw)) {
+      syncInputs('characters', C().id);
+      afterChange('characters');
+    }
+    return;
+  }
+
+  const list = B[LIST_KEY[table]];
+  if (event === 'INSERT') {
+    if (nw.character_id !== C().id || list.some((r) => r.id === nw.id)) return;
+    list.push(nw);
+    if (table === 'notes') return;
+    rerenderList(table);
+  } else if (event === 'UPDATE') {
+    const row = list.find((r) => r.id === nw.id);
+    if (!row) return;
+    const prevCategory = row.category;
+    if (!applyRemote(table, row, nw)) return;
+    syncInputs(table, row.id);
+    if (table === 'features' && prevCategory !== row.category) rerenderList('features');
+    else if (table === 'feature_trackers') { renderStrip(); afterChange(table); }
+    else afterChange(table);
+  } else if (event === 'DELETE') {
+    const i = list.findIndex((r) => r.id === old?.id);
+    if (i < 0) return;
+    list.splice(i, 1);
+    rerenderList(table);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Public API
+// -----------------------------------------------------------------------------
+
+/**
+ * Mount a character sheet into `container`.
+ * readOnly: render a cached snapshot while fresh data loads.
+ */
+export function mountSheet(container, bundle, options = {}) {
+  unmountSheet();
+  B = bundle;
+  ctx = options;
+  root = document.createElement('div');
+  root.className = 'sheet-root';
+  if (options.readOnly) root.classList.add('is-stale');
+  container.replaceChildren(root);
+  render();
+
+  if (options.readOnly) return;
+
+  root.addEventListener('input', onInput);
+  root.addEventListener('change', onChange);
+  root.addEventListener('click', onClick);
+  root.addEventListener('keydown', onKeyDown);
+  unsubscribe = subscribeCharacter(C().id, onRemote);
+  cacheSet(`bundle:${C().id}`, B);
+}
+
+export function unmountSheet() {
+  unsubscribe?.();
+  unsubscribe = null;
+  B = null;
+  root = null;
+}
