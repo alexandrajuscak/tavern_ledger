@@ -1,7 +1,8 @@
 import {
   ABILITIES, ABILITY_BY_KEY, SKILLS, SKILL_BY_KEY, CLASSES, HIT_DICE, ALIGNMENTS,
   RESOURCE_PRESETS, RESET_LABELS, FEATURE_CATEGORIES,
-  mod, fmt, profBonus, xpForNextLevel, levelForXp,
+  DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
+  weaponToAttack, ordinal, mod, fmt, profBonus, xpForNextLevel, levelForXp,
 } from './dnd.js';
 import { saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, state, isDM } from './store.js';
 import { $, $$, esc, clamp, toast, confirmDialog, cacheSet, debounce, autoResize } from './utils.js';
@@ -11,13 +12,15 @@ import { openLevelUp } from './levelup.js';
 // Module state — one sheet is mounted at a time.
 // -----------------------------------------------------------------------------
 
-let B = null; // bundle: { character, inventory, notes, slots, trackers, features }
+let B = null; // bundle: { character, inventory, notes, slots, trackers, features, attacks, spells }
 let root = null;
 let ctx = null; // { reload, onDeleted }
 let unsubscribe = null;
+const editing = new Set(); // "table:id" of attack/spell cards open for editing
 
 const TABS = [
   { key: 'stats', label: 'Stats' },
+  { key: 'attacks', label: 'Attacks' },
   { key: 'spells', label: 'Spells' },
   { key: 'inventory', label: 'Inventory' },
   { key: 'features', label: 'Features' },
@@ -32,6 +35,8 @@ const LIST_KEY = {
   spell_slots: 'slots',
   feature_trackers: 'trackers',
   features: 'features',
+  attacks: 'attacks',
+  spells: 'spells',
 };
 
 const C = () => B.character;
@@ -55,6 +60,29 @@ const skillProf = (key) => Number(C().skill_proficiencies?.[key] || 0);
 const saveBonus = (key) => abilityMod(key) + (saveProf(key) ? pb() : 0);
 const skillBonus = (key) => abilityMod(SKILL_BY_KEY[key].ability) + skillProf(key) * pb();
 const initiative = () => abilityMod('dex') + (C().initiative_bonus || 0);
+const castingMod = () => (C().spellcasting_ability ? abilityMod(C().spellcasting_ability) : null);
+const spellAttackBonus = () => (castingMod() == null ? null : pb() + castingMod());
+const spellSaveDC = () => (castingMod() == null ? null : 8 + pb() + castingMod());
+
+function attackAbilityMod(a) {
+  switch (a.ability) {
+    case 'str':
+    case 'dex': return abilityMod(a.ability);
+    case 'finesse': return Math.max(abilityMod('str'), abilityMod('dex'));
+    case 'spell': return castingMod() ?? 0;
+    default: return 0;
+  }
+}
+const attackToHit = (a) => attackAbilityMod(a) + (a.proficient ? pb() : 0) + (Number(a.magic_bonus) || 0);
+
+function attackDamage(a) {
+  const bonus = (a.add_modifier ? attackAbilityMod(a) : 0) + (Number(a.magic_bonus) || 0);
+  const dice = String(a.damage_dice || '').trim();
+  if (!dice) return String(Math.max(0, bonus));
+  if (/^\d+$/.test(dice)) return String(Math.max(0, Number(dice) + bonus));
+  if (!bonus) return dice;
+  return `${dice} ${bonus > 0 ? '+' : '−'} ${Math.abs(bonus)}`;
+}
 
 function subtitle() {
   const c = C();
@@ -118,6 +146,25 @@ function refreshToggles() {
     const count = el.dataset.kind === 'success' ? c.death_successes : c.death_failures;
     el.classList.toggle('on', Number(el.dataset.i) < count);
   });
+  $$('[data-action="toggle-equip"]', root).forEach((el) => {
+    const on = !!c.equipment_proficiencies?.[el.dataset.k];
+    el.classList.toggle('on', on);
+    el.setAttribute('aria-pressed', on);
+  });
+}
+
+/** Re-render the read-only "view" part of attack & spell cards whose content changed. */
+function refreshViews() {
+  $$('[data-view]', root).forEach((el) => {
+    const [table, id] = el.dataset.view.split(':');
+    const row = findRow(table, id);
+    if (!row) return;
+    const html = table === 'attacks' ? attackViewHTML(row) : spellViewHTML(row);
+    if (el.__html !== html) {
+      el.innerHTML = html;
+      el.__html = html;
+    }
+  });
 }
 
 function refreshHp() {
@@ -178,6 +225,8 @@ function clampField(table, field, v, row) {
     if (field === 'current') return clamp(v, 0, row.max);
   }
   if (table === 'inventory_items' && (field === 'quantity' || field === 'weight')) return Math.max(0, v);
+  if (table === 'attacks' && field === 'magic_bonus') return clamp(v, -10, 10);
+  if (table === 'spells' && field === 'level') return clamp(v, 0, 9);
   return v;
 }
 
@@ -207,6 +256,7 @@ function afterChange(table) {
   refreshDerived();
   refreshToggles();
   refreshHp();
+  refreshViews();
   if (table === 'feature_trackers' || table === 'spell_slots') refreshPips();
   cacheLater();
 }
@@ -424,16 +474,245 @@ function statsHTML() {
 
       <div class="col">
         <section class="card">
-          <h3>Attacks & Actions</h3>
-          ${textArea('notes', note('attacks'), 'content', 'notes-area', 'placeholder="Longsword +5, 1d8+3 slashing&#10;Shortbow +4, 1d6+2 piercing (80/320)"')}
-        </section>
-        <section class="card">
-          <h3>Proficiencies & Languages</h3>
-          ${textArea('characters', c, 'proficiencies', 'notes-area', 'placeholder="Armor, weapons, tools, languages…"')}
+          <h3>Proficiencies <span class="hint">tap to toggle</span></h3>
+          <div class="chip-grid">
+            ${EQUIPMENT_PROFICIENCIES.map((p) => `<button type="button" class="chip-toggle" data-action="toggle-equip" data-k="${p.key}">${p.label}</button>`).join('')}
+          </div>
+          <label class="field mt"><span>Tools, languages & other</span>
+            ${textArea('characters', c, 'proficiencies', 'notes-area', 'placeholder="Tools: Thieves\' tools&#10;Languages: Common, Elvish"')}
+          </label>
         </section>
       </div>
     </div>
   </div>`;
+}
+
+// ---- Shared bits for attack & spell cards ---------------------------------
+
+const damageTypeOptions = (types, selected, allowEmpty = false) =>
+  (allowEmpty ? `<option value="" ${!selected ? 'selected' : ''}>—</option>` : '') +
+  types.map((t) => `<option value="${t}" ${selected === t ? 'selected' : ''}>${t[0].toUpperCase() + t.slice(1)}</option>`).join('');
+
+const checkField = (table, row, field, label) => `
+  <label class="check-field">
+    <input type="checkbox" ${bind(table, row, field, 'bool')} ${row[field] ? 'checked' : ''}>
+    <span>${label}</span>
+  </label>`;
+
+function entryHTML(table, row, viewHTML, editHTML) {
+  const key = `${table}:${row.id}`;
+  return `
+  <article class="entry ${editing.has(key) ? 'editing' : ''}" data-entry="${key}">
+    <div class="entry-view" data-view="${key}">${viewHTML}</div>
+    <div class="entry-edit">
+      ${editHTML}
+      <div class="entry-edit-actions">
+        <button type="button" class="btn btn-sm btn-bad" data-action="delete-entry" data-key="${key}">Delete</button>
+        <button type="button" class="btn btn-sm btn-gold" data-action="toggle-edit" data-key="${key}">Done</button>
+      </div>
+    </div>
+  </article>`;
+}
+
+const editButton = (key) =>
+  `<button type="button" class="icon-btn edit-btn" data-action="toggle-edit" data-key="${key}" aria-label="Edit">✎</button>`;
+
+// ---- Attacks -------------------------------------------------------------
+
+function attackViewHTML(a) {
+  const meta = [a.attack_kind === 'ranged' ? 'Ranged' : 'Melee', a.range, a.properties].filter(Boolean).map(esc).join(' · ');
+  return `
+    <div class="entry-head">
+      <h4 class="entry-name">${esc(a.name || 'Unnamed attack')}</h4>
+      ${editButton(`attacks:${a.id}`)}
+    </div>
+    <div class="roll-row">
+      <div class="roll roll-hit"><span class="roll-label">To hit</span><span class="roll-val">${fmt(attackToHit(a))}</span></div>
+      <div class="roll roll-dmg dt-${esc(a.damage_type)}">
+        <span class="roll-label">Damage</span>
+        <span class="roll-val">${esc(attackDamage(a))}</span>
+        <span class="roll-type">${esc(a.damage_type)}</span>
+      </div>
+    </div>
+    ${meta ? `<div class="entry-meta">${meta}</div>` : ''}
+    ${a.notes ? `<p class="entry-notes">${esc(a.notes)}</p>` : ''}`;
+}
+
+function attackEditHTML(a) {
+  const t = 'attacks';
+  return `
+    <div class="form-grid">
+      <label class="field span-2"><span>Name</span>${textInput(t, a, 'name')}</label>
+      <label class="field"><span>Melee or ranged</span>
+        <select ${bind(t, a, 'attack_kind')}>
+          <option value="melee" ${a.attack_kind === 'melee' ? 'selected' : ''}>Melee</option>
+          <option value="ranged" ${a.attack_kind === 'ranged' ? 'selected' : ''}>Ranged</option>
+        </select></label>
+      <label class="field"><span>Range / reach</span>${textInput(t, a, 'range', '', 'placeholder="5 ft or 80/320 ft"')}</label>
+      <label class="field"><span>Uses ability</span>
+        <select ${bind(t, a, 'ability')}>
+          ${ATTACK_ABILITIES.map((x) => `<option value="${x.key}" ${a.ability === x.key ? 'selected' : ''}>${x.label}</option>`).join('')}
+        </select></label>
+      <label class="field"><span>Magic bonus</span>${numInput(t, a, 'magic_bonus', '', 'placeholder="0"')}</label>
+      <label class="field"><span>Damage dice</span>${textInput(t, a, 'damage_dice', '', 'placeholder="1d8"')}</label>
+      <label class="field"><span>Damage type</span>
+        <select ${bind(t, a, 'damage_type')}>${damageTypeOptions(DAMAGE_TYPES, a.damage_type)}</select></label>
+      <div class="span-2 check-row">
+        ${checkField(t, a, 'proficient', 'Proficient (adds proficiency to hit)')}
+        ${checkField(t, a, 'add_modifier', 'Add ability modifier to damage')}
+      </div>
+      <label class="field span-2"><span>Properties</span>${textInput(t, a, 'properties', '', 'placeholder="Finesse, light, versatile (1d10)…"')}</label>
+      <label class="field span-2"><span>Notes</span>${textArea(t, a, 'notes', '', 'rows="2" placeholder="Extra effects, e.g. +1d6 fire on a hit"')}</label>
+    </div>`;
+}
+
+const attackHTML = (a) => entryHTML('attacks', a, attackViewHTML(a), attackEditHTML(a));
+
+function attacksListHTML() {
+  return B.attacks.length
+    ? B.attacks.map(attackHTML).join('')
+    : '<p class="empty">No attacks yet. Pick a weapon above to add one.</p>';
+}
+
+function attacksHTML() {
+  const group = (cat, kind, label) => `
+    <optgroup label="${label}">
+      ${WEAPONS.map((w, i) => (w.cat === cat && w.kind === kind ? `<option value="${i}">${w.name} (${w.dice} ${w.type})</option>` : '')).join('')}
+    </optgroup>`;
+  return `
+  <section class="card">
+    <h3>Add a weapon or attack</h3>
+    <div class="add-tracker">
+      <select id="weapon-preset" aria-label="Weapon">
+        <option value="custom">Custom attack…</option>
+        <option value="unarmed">Unarmed strike (1 bludgeoning)</option>
+        ${group('simple', 'melee', 'Simple melee')}
+        ${group('simple', 'ranged', 'Simple ranged')}
+        ${group('martial', 'melee', 'Martial melee')}
+        ${group('martial', 'ranged', 'Martial ranged')}
+      </select>
+      <button type="button" class="btn btn-gold" data-action="add-attack">+ Add</button>
+    </div>
+    <p class="muted small">“To hit” and “Damage” are worked out from your ability scores and proficiency, so they stay correct when you level up. Tap ✎ to change anything.</p>
+  </section>
+  <div id="attacks-list" class="entry-list">${attacksListHTML()}</div>
+  <section class="card mt">
+    <h3>Other actions & notes</h3>
+    ${textArea('notes', note('attacks'), 'content', 'notes-area', 'placeholder="Bonus actions, reactions, special moves…"')}
+  </section>`;
+}
+
+// ---- Spells --------------------------------------------------------------
+
+function spellViewHTML(s) {
+  const key = `spells:${s.id}`;
+  const sub = s.level === 0
+    ? `${s.school ? `${esc(s.school)} ` : ''}cantrip`
+    : `${ordinal(s.level)}${s.school ? ` · ${esc(s.school)}` : ''}`;
+  const facts = [
+    ['Casting time', s.casting_time], ['Range', s.range], ['Duration', s.duration], ['Components', s.components],
+  ].filter(([, v]) => v);
+
+  const rolls = [];
+  if (s.attack_type === 'attack') {
+    const v = spellAttackBonus();
+    rolls.push(`<div class="roll roll-hit"><span class="roll-label">Spell attack</span><span class="roll-val">${v == null ? '?' : fmt(v)}</span></div>`);
+  } else if (s.attack_type === 'save') {
+    const dc = spellSaveDC();
+    const ab = ABILITY_BY_KEY[s.save_ability];
+    rolls.push(`<div class="roll roll-save"><span class="roll-label">${ab ? ab.short : 'Target'} save</span><span class="roll-val">DC ${dc == null ? '?' : dc}</span></div>`);
+  }
+  if (s.damage) {
+    const heal = s.damage_type === 'healing';
+    rolls.push(`<div class="roll ${heal ? 'roll-heal' : 'roll-dmg'} dt-${esc(s.damage_type)}">
+      <span class="roll-label">${heal ? 'Healing' : 'Damage'}</span>
+      <span class="roll-val">${esc(s.damage)}</span>
+      ${!heal && s.damage_type ? `<span class="roll-type">${esc(s.damage_type)}</span>` : ''}
+    </div>`);
+  }
+
+  return `
+    <div class="entry-head">
+      <div class="entry-title">
+        <h4 class="entry-name">${esc(s.name || 'Unnamed spell')}</h4>
+        <div class="entry-sub">${sub}
+          ${s.concentration ? '<span class="tag tag-c" title="Concentration">Concentration</span>' : ''}
+          ${s.ritual ? '<span class="tag tag-r" title="Can be cast as a ritual">Ritual</span>' : ''}
+        </div>
+      </div>
+      ${s.level > 0 ? `<button type="button" class="prep-btn ${s.prepared ? 'on' : ''}" data-action="toggle-prepared" data-id="${s.id}" aria-pressed="${!!s.prepared}" title="Prepared today">${s.prepared ? '★ Prepared' : '☆ Prepare'}</button>` : ''}
+      ${editButton(key)}
+    </div>
+    ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}
+    ${rolls.length ? `<div class="roll-row">${rolls.join('')}</div>` : ''}
+    ${s.description ? `<details class="entry-desc"><summary>Description</summary><p>${esc(s.description)}</p></details>` : ''}`;
+}
+
+function spellEditHTML(s) {
+  const t = 'spells';
+  return `
+    <div class="form-grid">
+      <label class="field span-2"><span>Name</span>${textInput(t, s, 'name')}</label>
+      <label class="field"><span>Level</span>
+        <select ${bind(t, s, 'level', 'int')}>
+          ${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((l) => `<option value="${l}" ${s.level === l ? 'selected' : ''}>${ordinal(l)}</option>`).join('')}
+        </select></label>
+      <label class="field"><span>School</span>
+        <select ${bind(t, s, 'school')}>
+          <option value="" ${!s.school ? 'selected' : ''}>—</option>
+          ${SPELL_SCHOOLS.map((x) => `<option ${s.school === x ? 'selected' : ''}>${x}</option>`).join('')}
+        </select></label>
+      <label class="field"><span>Casting time</span>${textInput(t, s, 'casting_time', '', 'placeholder="1 action"')}</label>
+      <label class="field"><span>Range</span>${textInput(t, s, 'range', '', 'placeholder="120 ft, Touch, Self…"')}</label>
+      <label class="field"><span>Duration</span>${textInput(t, s, 'duration', '', 'placeholder="Instantaneous, 1 minute…"')}</label>
+      <label class="field"><span>Components</span>${textInput(t, s, 'components', '', 'placeholder="V, S, M (a pinch of salt)"')}</label>
+      <div class="span-2 check-row">
+        ${checkField(t, s, 'concentration', 'Concentration')}
+        ${checkField(t, s, 'ritual', 'Ritual')}
+      </div>
+      <label class="field"><span>How it hits</span>
+        <select ${bind(t, s, 'attack_type')}>
+          <option value="none" ${s.attack_type === 'none' ? 'selected' : ''}>No roll needed</option>
+          <option value="attack" ${s.attack_type === 'attack' ? 'selected' : ''}>Spell attack roll</option>
+          <option value="save" ${s.attack_type === 'save' ? 'selected' : ''}>Target makes a saving throw</option>
+        </select></label>
+      <label class="field"><span>Saving throw</span>
+        <select ${bind(t, s, 'save_ability')}>
+          <option value="" ${!s.save_ability ? 'selected' : ''}>—</option>
+          ${ABILITIES.map((a) => `<option value="${a.key}" ${s.save_ability === a.key ? 'selected' : ''}>${a.name}</option>`).join('')}
+        </select></label>
+      <label class="field"><span>Damage / healing dice</span>${textInput(t, s, 'damage', '', 'placeholder="1d10, 3d6, 1d8 + 3"')}</label>
+      <label class="field"><span>Type</span>
+        <select ${bind(t, s, 'damage_type')}>${damageTypeOptions(SPELL_EFFECT_TYPES, s.damage_type, true)}</select></label>
+      <label class="field span-2"><span>Description</span>${textArea(t, s, 'description', '', 'rows="3" placeholder="What the spell does…"')}</label>
+    </div>`;
+}
+
+const spellHTML = (s) => entryHTML('spells', s, spellViewHTML(s), spellEditHTML(s));
+
+function spellsListHTML() {
+  const maxSlot = Math.max(0, ...B.slots.filter((s) => s.total > 0).map((s) => s.level));
+  const maxSpell = Math.max(0, ...B.spells.map((s) => s.level));
+  const top = Math.max(1, maxSlot, maxSpell);
+  const groups = [];
+  for (let level = 0; level <= top; level++) {
+    const list = B.spells.filter((s) => s.level === level);
+    const slot = B.slots.find((s) => s.level === level);
+    groups.push(`
+      <section class="spell-group">
+        <div class="section-head">
+          <h3>${level === 0 ? 'Cantrips' : `Level ${level} spells`}
+            ${level === 0 ? '<span class="hint">at will, no slot needed</span>' : ''}
+          </h3>
+          <div class="row gap">
+            ${slot && slot.total > 0 ? `<div class="group-slots" data-pips="slot:${slot.id}">${slotBoxes(slot)}</div>` : ''}
+            <button type="button" class="btn btn-sm" data-action="add-spell" data-level="${level}">+ Add</button>
+          </div>
+        </div>
+        <div class="entry-list">${list.map(spellHTML).join('') || '<p class="empty">None yet.</p>'}</div>
+      </section>`);
+  }
+  return groups.join('');
 }
 
 function spellsHTML() {
@@ -450,28 +729,29 @@ function spellsHTML() {
     </div>`).join('');
 
   return `
-  <div class="two-col">
-    <section class="card">
-      <h3>Spellcasting</h3>
-      <div class="spell-stats">
-        <label class="field"><span>Ability</span>
-          <select ${cbind('spellcasting_ability')}>
-            <option value="">—</option>
-            ${ABILITIES.map((a) => `<option value="${a.key}" ${c.spellcasting_ability === a.key ? 'selected' : ''}>${a.name}</option>`).join('')}
-          </select>
-        </label>
-        <div class="mini-tile"><span class="stat-label">Save DC</span><span class="big-num" data-derive="spelldc"></span></div>
-        <div class="mini-tile"><span class="stat-label">Attack</span><span class="big-num" data-derive="spellatk"></span></div>
-      </div>
-      <h3 class="mt">Spell Slots <span class="hint">tap a box to mark it used</span></h3>
+  <section class="card spellcasting-card">
+    <div class="spell-stats">
+      <label class="field"><span>Spellcasting ability</span>
+        <select ${cbind('spellcasting_ability')}>
+          <option value="">—</option>
+          ${ABILITIES.map((a) => `<option value="${a.key}" ${c.spellcasting_ability === a.key ? 'selected' : ''}>${a.name}</option>`).join('')}
+        </select>
+      </label>
+      <div class="mini-tile"><span class="stat-label">Spell save DC</span><span class="big-num" data-derive="spelldc"></span></div>
+      <div class="mini-tile"><span class="stat-label">Spell attack</span><span class="big-num" data-derive="spellatk"></span></div>
+    </div>
+    <details class="slot-manager">
+      <summary>Manage spell slots</summary>
+      <p class="muted small">Use − / + to set how many slots you have. Tap a box to mark it used.</p>
       <div class="slot-list">${slots}</div>
       <button type="button" class="btn btn-sm mt" data-action="reset-slots">Restore all slots</button>
-    </section>
-    <section class="card">
-      <h3>Spells Known & Prepared</h3>
-      ${textArea('notes', note('spells'), 'content', 'notes-area tall', 'placeholder="Cantrips: Fire Bolt, Mage Hand&#10;1st: Shield, Magic Missile, Detect Magic&#10;…"')}
-    </section>
-  </div>`;
+    </details>
+  </section>
+  <div id="spells-list">${spellsListHTML()}</div>
+  <section class="card mt">
+    <h3>Spell notes</h3>
+    ${textArea('notes', note('spells'), 'content', 'notes-area', 'placeholder="Anything else about your magic…"')}
+  </section>`;
 }
 
 function inventoryItemHTML(item) {
@@ -639,6 +919,7 @@ function render() {
     </nav>
     <div class="panels">
       <section class="panel" data-panel="stats">${statsHTML()}</section>
+      <section class="panel" data-panel="attacks">${attacksHTML()}</section>
       <section class="panel" data-panel="spells">${spellsHTML()}</section>
       <section class="panel" data-panel="inventory">${inventoryHTML()}</section>
       <section class="panel" data-panel="features">${featuresHTML()}</section>
@@ -689,6 +970,8 @@ function rerenderList(table) {
   if (table === 'inventory_items') rerender('#inventory-list', inventoryListHTML());
   if (table === 'features') rerender('#features-list', featuresListHTML());
   if (table === 'feature_trackers') { rerender('#trackers-list', trackersListHTML()); renderStrip(); }
+  if (table === 'attacks') rerender('#attacks-list', attacksListHTML());
+  if (table === 'spells' || table === 'spell_slots') rerender('#spells-list', spellsListHTML());
   if (table === 'spell_slots') refreshPips();
   afterChange(table);
 }
@@ -792,6 +1075,46 @@ async function addFeature(category) {
   input?.select();
 }
 
+function openEditor(table, id) {
+  const key = `${table}:${id}`;
+  editing.add(key);
+  const card = $(`[data-entry="${key}"]`, root);
+  card?.classList.add('editing');
+  card?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const input = $(`[data-t="${table}"][data-id="${id}"][data-f="name"]`, root);
+  input?.focus({ preventScroll: true });
+  input?.select();
+}
+
+async function addAttack() {
+  const v = $('#weapon-preset', root).value;
+  let fields;
+  if (v === 'custom') {
+    fields = { name: 'New attack' };
+  } else if (v === 'unarmed') {
+    fields = { name: 'Unarmed strike', ability: 'str', proficient: true, damage_dice: '1', damage_type: 'bludgeoning', range: '5 ft' };
+  } else {
+    fields = weaponToAttack(WEAPONS[Number(v)], C().equipment_proficiencies || {});
+  }
+  const row = await insertRow('attacks', { character_id: C().id, sort_order: B.attacks.length, ...fields });
+  if (!B.attacks.some((a) => a.id === row.id)) B.attacks.push(row);
+  rerenderList('attacks');
+  if (v === 'custom') openEditor('attacks', row.id);
+  else {
+    $(`[data-entry="attacks:${row.id}"]`, root)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    toast(`${row.name} added.`, 'good');
+  }
+}
+
+async function addSpell(level) {
+  const row = await insertRow('spells', {
+    character_id: C().id, level, name: level === 0 ? 'New cantrip' : 'New spell', sort_order: B.spells.length,
+  });
+  if (!B.spells.some((s) => s.id === row.id)) B.spells.push(row);
+  rerenderList('spells');
+  openEditor('spells', row.id);
+}
+
 async function removeRow(table, id, label) {
   const row = findRow(table, id);
   if (!row) return;
@@ -830,6 +1153,7 @@ const actions = {
     const s = findRow('spell_slots', el.dataset.id);
     const total = clamp(s.total + Number(el.dataset.d), 0, 9);
     setRow('spell_slots', s, { total, used: Math.min(s.used, total) });
+    rerender('#spells-list', spellsListHTML());
   },
   'reset-slots': () => { for (const s of B.slots) if (s.used) setRow('spell_slots', s, { used: 0 }); },
   'toggle-save': (el) => {
@@ -854,6 +1178,33 @@ const actions = {
   'delete-feature': (el) => removeRow('features', el.dataset.id, 'feature'),
   'add-tracker': addTracker,
   'delete-tracker': (el) => removeRow('feature_trackers', el.dataset.id, 'resource'),
+  'add-attack': addAttack,
+  'add-spell': (el) => addSpell(Number(el.dataset.level)),
+  'toggle-edit': (el) => {
+    const key = el.dataset.key;
+    const card = $(`[data-entry="${key}"]`, root);
+    if (editing.has(key)) {
+      editing.delete(key);
+      card?.classList.remove('editing');
+    } else {
+      const [table, id] = key.split(':');
+      openEditor(table, id);
+    }
+  },
+  'delete-entry': (el) => {
+    const [table, id] = el.dataset.key.split(':');
+    editing.delete(el.dataset.key);
+    return removeRow(table, id, table === 'spells' ? 'spell' : 'attack');
+  },
+  'toggle-prepared': (el) => {
+    const s = findRow('spells', el.dataset.id);
+    setRow('spells', s, { prepared: !s.prepared });
+  },
+  'toggle-equip': (el) => {
+    const k = el.dataset.k;
+    const cur = C().equipment_proficiencies || {};
+    setRow('characters', C(), { equipment_proficiencies: { ...cur, [k]: !cur[k] } });
+  },
   'level-up': async () => {
     await saver.flush();
     openLevelUp(B, { onApplied: () => ctx.reload() });
@@ -891,6 +1242,7 @@ function onChange(e) {
   if (el.type === 'checkbox' || el.tagName === 'SELECT') {
     commitField(el);
     if (el.dataset.t === 'features' && el.dataset.f === 'category') rerenderList('features');
+    if (el.dataset.t === 'spells' && el.dataset.f === 'level') rerenderList('spells');
     return;
   }
   // Normalise numeric fields on blur (e.g. emptied or clamped values).
@@ -959,9 +1311,12 @@ function onRemote(table, event, nw, old) {
     const row = list.find((r) => r.id === nw.id);
     if (!row) return;
     const prevCategory = row.category;
+    const prevLevel = row.level;
     if (!applyRemote(table, row, nw)) return;
     syncInputs(table, row.id);
     if (table === 'features' && prevCategory !== row.category) rerenderList('features');
+    else if (table === 'spells' && prevLevel !== row.level) rerenderList('spells');
+    else if (table === 'spell_slots') rerenderList('spell_slots');
     else if (table === 'feature_trackers') { renderStrip(); afterChange(table); }
     else afterChange(table);
   } else if (event === 'DELETE') {
@@ -983,6 +1338,10 @@ function onRemote(table, event, nw, old) {
 export function mountSheet(container, bundle, options = {}) {
   unmountSheet();
   B = bundle;
+  // Cached bundles from older versions may lack newer lists.
+  B.attacks ||= [];
+  B.spells ||= [];
+  B.character.equipment_proficiencies ||= {};
   ctx = options;
   root = document.createElement('div');
   root.className = 'sheet-root';

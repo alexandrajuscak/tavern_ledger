@@ -125,7 +125,56 @@ create table if not exists public.features (
   created_at   timestamptz not null default now()
 );
 
+-- Weapons & attacks. To-hit and damage are calculated in the app from the
+-- character's ability scores, proficiency and magic bonus.
+create table if not exists public.attacks (
+  id             uuid primary key default gen_random_uuid(),
+  character_id   uuid not null references public.characters (id) on delete cascade,
+  name           text not null default 'New attack',
+  attack_kind    text not null default 'melee' check (attack_kind in ('melee', 'ranged')),
+  ability        text not null default 'str' check (ability in ('str', 'dex', 'finesse', 'spell', 'none')),
+  proficient     boolean not null default true,
+  magic_bonus    int  not null default 0,
+  damage_dice    text not null default '1d6',
+  damage_type    text not null default 'slashing',
+  add_modifier   boolean not null default true,  -- add ability modifier to damage
+  range          text not null default '5 ft',
+  properties     text not null default '',
+  notes          text not null default '',
+  sort_order     int  not null default 0,
+  created_at     timestamptz not null default now()
+);
+
+-- Spells known / prepared. Level 0 = cantrip.
+create table if not exists public.spells (
+  id             uuid primary key default gen_random_uuid(),
+  character_id   uuid not null references public.characters (id) on delete cascade,
+  name           text not null default 'New spell',
+  level          int  not null default 0 check (level between 0 and 9),
+  school         text not null default '',
+  casting_time   text not null default '1 action',
+  range          text not null default '',
+  components     text not null default 'V, S',
+  duration       text not null default 'Instantaneous',
+  concentration  boolean not null default false,
+  ritual         boolean not null default false,
+  attack_type    text not null default 'none' check (attack_type in ('none', 'attack', 'save')),
+  save_ability   text not null default '' check (save_ability in ('', 'str', 'dex', 'con', 'int', 'wis', 'cha')),
+  damage         text not null default '',
+  damage_type    text not null default '',
+  description    text not null default '',
+  prepared       boolean not null default false,
+  sort_order     int  not null default 0,
+  created_at     timestamptz not null default now()
+);
+
+-- Added in v2: armor & weapon proficiency checkboxes
+-- {"light": true, "medium": true, "heavy": false, "shields": true, "simple": true, "martial": true}
+alter table public.characters add column if not exists equipment_proficiencies jsonb not null default '{}'::jsonb;
+
 create index if not exists characters_owner_idx        on public.characters (owner_id);
+create index if not exists attacks_char_idx            on public.attacks (character_id);
+create index if not exists spells_char_idx             on public.spells (character_id);
 create index if not exists inventory_items_char_idx    on public.inventory_items (character_id);
 create index if not exists notes_char_idx              on public.notes (character_id);
 create index if not exists spell_slots_char_idx        on public.spell_slots (character_id);
@@ -262,6 +311,8 @@ alter table public.notes            enable row level security;
 alter table public.spell_slots      enable row level security;
 alter table public.feature_trackers enable row level security;
 alter table public.features         enable row level security;
+alter table public.attacks          enable row level security;
+alter table public.spells           enable row level security;
 
 -- profiles
 drop policy if exists "profiles_select" on public.profiles;
@@ -301,7 +352,7 @@ create policy "characters_delete" on public.characters
 do $$
 declare t text;
 begin
-  foreach t in array array['inventory_items', 'notes', 'spell_slots', 'feature_trackers', 'features'] loop
+  foreach t in array array['inventory_items', 'notes', 'spell_slots', 'feature_trackers', 'features', 'attacks', 'spells'] loop
     execute format('drop policy if exists "%1$s_all" on public.%1$I', t);
     execute format(
       'create policy "%1$s_all" on public.%1$I for all to authenticated
@@ -313,7 +364,7 @@ end $$;
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on
   public.profiles, public.characters, public.inventory_items, public.notes,
-  public.spell_slots, public.feature_trackers, public.features
+  public.spell_slots, public.feature_trackers, public.features, public.attacks, public.spells
 to authenticated;
 
 -- -----------------------------------------------------------------------------
@@ -323,7 +374,7 @@ to authenticated;
 do $$
 declare t text;
 begin
-  foreach t in array array['characters', 'inventory_items', 'notes', 'spell_slots', 'feature_trackers', 'features'] loop
+  foreach t in array array['characters', 'inventory_items', 'notes', 'spell_slots', 'feature_trackers', 'features', 'attacks', 'spells'] loop
     execute format('alter table public.%I replica identity full', t);
     if not exists (
       select 1 from pg_publication_tables

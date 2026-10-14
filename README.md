@@ -8,6 +8,8 @@ It's plain HTML, CSS and JavaScript, uses Supabase for login and storage, and is
 - A sticky combat bar keeps HP, AC, initiative, speed and resources on screen
 - Abilities, saves, skills (with expertise), hit dice and death saves
 - Custom resource trackers: Ki, Rage, Sorcery Points, Bardic Inspiration, Wild Shape and any others you add
+- **Attacks tab**: weapon cards with big “To hit” and “Damage” numbers, damage type, range and properties, auto-calculated from your stats; one-click SRD weapon list
+- **Spells**: grouped as Cantrips / Level 1–9, each card shows casting time, range, duration, components, concentration/ritual, spell attack or save DC, and damage or healing
 - Spell slots for levels 1–9 as tick boxes
 - Inventory with quantity, weight and description, plus coins
 - Features tab: racial, class, feats, custom and magic item abilities
@@ -50,6 +52,8 @@ It's plain HTML, CSS and JavaScript, uses Supabase for login and storage, and is
 | `spell_slots`      | One row per spell level 1–9 (`total`, `used`)                              |
 | `feature_trackers` | Resource pools (`current`, `max`, `reset_on`)                              |
 | `features`         | Free-text features grouped by category                                     |
+| `attacks`          | Weapons & attacks: ability, proficiency, magic bonus, damage dice and type |
+| `spells`           | Spells by level with casting details, attack/save and damage              |
 
 New characters get their `notes` and `spell_slots` rows from a database trigger. Row Level Security limits each player to their own characters, and lets the DM see and edit all of them.
 
@@ -159,3 +163,9 @@ There's no build step: every push to `main` redeploys.
 | Google login returns to the wrong page | The GitHub Pages URL is missing from Supabase **Redirect URLs**. |
 | Changes don't show live on another device | Check **Database → Publications → supabase_realtime** includes the tables. The schema adds them. |
 | Player sees no characters after the DM created one | In the sheet's **Bio** tab, the DM picks the player under *Player (owner)*. |
+
+---
+
+## Updating an existing installation
+
+When a new version changes the database, re-run `supabase/schema.sql` in the SQL Editor **before** pushing the new code. The script is idempotent: it adds new tables and columns and leaves your data alone.

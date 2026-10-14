@@ -636,3 +636,96 @@ input.big-num:focus { border-color: var(--gold) !important; }
   .lbl-long { display: none; }
   .lbl-short { display: inline; }
 }
+
+/* ---- Attack & spell cards ------------------------------------------------ */
+
+.entry-list { display: flex; flex-direction: column; gap: 10px; }
+.entry {
+  background: linear-gradient(180deg, var(--panel) 0%, #18181d 100%);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px 14px; box-shadow: var(--shadow);
+}
+.entry.editing { border-color: var(--gold); }
+.entry-edit { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-strong); }
+.entry.editing .entry-edit { display: block; }
+.entry-edit-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; }
+
+.entry-head { display: flex; align-items: flex-start; gap: 8px; }
+.entry-title { flex: 1; min-width: 0; }
+.entry-head > .entry-name { flex: 1; }
+.entry-name { font-family: var(--font-display); font-size: 1.12rem; font-weight: 700; color: var(--text); margin: 0; line-height: 1.25; word-break: break-word; }
+.entry-sub { font-size: 0.8rem; color: var(--muted); margin-top: 2px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.edit-btn { margin: -6px -6px 0 0; }
+.entry-meta { font-size: 0.84rem; color: var(--muted); margin-top: 8px; }
+.entry-notes { font-size: 0.88rem; color: #cfcbd4; margin: 6px 0 0; white-space: pre-wrap; }
+
+.tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.tag-c { background: rgba(108, 156, 240, 0.16); color: #a9c4f7; border: 1px solid rgba(108, 156, 240, 0.45); }
+.tag-r { background: var(--good-soft); color: #9fdcbb; border: 1px solid rgba(79, 174, 123, 0.45); }
+
+.prep-btn {
+  flex: none; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--border-strong); background: transparent; color: var(--muted); white-space: nowrap;
+}
+.prep-btn.on { border-color: var(--gold); background: var(--gold-soft); color: var(--gold); }
+
+/* The two numbers players actually roll */
+.roll-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.roll {
+  display: flex; flex-direction: column; justify-content: center; min-width: 96px;
+  padding: 6px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--panel-2);
+}
+.roll-label { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 700; }
+.roll-val { font-family: var(--font-display); font-weight: 700; font-size: 1.45rem; line-height: 1.15; }
+.roll-type { font-size: 0.78rem; font-weight: 600; text-transform: capitalize; }
+.roll-hit { border-color: rgba(212, 166, 74, 0.6); background: var(--gold-soft); }
+.roll-hit .roll-val { color: var(--gold); }
+.roll-save { border-color: rgba(108, 156, 240, 0.6); background: rgba(108, 156, 240, 0.12); }
+.roll-save .roll-val { color: #a9c4f7; }
+.roll-heal { border-color: var(--good); background: var(--good-soft); }
+.roll-heal .roll-val { color: #9fdcbb; }
+.roll-dmg { flex: 1; min-width: 140px; border-left-width: 4px; }
+
+/* Damage type colours (used for the left edge and the type label) */
+.dt-acid { --dt: #9ccc3d; } .dt-bludgeoning { --dt: #b0a89c; } .dt-cold { --dt: #7fd3f0; }
+.dt-fire { --dt: #f07a3a; } .dt-force { --dt: #c48af0; } .dt-lightning { --dt: #f5d442; }
+.dt-necrotic { --dt: #8fbf8a; } .dt-piercing { --dt: #c9c2b8; } .dt-poison { --dt: #6fc96f; }
+.dt-psychic { --dt: #f08ac8; } .dt-radiant { --dt: #ffe9a3; } .dt-slashing { --dt: #d6cfc4; }
+.dt-thunder { --dt: #8aa2f0; }
+.roll-dmg[class*='dt-'] { border-left-color: var(--dt, var(--border-strong)); }
+.roll-dmg .roll-type { color: var(--dt, var(--muted)); }
+
+.facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 14px; margin: 10px 0 0; }
+@media (min-width: 640px) { .facts { grid-template-columns: repeat(4, 1fr); } }
+.facts div { min-width: 0; }
+.facts dt { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
+.facts dd { margin: 0; font-size: 0.9rem; word-break: break-word; }
+
+.entry-desc { margin-top: 10px; }
+.entry-desc summary { cursor: pointer; color: var(--gold); font-size: 0.85rem; font-weight: 600; }
+.entry-desc p { margin: 6px 0 0; white-space: pre-wrap; font-size: 0.9rem; color: #cfcbd4; }
+
+.check-row { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.check-field { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem; }
+.check-field input { width: 20px; height: 20px; accent-color: var(--gold); cursor: pointer; }
+
+.spell-group { margin-bottom: 18px; }
+.spell-group .section-head { flex-wrap: wrap; }
+.group-slots .slot-boxes { flex-wrap: nowrap; }
+.spellcasting-card { margin-bottom: 16px; }
+.slot-manager { margin-top: 12px; }
+.slot-manager summary { cursor: pointer; color: var(--gold); font-weight: 600; font-size: 0.9rem; padding: 4px 0; }
+.slot-manager[open] summary { margin-bottom: 8px; }
+
+/* Armor / weapon proficiency toggles */
+.chip-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.chip-toggle {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--panel-2);
+  color: var(--muted); font-size: 0.85rem; font-weight: 600;
+}
+.chip-toggle::before {
+  content: ''; flex: none; width: 16px; height: 16px; border-radius: 4px; border: 2px solid var(--border-strong);
+}
+.chip-toggle.on { color: var(--text); border-color: rgba(212, 166, 74, 0.6); background: var(--gold-soft); }
+.chip-toggle.on::before { background: var(--gold); border-color: var(--gold); }

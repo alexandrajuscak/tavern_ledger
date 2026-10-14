@@ -77,13 +77,15 @@ export async function deleteCharacter(id) {
 }
 
 export async function loadBundle(id) {
-  const [character, inventory, notes, slots, trackers, features] = await Promise.all([
+  const [character, inventory, notes, slots, trackers, features, attacks, spells] = await Promise.all([
     supabase.from('characters').select('*').eq('id', id).single().then(check),
     supabase.from('inventory_items').select('*').eq('character_id', id).order('sort_order').order('created_at').then(check),
     supabase.from('notes').select('*').eq('character_id', id).then(check),
     supabase.from('spell_slots').select('*').eq('character_id', id).order('level').then(check),
     supabase.from('feature_trackers').select('*').eq('character_id', id).order('sort_order').order('created_at').then(check),
     supabase.from('features').select('*').eq('character_id', id).order('sort_order').order('created_at').then(check),
+    supabase.from('attacks').select('*').eq('character_id', id).order('sort_order').order('created_at').then(check),
+    supabase.from('spells').select('*').eq('character_id', id).order('level').order('sort_order').order('created_at').then(check),
   ]);
 
   // Self-heal characters that are missing seeded rows.
@@ -109,7 +111,7 @@ export async function loadBundle(id) {
     slots.sort((a, b) => a.level - b.level);
   }
 
-  return { character, inventory, notes, slots, trackers, features };
+  return { character, inventory, notes, slots, trackers, features, attacks, spells };
 }
 
 export async function insertRow(table, row) {
@@ -240,7 +242,7 @@ window.addEventListener('beforeunload', (e) => {
 
 // ---- Realtime ---------------------------------------------------------------
 
-const CHILD_TABLES = ['inventory_items', 'notes', 'spell_slots', 'feature_trackers', 'features'];
+const CHILD_TABLES = ['inventory_items', 'notes', 'spell_slots', 'feature_trackers', 'features', 'attacks', 'spells'];
 
 /**
  * Subscribe to every change affecting one character.
