@@ -117,7 +117,7 @@ function renderSetupNeeded() {
   <div class="center-wrap">
     <div class="card narrow">
       <h1 class="title">Almost there</h1>
-      <p>Open <code>js/config.js</code> and paste your Supabase project URL and anon key.</p>
+      <p>Open <code>js/config.js</code> and paste your Supabase project URL and publishable key.</p>
       <p class="muted small">See README.md for the full setup guide.</p>
     </div>
   </div>`;

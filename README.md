@@ -27,7 +27,7 @@ It's plain HTML, CSS and JavaScript, uses Supabase for login and storage, and is
 ├── css/
 │   └── styles.css        Theme and responsive layout
 ├── js/
-│   ├── config.js         ← your Supabase URL + anon key go here
+│   ├── config.js         ← your Supabase URL + publishable key go here
 │   ├── supabase.js       Supabase client (loaded from CDN, no npm)
 │   ├── app.js            Boot, auth, routing, character list, DM players page
 │   ├── store.js          Data access, auto-save queue, realtime subscriptions
@@ -82,14 +82,14 @@ For a private group you can turn off *Confirm email* so new accounts work straig
 
 ### 3. Add your keys
 
-Open `js/config.js` and paste the values from **Project Settings → API**:
+Open `js/config.js` and paste the Project URL and the **publishable** key from **Project Settings → API Keys**:
 
 ```js
 export const SUPABASE_URL = 'https://abcdefghijkl.supabase.co';
-export const SUPABASE_ANON_KEY = 'eyJhbGciOi...';
+export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_...';
 ```
 
-The anon key is meant to be public. Row Level Security is what protects the data.
+The publishable key is meant to be public and safe to commit. Row Level Security is what protects the data. Never put the secret key (`sb_secret_...`) in this file.
 
 ### 4. Become the DM
 
