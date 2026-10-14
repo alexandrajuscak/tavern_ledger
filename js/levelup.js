@@ -1,12 +1,12 @@
 // Level Up Wizard: a guided editor, not a rules engine. It proposes sensible
 // defaults (average HP, next level) and lets the player/DM change anything.
 
-import { supabase } from './supabase.js?v=3';
+import { supabase } from './supabase.js?v=4';
 import {
-  ABILITY_BY_KEY, FEATURE_CATEGORIES, HIT_DICE, RESOURCE_PRESETS, RESET_LABELS,
+  ABILITY_BY_KEY, FEATURE_CATEGORIES, ACTIVATIONS, HIT_DICE, RESOURCE_PRESETS, RESET_LABELS,
   mod, fmt, hitDieAverage, dieSize, profBonus,
-} from './dnd.js?v=3';
-import { $, $$, esc, toast, openModal } from './utils.js?v=3';
+} from './dnd.js?v=4';
+import { $, $$, esc, toast, openModal } from './utils.js?v=4';
 
 const STEPS = ['Level & HP', 'Subclass & Features', 'Resources', 'Spell Slots', 'Review'];
 
@@ -78,7 +78,8 @@ export function openLevelUp(bundle, { onApplied }) {
       <div class="wiz-feature card" data-i="${i}">
         <div class="feature-head">
           <input type="text" data-ff="name" value="${esc(f.name)}" placeholder="Feature name">
-          <select data-ff="category">${FEATURE_CATEGORIES.map((c) => `<option value="${c.key}" ${f.category === c.key ? 'selected' : ''}>${c.label}</option>`).join('')}</select>
+          <select data-ff="activation" aria-label="Type">${ACTIVATIONS.map((a) => `<option value="${a.key}" ${f.activation === a.key ? 'selected' : ''}>${a.label}</option>`).join('')}</select>
+          <select data-ff="category" aria-label="Source">${FEATURE_CATEGORIES.map((c) => `<option value="${c.key}" ${f.category === c.key ? 'selected' : ''}>${c.label}</option>`).join('')}</select>
           <button type="button" class="icon-btn danger" data-remove-feature="${i}" aria-label="Remove">✕</button>
         </div>
         <textarea data-ff="description" rows="2" placeholder="Description">${esc(f.description)}</textarea>
@@ -217,7 +218,7 @@ export function openLevelUp(bundle, { onApplied }) {
     const t = e.target;
     if (t.id === 'lu-add-feature') {
       collect();
-      st.features.push({ category: 'class', name: '', description: '' });
+      st.features.push({ category: 'class', activation: 'passive', name: '', description: '' });
       paint();
       $$('.wiz-feature input[data-ff="name"]', m.body).pop()?.focus();
     } else if (t.dataset.removeFeature != null) {
@@ -283,7 +284,7 @@ export function openLevelUp(bundle, { onApplied }) {
     const features = st.features
       .filter((f) => f.name.trim())
       .map((f, i) => ({
-        character_id: c.id, category: f.category, name: f.name.trim(), description: f.description,
+        character_id: c.id, category: f.category, activation: f.activation || 'passive', name: f.name.trim(), description: f.description,
         sort_order: bundle.features.length + i,
       }));
     if (features.length) ops.push(supabase.from('features').insert(features));

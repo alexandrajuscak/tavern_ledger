@@ -1,10 +1,11 @@
-import { supabase, isConfigured, redirectUrl } from './supabase.js?v=3';
+import { supabase, isConfigured, redirectUrl } from './supabase.js?v=4';
 import {
   state, isDM, loadProfile, listProfiles, updateProfile, listCharacters, createCharacter, loadBundle, saver,
-} from './store.js?v=3';
-import { CLASSES } from './dnd.js?v=3';
-import { $, $$, esc, toast, openModal, cacheGet, cacheSet, cacheClear } from './utils.js?v=3';
-import { mountSheet, unmountSheet } from './sheet.js?v=3';
+} from './store.js?v=4';
+import { CLASSES } from './dnd.js?v=4';
+import { $, $$, esc, toast, openModal, cacheGet, cacheSet, cacheClear } from './utils.js?v=4';
+import { mountSheet, unmountSheet } from './sheet.js?v=4';
+import { importCharacter, parseCharacterJson } from './transfer.js?v=4';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders
@@ -219,11 +220,76 @@ function hpPct(c) {
   return Math.max(0, Math.min(100, (c.hp_current / Math.max(1, c.hp_max)) * 100));
 }
 
+const initials = (name) =>
+  String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+
+function importDialog() {
+  const dm = isDM();
+  const ownerField = dm && state.profiles.length ? `
+    <label class="field"><span>Player</span>
+      <select name="owner_id">
+        ${state.profiles.map((p) => `<option value="${p.id}" ${p.id === state.profile.id ? 'selected' : ''}>${esc(p.display_name || p.email)}</option>`).join('')}
+      </select>
+    </label>` : '';
+  const m = openModal({
+    title: 'Import character',
+    body: `
+      <form id="import-form" class="stack">
+        <p class="muted small">Choose a character <code>.json</code> file, e.g. one downloaded from a sheet's Bio tab.</p>
+        <label class="field"><span>File</span><input type="file" name="file" accept=".json,application/json" required></label>
+        ${ownerField}
+        <div id="import-preview" class="muted small"></div>
+      </form>`,
+    footer: `
+      <button type="button" class="btn" data-close>Cancel</button>
+      <button type="submit" form="import-form" class="btn btn-gold" disabled>Import</button>`,
+  });
+  const form = $('#import-form', m.el);
+  const submit = $('button[type="submit"]', m.el);
+  let parsed = null;
+
+  form.elements.file.addEventListener('change', async () => {
+    parsed = null;
+    submit.disabled = true;
+    const file = form.elements.file.files[0];
+    const preview = $('#import-preview', m.el);
+    if (!file) { preview.textContent = ''; return; }
+    try {
+      const json = JSON.parse(await file.text());
+      const p = parseCharacterJson(json);
+      parsed = json;
+      submit.disabled = false;
+      const c = p.character;
+      preview.innerHTML = `Ready: <strong>${esc(c.name)}</strong>, level ${c.level} ${esc([c.race, c.class_name].filter(Boolean).join(' '))}
+        · ${p.attacks.length} attacks · ${p.features.length} features · ${p.spells.length} spells · ${p.inventory.length} items`;
+    } catch (err) {
+      preview.innerHTML = `<span class="error-text">${esc(err instanceof SyntaxError ? 'That file is not valid JSON.' : err.message)}</span>`;
+    }
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!parsed) return;
+    submit.disabled = true;
+    try {
+      const id = await importCharacter(parsed, form.elements.owner_id?.value);
+      m.close();
+      toast('Character imported.', 'good');
+      window.location.hash = `#/c/${id}`;
+    } catch (err) {
+      console.error(err);
+      toast(err.message || 'Import failed', 'bad', 6000);
+      submit.disabled = false;
+    }
+  });
+}
+
 function characterCard(c) {
   const cls = [c.class_name, c.subclass && `(${c.subclass})`].filter(Boolean).join(' ');
   return `
   <a class="char-card card" href="#/c/${c.id}">
     <div class="cc-top">
+      <div class="avatar avatar-sm">${c.portrait_url ? `<img src="${esc(c.portrait_url)}" alt="" loading="lazy">` : `<span>${esc(initials(c.name))}</span>`}</div>
       <div class="cc-id">
         <div class="cc-name">${esc(c.name)}</div>
         <div class="cc-sub">${esc([c.race, cls].filter(Boolean).join(' · ') || 'Adventurer')}</div>
@@ -234,6 +300,7 @@ function characterCard(c) {
       <span title="Hit points">❤ ${c.hp_current}/${c.hp_max}${c.hp_temp ? ` <small>+${c.hp_temp}</small>` : ''}</span>
       <span title="Armor class">🛡 ${c.ac}</span>
     </div>
+    ${Array.isArray(c.conditions) && c.conditions.length ? `<div class="cc-conditions">${c.conditions.map((x) => `<span class="condition-chip small">${esc(x)}</span>`).join('')}</div>` : ''}
     <div class="hp-bar small"><div class="hp-fill" style="width:${hpPct(c)}%"></div></div>
   </a>`;
 }
@@ -246,12 +313,14 @@ async function renderList(token) {
       <h1 class="title">${dm ? 'The Party' : 'Your Characters'}</h1>
       <div class="row gap">
         ${dm ? '<a class="btn" href="#/players">Players</a>' : ''}
+        <button type="button" class="btn" id="btn-import">⬆ Import JSON</button>
         <button type="button" class="btn btn-gold" id="btn-new">+ New Character</button>
       </div>
     </div>
     <div id="char-list"><div class="spinner"></div></div>
   </div>`;
   $('#btn-new').addEventListener('click', newCharacterDialog);
+  $('#btn-import').addEventListener('click', importDialog);
 
   const paint = (chars) => {
     if (token !== routeToken) return;

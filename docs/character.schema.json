@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alexandrajuscak.github.io/tavern_ledger/docs/character.schema.json",
+  "title": "Tavern Ledger character",
+  "description": "Source-of-truth character data. Skill and save bonuses, passive scores, initiative and attack bonuses are NOT stored: the app calculates them from ability scores, the proficiency bonus (from level) and the proficiency/expertise flags.",
+  "type": "object",
+  "required": ["schemaVersion", "name", "level", "abilities"],
+  "additionalProperties": false,
+  "$defs": {
+    "abilityKey": { "enum": ["str", "dex", "con", "int", "wis", "cha"] },
+    "score": { "type": "integer", "minimum": 1, "maximum": 30 },
+    "skill": {
+      "type": "object",
+      "required": ["proficient", "expertise"],
+      "additionalProperties": false,
+      "properties": {
+        "proficient": { "type": "boolean" },
+        "expertise": { "type": "boolean", "description": "Double proficiency (Rogue, Bard…). Implies proficient." }
+      }
+    },
+    "save": {
+      "type": "object",
+      "required": ["proficient"],
+      "additionalProperties": false,
+      "properties": { "proficient": { "type": "boolean" } }
+    },
+    "damageType": {
+      "enum": ["", "acid", "bludgeoning", "cold", "fire", "force", "lightning", "necrotic", "piercing", "poison", "psychic", "radiant", "slashing", "thunder", "healing"]
+    }
+  },
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "race": { "type": "string" },
+    "class": { "type": "string" },
+    "subclass": { "type": "string" },
+    "background": { "type": "string" },
+    "alignment": { "type": "string" },
+    "level": { "type": "integer", "minimum": 1, "maximum": 20 },
+    "experience": { "type": "integer", "minimum": 0 },
+    "portrait": { "type": "string", "description": "Image URL (uploaded portrait or any link). Empty for none." },
+
+    "abilities": {
+      "type": "object",
+      "required": ["str", "dex", "con", "int", "wis", "cha"],
+      "additionalProperties": false,
+      "properties": {
+        "str": { "$ref": "#/$defs/score" }, "dex": { "$ref": "#/$defs/score" }, "con": { "$ref": "#/$defs/score" },
+        "int": { "$ref": "#/$defs/score" }, "wis": { "$ref": "#/$defs/score" }, "cha": { "$ref": "#/$defs/score" }
+      }
+    },
+    "savingThrows": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "str": { "$ref": "#/$defs/save" }, "dex": { "$ref": "#/$defs/save" }, "con": { "$ref": "#/$defs/save" },
+        "int": { "$ref": "#/$defs/save" }, "wis": { "$ref": "#/$defs/save" }, "cha": { "$ref": "#/$defs/save" }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "description": "All 18 skills. Missing skills count as not proficient.",
+      "additionalProperties": false,
+      "properties": {
+        "acrobatics": { "$ref": "#/$defs/skill" }, "animal_handling": { "$ref": "#/$defs/skill" },
+        "arcana": { "$ref": "#/$defs/skill" }, "athletics": { "$ref": "#/$defs/skill" },
+        "deception": { "$ref": "#/$defs/skill" }, "history": { "$ref": "#/$defs/skill" },
+        "insight": { "$ref": "#/$defs/skill" }, "intimidation": { "$ref": "#/$defs/skill" },
+        "investigation": { "$ref": "#/$defs/skill" }, "medicine": { "$ref": "#/$defs/skill" },
+        "nature": { "$ref": "#/$defs/skill" }, "perception": { "$ref": "#/$defs/skill" },
+        "performance": { "$ref": "#/$defs/skill" }, "persuasion": { "$ref": "#/$defs/skill" },
+        "religion": { "$ref": "#/$defs/skill" }, "sleight_of_hand": { "$ref": "#/$defs/skill" },
+        "stealth": { "$ref": "#/$defs/skill" }, "survival": { "$ref": "#/$defs/skill" }
+      }
+    },
+
+    "combat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "current": { "type": "integer", "minimum": 0 },
+            "max": { "type": "integer", "minimum": 1 },
+            "temp": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "ac": { "type": "integer", "description": "Stored because it depends on armor and class features the app does not model." },
+        "speed": { "type": "integer", "description": "Walking speed in feet." },
+        "initiativeBonus": { "type": "integer", "description": "Misc. bonus only; initiative = DEX modifier + this." },
+        "hitDice": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "die": { "enum": ["d6", "d8", "d10", "d12"] },
+            "current": { "type": "integer", "minimum": 0, "description": "Remaining; the maximum equals the level." }
+          }
+        },
+        "deathSaves": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "successes": { "type": "integer", "minimum": 0, "maximum": 3 },
+            "failures": { "type": "integer", "minimum": 0, "maximum": 3 }
+          }
+        },
+        "inspiration": { "type": "boolean" }
+      }
+    },
+    "conditions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Active conditions, e.g. \"Prone\", \"Poisoned\", \"Concentrating\" or any custom text."
+    },
+
+    "proficiencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "armor": { "type": "array", "items": { "type": "string" }, "description": "\"Light armor\", \"Medium armor\", \"Heavy armor\", \"Shields\" become checkboxes." },
+        "weapons": { "type": "array", "items": { "type": "string" }, "description": "\"Simple weapons\" and \"Martial weapons\" become checkboxes; others are listed as text." },
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "languages": { "type": "array", "items": { "type": "string" } },
+        "other": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "spellcasting": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ability": { "oneOf": [{ "$ref": "#/$defs/abilityKey" }, { "type": "null" }] },
+        "slots": {
+          "type": "object",
+          "description": "Keyed by spell level \"1\"–\"9\".",
+          "patternProperties": {
+            "^[1-9]$": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "total": { "type": "integer", "minimum": 0, "maximum": 9 },
+                "used": { "type": "integer", "minimum": 0 }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+
+    "resources": {
+      "type": "array",
+      "description": "Generic trackers: Ki, Rage, Sorcery Points, or anything custom.",
+      "items": {
+        "type": "object",
+        "required": ["name", "current", "max"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "current": { "type": "integer", "minimum": 0 },
+          "max": { "type": "integer", "minimum": 0 },
+          "reset": { "enum": ["short", "long", "none"], "default": "long" }
+        }
+      }
+    },
+
+    "attacks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "damageDice", "damageType"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "enum": ["melee", "ranged"] },
+          "ability": { "enum": ["str", "dex", "finesse", "spell", "none"], "description": "finesse = the better of STR and DEX." },
+          "proficient": { "type": "boolean", "default": true },
+          "magicBonus": { "type": "integer", "default": 0, "description": "Added to both to-hit and damage." },
+          "damageDice": { "type": "string", "examples": ["1d8", "2d6", "1"] },
+          "damageType": { "$ref": "#/$defs/damageType" },
+          "addModifier": { "type": "boolean", "default": true, "description": "Add the ability modifier to damage." },
+          "range": { "type": "string", "examples": ["5 ft", "20/60 ft", "5 ft or 30/120 ft"] },
+          "properties": { "type": "string" },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "enum": ["Passive", "Action", "Bonus Action", "Reaction"], "description": "Decides where it appears on the Combat tab." },
+          "source": { "enum": ["racial", "class", "background", "feat", "custom", "magic_item"], "default": "custom" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+
+    "spells": {
+      "type": "array",
+      "description": "Lightweight entries; no spell database. castingTime decides the Combat tab group (Action / Bonus Action / Reaction).",
+      "items": {
+        "type": "object",
+        "required": ["name", "level"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "level": { "type": "integer", "minimum": 0, "maximum": 9, "description": "0 = cantrip." },
+          "school": { "type": "string" },
+          "castingTime": { "type": "string", "examples": ["1 action", "1 bonus action", "1 reaction", "1 minute"] },
+          "range": { "type": "string" },
+          "duration": { "type": "string" },
+          "components": { "type": "string" },
+          "concentration": { "type": "boolean" },
+          "ritual": { "type": "boolean" },
+          "attack": { "enum": ["none", "attack", "save"], "default": "none" },
+          "save": { "oneOf": [{ "$ref": "#/$defs/abilityKey" }, { "type": "null" }] },
+          "damage": { "type": "string", "examples": ["1d10", "3d6", "1d8 + 3"] },
+          "damageType": { "$ref": "#/$defs/damageType" },
+          "description": { "type": "string" },
+          "prepared": { "type": "boolean" }
+        }
+      }
+    },
+
+    "inventory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 0, "default": 1 },
+          "weight": { "type": "number", "minimum": 0, "description": "Pounds, per item." },
+          "equipped": { "type": "boolean" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "currency": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cp": { "type": "integer", "minimum": 0 }, "sp": { "type": "integer", "minimum": 0 },
+        "ep": { "type": "integer", "minimum": 0 }, "gp": { "type": "integer", "minimum": 0 },
+        "pp": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "notes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "character": { "type": "string" },
+        "session": { "type": "string" },
+        "campaign": { "type": "string" },
+        "spells": { "type": "string" },
+        "combat": { "type": "string" }
+      }
+    }
+  }
+}

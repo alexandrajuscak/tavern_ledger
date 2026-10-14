@@ -1,0 +1,74 @@
+# Data model
+
+Tavern Ledger stores **source-of-truth data only**. The app calculates everything else whenever it's displayed:
+
+| Shown on the sheet | Calculated from |
+|---|---|
+| Ability modifier | `floor((score − 10) / 2)` |
+| Proficiency bonus | level: `ceil(level / 4) + 1` |
+| Saving throw bonus | ability mod + proficiency bonus if `savingThrows.X.proficient` |
+| Skill bonus | ability mod + proficiency bonus × (0, 1, or 2 if `expertise`) |
+| Passive Perception / Insight / Investigation | 10 + the skill bonus |
+| Initiative | DEX mod + `combat.initiativeBonus` (misc. only) |
+| Weapon to-hit | ability mod (STR, DEX, best of both, or spellcasting) + proficiency if proficient + magic bonus |
+| Weapon damage | dice + ability mod (if `addModifier`) + magic bonus |
+| Spell save DC / spell attack | 8 + proficiency + casting mod / proficiency + casting mod |
+
+Not stored: skill bonuses, save bonuses, passive scores, attack bonuses and initiative values.
+AC and speed *are* stored. They depend on armor, shields and class features (e.g. Unarmored Defense) that the app deliberately doesn't automate.
+
+## Character JSON (import / export)
+
+- Schema: [`character.schema.json`](character.schema.json) (JSON Schema 2020-12).
+- Example: [`../examples/bohdan-tichkrok-level1.json`](../examples/bohdan-tichkrok-level1.json).
+- **Export:** sheet → **Bio** tab → *Download JSON*.
+- **Import:** character list → *Import JSON*. The importer also accepts the older hand-written format: `"class": {"name", "level"}`, plain feature strings, and `weapons` instead of `attacks`. Numbers stored as skill bonuses in that format are ignored, because they were derived values.
+
+Key shapes:
+
+```json
+"skills":       { "stealth": { "proficient": true, "expertise": false } },
+"savingThrows": { "dex": { "proficient": true } },
+"features":     [{ "name": "Shield Master", "type": "Bonus Action", "source": "feat", "description": "…" }],
+"spells":       [{ "name": "Shield", "level": 1, "castingTime": "1 reaction", "description": "+5 AC until the start of your next turn" }],
+"resources":    [{ "name": "Ki", "current": 2, "max": 2, "reset": "short" }],
+"conditions":   ["Prone", "Hexed"],
+"notes":        { "character": "…", "session": "…", "campaign": "…" }
+```
+
+## How the Combat tab groups things
+
+| Group | Contains |
+|---|---|
+| **Attacks** | Rows from `attacks` |
+| **Actions** | Features with `type: Action`, and spells whose casting time contains "action" |
+| **Bonus Actions** | Features with `type: Bonus Action`, and spells cast as "1 bonus action" |
+| **Reactions** | Features with `type: Reaction`, and spells cast as "1 reaction" |
+| **Passive Features** | Features with `type: Passive` (collapsed) |
+
+Spells with longer casting times (1 minute, 10 minutes, rituals…) appear only on the Spells tab.
+
+## Database (Supabase)
+
+| Table | Notes |
+|---|---|
+| `profiles` | role `player` / `dm` |
+| `characters` | identity, HP, AC, speed, ability scores, `save_proficiencies` `{"str": true}`, `skill_proficiencies` `{"stealth": {"proficient": true, "expertise": false}}`, `equipment_proficiencies`, `conditions` (jsonb array), `portrait_url` |
+| `features` | `category` (source: racial, class, background, feat, custom, magic_item) and `activation` (passive, action, bonus_action, reaction) |
+| `attacks` | weapons and attacks |
+| `spells` | lightweight spell entries |
+| `feature_trackers` | generic resources |
+| `spell_slots` | levels 1–9 |
+| `inventory_items` | items |
+| `notes` | one row per kind: `character`, `session`, `campaign`, `spells`, `attacks` (other combat notes) |
+| Storage bucket `portraits` | `portraits/<character_id>/<file>.jpg`, public read; only the owner or the DM can write |
+
+## Migrations
+
+`supabase/schema.sql` is idempotent and contains every migration. Re-run the whole file in the SQL Editor **before** deploying new code. The v3 section:
+
+1. Adds `characters.conditions` and `characters.portrait_url`.
+2. Adds `features.activation` (default `passive`) and allows the `background` source.
+3. Renames note kind `quest` → `session` (existing Quest Log text is kept as Session Notes).
+4. Converts `skill_proficiencies` from numbers (`0/1/2`) to `{proficient, expertise}` objects.
+5. Creates the `portraits` storage bucket and its access policies.

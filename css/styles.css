@@ -254,7 +254,8 @@ main { max-width: 1240px; margin: 0 auto; padding: 14px 12px 80px; }
 
 .sheet-root.is-stale { opacity: 0.6; pointer-events: none; filter: saturate(0.6); }
 
-.sheet-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.sheet-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.sheet-header .sheet-id { flex: 1; }
 .sheet-id { min-width: 0; }
 .char-name { font-family: var(--font-display); font-size: 1.7rem; line-height: 1.15; letter-spacing: 0.02em; word-break: break-word; }
 .char-sub { color: var(--gold); font-size: 0.92rem; margin-top: 2px; }
@@ -532,13 +533,15 @@ input.big-num:focus { border-color: var(--gold) !important; }
 
 .feature-group { margin-bottom: 18px; }
 .feature { padding: 10px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
-.feature-head { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
+.feature-head { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.wiz-feature .feature-head { grid-template-columns: 1fr auto auto auto; }
 .feature-head select { width: auto; max-width: 170px; font-size: 0.82rem; padding: 7px 26px 7px 9px; }
 .feature-name { font-weight: 600; }
 .feature-desc { font-size: 0.9rem; min-height: 54px; color: #cfcbd4; }
 @media (max-width: 480px) {
-  .feature-head { grid-template-columns: 1fr auto; }
-  .feature-head select { grid-column: 1; grid-row: 2; max-width: none; }
+  .wiz-feature .feature-head { grid-template-columns: 1fr 1fr auto; }
+  .wiz-feature .feature-head input { grid-column: 1 / -1; }
+  .wiz-feature .feature-head select { max-width: none; width: 100%; }
 }
 
 .add-tracker { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 8px; }
@@ -740,3 +743,64 @@ input.big-num:focus { border-color: var(--gold) !important; }
 .turn-guide strong { color: var(--text); }
 .turn-guide em { color: var(--gold); font-style: normal; font-weight: 600; }
 .combat-spell { border-left: 3px solid rgba(108, 156, 240, 0.6); }
+
+/* ---- v3: portraits, conditions, combat groups, feature types ---------------- */
+
+.avatar {
+  flex: none; width: 64px; height: 64px; border-radius: 50%; overflow: hidden; padding: 0;
+  display: grid; place-items: center; cursor: pointer;
+  border: 2px solid var(--gold); background: radial-gradient(circle at 30% 25%, #3a2f1f, var(--panel-2));
+  color: var(--gold); font-family: var(--font-display); font-weight: 700; font-size: 1.4rem;
+  box-shadow: 0 0 0 3px var(--bg), 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar-sm { width: 46px; height: 46px; font-size: 1rem; cursor: default; box-shadow: none; }
+.avatar-lg { width: 112px; height: 112px; font-size: 2.2rem; cursor: default; }
+@media (max-width: 520px) { .sheet-header > .avatar { width: 54px; height: 54px; font-size: 1.15rem; } }
+
+.portrait-editor { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.file-btn { cursor: pointer; }
+.error-text { color: #f08a93; }
+
+.cc-top { align-items: center; }
+.cc-id { flex: 1; }
+.cc-conditions { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* Conditions row (combat bar) */
+.conditions-row { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; align-items: center; }
+.condition-chip {
+  padding: 4px 10px; border-radius: 999px; cursor: pointer; font-size: 0.8rem; font-weight: 700;
+  border: 1px solid #c7616b; background: var(--crimson-soft); color: #f6c1c6;
+}
+.condition-chip.small { padding: 1px 8px; font-size: 0.7rem; cursor: default; }
+.condition-add {
+  padding: 4px 10px; border-radius: 999px; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+  border: 1px dashed var(--border-strong); background: transparent; color: var(--muted);
+}
+.condition-add:hover { color: var(--gold); border-color: var(--gold); }
+.combat-bar.compact .condition-add { display: none; }
+.condition-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
+.condition-option {
+  padding: 9px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
+  background: var(--panel-2); cursor: pointer; font-weight: 600; font-size: 0.88rem;
+}
+.condition-option:hover { border-color: var(--crimson); background: var(--crimson-soft); }
+
+/* Combat tab groups */
+.add-weapon { margin-top: 10px; }
+.add-weapon summary { cursor: pointer; color: var(--gold); font-weight: 600; }
+.combat-group { margin-top: 22px; }
+.combat-group > .section-title { margin: 0 0 2px; }
+.group-hint { font-size: 0.82rem; color: var(--muted); margin: 0 0 10px; }
+.group-action .entry { border-left: 3px solid rgba(212, 166, 74, 0.7); }
+.group-bonus_action .entry { border-left: 3px solid rgba(79, 174, 123, 0.75); }
+.group-reaction .entry { border-left: 3px solid rgba(108, 156, 240, 0.75); }
+.passive-group > summary { cursor: pointer; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.passive-group > summary .section-title { margin: 0; font-family: var(--font-display); color: var(--gold); letter-spacing: 0.06em; }
+.passive-group .entry { border-left: 3px solid var(--border-strong); }
+.combat-feature .entry-notes { color: #d9d4dc; }
+
+/* Features tab: type + source */
+.feature-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.feature-meta select { font-size: 0.85rem; }
+.feature.flash { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-soft), var(--shadow); transition: box-shadow 0.3s; }

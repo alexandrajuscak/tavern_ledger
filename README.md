@@ -5,15 +5,19 @@ It's plain HTML, CSS and JavaScript, uses Supabase for login and storage, and is
 
 - Google and email login, with one account per player
 - Every edit saves automatically to Supabase and syncs live to your other devices
-- A sticky combat bar keeps HP, AC, initiative, speed and resources on screen
+- A sticky combat bar keeps HP, AC, initiative, speed, conditions and resources on screen
+- **Source-of-truth data only**: skill, save, passive, initiative and attack bonuses are always calculated, never stored (see `docs/DATA_MODEL.md`)
 - Abilities, saves, skills (with expertise), hit dice and death saves
 - Custom resource trackers: Ki, Rage, Sorcery Points, Bardic Inspiration, Wild Shape and any others you add
-- **Combat tab**: a "how your turn works" guide for new players, weapon cards with big “To hit” and “Damage” numbers, damage type, range and properties, auto-calculated from your stats; one-click SRD weapon list, and a quick-reference of every combat spell
+- **Combat tab** (the default screen): a "how your turn works" guide, weapon cards with big “To hit” and “Damage” numbers, then everything you can do grouped as **Actions, Bonus Actions and Reactions** (features and spells together), with Passive Features folded away
 - **Spells**: grouped as Cantrips / Level 1–9, each card shows casting time, range, duration, components, concentration/ritual, spell attack or save DC, and damage or healing
 - Spell slots for levels 1–9 as tick boxes
 - Inventory with quantity, weight and description, plus coins
-- Features tab: racial, class, feats, custom and magic item abilities
-- Notes: character notes, quest log and campaign notes
+- Features tab: each feature has a **type** (Action, Bonus Action, Reaction, Passive) that decides where it appears in combat, and a source (racial, class, background, feat, custom, magic item)
+- **Conditions**: Prone, Grappled, Restrained, Poisoned, Blessed, Concentrating and the rest, plus custom ones; tap a condition to read what it does
+- Notes: character notes, session notes and campaign notes
+- **Portraits**: upload an image (resized automatically) or paste an image URL
+- **JSON import / export** of whole characters (`docs/character.schema.json`, example in `examples/`)
 - **Level Up Wizard**: set the new level, HP gain, subclass, features, resource pools and spell slots in one flow
 - **DM mode**: view and edit every character, run level ups and manage player roles
 - Short and long rest buttons that restore the right resources
@@ -36,6 +40,7 @@ It's plain HTML, CSS and JavaScript, uses Supabase for login and storage, and is
 │   ├── sheet.js          Character sheet UI
 │   ├── levelup.js        Level Up Wizard
 │   ├── dnd.js            5e reference data (skills, XP table, presets…)
+│   ├── transfer.js       Character JSON import / export
 │   └── utils.js          DOM helpers, modals, toasts, cache
 └── supabase/
     └── schema.sql        Tables, RLS policies, triggers, realtime setup
@@ -172,8 +177,8 @@ When a new version changes the database, re-run `supabase/schema.sql` in the SQL
 
 ### Making sure players get the new version
 
-Browsers cache the app's files. Every script and stylesheet link carries a version tag (`?v=3`). When you change the code, bump the number everywhere so phones and tablets load the new files straight away:
+Browsers cache the app's files. Every script and stylesheet link carries a version tag (`?v=4`). When you change the code, bump the number everywhere so phones and tablets load the new files straight away:
 
 ```bash
-sed -i 's/?v=3/?v=4/g' index.html js/*.js
+sed -i "s/?v=4/?v=5/g" index.html js/*.js
 ```

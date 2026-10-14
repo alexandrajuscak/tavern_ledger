@@ -1,5 +1,5 @@
-import { supabase } from './supabase.js?v=3';
-import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=3';
+import { supabase } from './supabase.js?v=4';
+import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=4';
 
 export const state = {
   session: null,
@@ -48,7 +48,7 @@ export async function listCharacters() {
   return check(
     await supabase
       .from('characters')
-      .select('id, owner_id, name, race, class_name, subclass, level, hp_current, hp_max, hp_temp, ac, updated_at')
+      .select('id, owner_id, name, race, class_name, subclass, level, hp_current, hp_max, hp_temp, ac, portrait_url, conditions, updated_at')
       .order('name'),
   );
 }
@@ -267,4 +267,40 @@ export function subscribeCharacter(id, handler) {
 
   channel.subscribe();
   return () => supabase.removeChannel(channel);
+}
+
+// ---- Portraits (Supabase Storage bucket "portraits") -------------------------------
+
+const PORTRAIT_MARKER = '/storage/v1/object/public/portraits/';
+
+/** Shrink an image file to at most `max` px on its longest side, as JPEG. */
+async function resizeImage(file, max = 512) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not process the image.'))), 'image/jpeg', 0.85));
+}
+
+export async function uploadPortrait(characterId, file) {
+  if (!file.type.startsWith('image/')) throw new Error('Please choose an image file.');
+  const blob = await resizeImage(file);
+  const path = `${characterId}/${Date.now()}.jpg`;
+  const { error } = await supabase.storage.from('portraits').upload(path, blob, {
+    contentType: 'image/jpeg', cacheControl: '31536000', upsert: false,
+  });
+  if (error) throw error;
+  return supabase.storage.from('portraits').getPublicUrl(path).data.publicUrl;
+}
+
+/** Delete a previously uploaded portrait file. Ignores external URLs and errors. */
+export async function removePortraitFile(url) {
+  const i = String(url || '').indexOf(PORTRAIT_MARKER);
+  if (i < 0) return;
+  const path = decodeURIComponent(url.slice(i + PORTRAIT_MARKER.length).split('?')[0]);
+  await supabase.storage.from('portraits').remove([path]).catch(() => {});
 }

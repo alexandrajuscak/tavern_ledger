@@ -71,12 +71,13 @@ export const RESET_LABELS = { short: 'Short rest', long: 'Long rest', none: 'Man
 export const FEATURE_CATEGORIES = [
   { key: 'racial', label: 'Racial Features' },
   { key: 'class', label: 'Class Features' },
+  { key: 'background', label: 'Background Features' },
   { key: 'feat', label: 'Feats' },
   { key: 'custom', label: 'Custom Abilities' },
   { key: 'magic_item', label: 'Magic Item Abilities' },
 ];
 
-export const NOTE_KINDS = ['character', 'quest', 'campaign', 'spells', 'attacks'];
+export const NOTE_KINDS = ['character', 'session', 'campaign', 'spells', 'attacks'];
 
 export const mod = (score) => Math.floor(((Number(score) || 10) - 10) / 2);
 export const fmt = (n) => (n >= 0 ? `+${n}` : `${n}`);
@@ -177,3 +178,58 @@ export function weaponToAttack(w, equipmentProfs = {}) {
     properties: w.props,
   };
 }
+
+// ---- Feature activation & combat grouping -------------------------------------
+
+export const ACTIVATIONS = [
+  { key: 'action', label: 'Action', plural: 'Actions' },
+  { key: 'bonus_action', label: 'Bonus Action', plural: 'Bonus Actions' },
+  { key: 'reaction', label: 'Reaction', plural: 'Reactions' },
+  { key: 'passive', label: 'Passive', plural: 'Passive Features' },
+];
+export const ACTIVATION_BY_KEY = Object.fromEntries(ACTIVATIONS.map((a) => [a.key, a]));
+
+export const CASTING_TIMES = ['1 action', '1 bonus action', '1 reaction', '1 minute', '10 minutes', '1 hour', '8 hours'];
+
+/** Which combat group a spell belongs to, from its free-text casting time. */
+export function castingGroup(castingTime) {
+  const t = String(castingTime || '').toLowerCase();
+  if (/bonus/.test(t)) return 'bonus_action';
+  if (/reaction/.test(t)) return 'reaction';
+  if (/action/.test(t) || t.trim() === '') return 'action';
+  return 'other'; // 1 minute, 10 minutes, rituals…
+}
+
+// ---- Conditions ----------------------------------------------------------------
+// Short reminders for new players (summarised from the 5e SRD), plus two common
+// table states that are not official conditions.
+
+export const CONDITIONS = [
+  { name: 'Blessed', text: 'Add 1d4 to attack rolls and saving throws (Bless spell).' },
+  { name: 'Blinded', text: "You can't see. Attacks against you have advantage; your attacks have disadvantage." },
+  { name: 'Charmed', text: "You can't attack the charmer, and they have advantage on social checks against you." },
+  { name: 'Concentrating', text: 'When you take damage, make a CON save (DC 10 or half the damage, whichever is higher) or the spell ends. Casting another concentration spell also ends it.' },
+  { name: 'Deafened', text: "You can't hear and automatically fail checks that require hearing." },
+  { name: 'Frightened', text: "Disadvantage on checks and attacks while you can see the source of fear; you can't move closer to it." },
+  { name: 'Grappled', text: 'Your speed is 0. Ends if the grappler is incapacitated or you are moved out of reach.' },
+  { name: 'Incapacitated', text: "You can't take actions or reactions." },
+  { name: 'Invisible', text: "You can't be seen without magic. Your attacks have advantage; attacks against you have disadvantage." },
+  { name: 'Paralyzed', text: "Incapacitated, can't move or speak. You fail STR and DEX saves. Attacks against you have advantage; hits from within 5 ft are critical." },
+  { name: 'Poisoned', text: 'Disadvantage on attack rolls and ability checks.' },
+  { name: 'Prone', text: 'You can only crawl (standing up costs half your speed). Your attacks have disadvantage. Melee attacks against you have advantage; ranged attacks have disadvantage.' },
+  { name: 'Restrained', text: 'Your speed is 0. Your attacks and DEX saves have disadvantage; attacks against you have advantage.' },
+  { name: 'Stunned', text: "Incapacitated, can't move, can barely speak. You fail STR and DEX saves; attacks against you have advantage." },
+  { name: 'Unconscious', text: 'Incapacitated, prone, drop what you hold. Fail STR and DEX saves. Attacks have advantage; hits from within 5 ft are critical.' },
+  { name: 'Exhaustion', text: 'Level 1: disadvantage on ability checks. Gets worse at higher levels; a long rest removes one level.' },
+];
+export const CONDITION_BY_NAME = Object.fromEntries(CONDITIONS.map((c) => [c.name.toLowerCase(), c]));
+
+// ---- Skills: {proficient, expertise} objects -----------------------------------
+
+/** 0 = none, 1 = proficient, 2 = expertise. Accepts the old 0/1/2 numbers too. */
+export function skillLevel(v) {
+  if (typeof v === 'number') return v;
+  if (v && typeof v === 'object') return v.expertise ? 2 : v.proficient ? 1 : 0;
+  return 0;
+}
+export const skillValue = (level) => ({ proficient: level >= 1, expertise: level >= 2 });

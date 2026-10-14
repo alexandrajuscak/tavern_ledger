@@ -86,7 +86,7 @@ create table if not exists public.inventory_items (
 create table if not exists public.notes (
   id           uuid primary key default gen_random_uuid(),
   character_id uuid not null references public.characters (id) on delete cascade,
-  kind         text not null check (kind in ('character', 'quest', 'campaign', 'spells', 'attacks')),
+  kind         text not null check (kind in ('character', 'session', 'campaign', 'spells', 'attacks')),
   content      text not null default '',
   updated_at   timestamptz not null default now(),
   unique (character_id, kind)
@@ -118,7 +118,7 @@ create table if not exists public.feature_trackers (
 create table if not exists public.features (
   id           uuid primary key default gen_random_uuid(),
   character_id uuid not null references public.characters (id) on delete cascade,
-  category     text not null default 'custom' check (category in ('racial', 'class', 'feat', 'custom', 'magic_item')),
+  category     text not null default 'custom' check (category in ('racial', 'class', 'background', 'feat', 'custom', 'magic_item')),
   name         text not null default 'New feature',
   description  text not null default '',
   sort_order   int  not null default 0,
@@ -171,6 +171,49 @@ create table if not exists public.spells (
 -- Added in v2: armor & weapon proficiency checkboxes
 -- {"light": true, "medium": true, "heavy": false, "shields": true, "simple": true, "martial": true}
 alter table public.characters add column if not exists equipment_proficiencies jsonb not null default '{}'::jsonb;
+
+-- -----------------------------------------------------------------------------
+-- v3: conditions, portraits, feature activation, session notes, skill objects.
+-- Every statement below is safe to re-run.
+-- -----------------------------------------------------------------------------
+
+-- Active conditions, e.g. ["Prone", "Poisoned", "Hexed"]
+alter table public.characters add column if not exists conditions jsonb not null default '[]'::jsonb;
+-- Portrait: an uploaded image (Supabase Storage public URL) or any image URL
+alter table public.characters add column if not exists portrait_url text not null default '';
+
+-- How a feature is used, so the Combat tab can group it.
+alter table public.features add column if not exists activation text not null default 'passive';
+alter table public.features drop constraint if exists features_activation_check;
+alter table public.features add constraint features_activation_check
+  check (activation in ('passive', 'action', 'bonus_action', 'reaction'));
+
+-- Feature source gains "background".
+alter table public.features drop constraint if exists features_category_check;
+alter table public.features add constraint features_category_check
+  check (category in ('racial', 'class', 'background', 'feat', 'custom', 'magic_item'));
+
+-- Notes: "Quest log" becomes "Session notes".
+alter table public.notes drop constraint if exists notes_kind_check;
+update public.notes n set kind = 'session'
+  where kind = 'quest'
+    and not exists (select 1 from public.notes s where s.character_id = n.character_id and s.kind = 'session');
+delete from public.notes where kind = 'quest';
+alter table public.notes add constraint notes_kind_check
+  check (kind in ('character', 'session', 'campaign', 'spells', 'attacks'));
+
+-- Skills: 0/1/2 numbers become {"proficient": bool, "expertise": bool}.
+update public.characters c
+set skill_proficiencies = coalesce((
+  select jsonb_object_agg(e.key,
+    case jsonb_typeof(e.value)
+      when 'number'  then jsonb_build_object('proficient', (e.value #>> '{}')::int >= 1,
+                                             'expertise',  (e.value #>> '{}')::int >= 2)
+      when 'boolean' then jsonb_build_object('proficient', (e.value #>> '{}')::boolean, 'expertise', false)
+      else e.value
+    end)
+  from jsonb_each(c.skill_proficiencies) e), '{}'::jsonb)
+where exists (select 1 from jsonb_each(c.skill_proficiencies) e where jsonb_typeof(e.value) <> 'object');
 
 create index if not exists characters_owner_idx        on public.characters (owner_id);
 create index if not exists attacks_char_idx            on public.attacks (character_id);
@@ -288,7 +331,7 @@ begin
   on conflict do nothing;
 
   insert into public.notes (character_id, kind)
-  select new.id, k from unnest(array['character', 'quest', 'campaign', 'spells', 'attacks']) k
+  select new.id, k from unnest(array['character', 'session', 'campaign', 'spells', 'attacks']) k
   on conflict do nothing;
   return new;
 end;
@@ -384,6 +427,45 @@ begin
     end if;
   end loop;
 end $$;
+
+-- -----------------------------------------------------------------------------
+-- Storage: character portraits
+--   Files live at portraits/<character_id>/<file>. Anyone with the link can view
+--   them (public bucket); only the owner or the DM can upload or delete.
+-- -----------------------------------------------------------------------------
+
+create or replace function public.try_uuid(t text)
+returns uuid
+language plpgsql immutable
+as $$
+begin
+  return t::uuid;
+exception when others then
+  return null;
+end;
+$$;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('portraits', 'portraits', true, 2097152, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do update
+  set public = true,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "portraits_select" on storage.objects;
+create policy "portraits_select" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'portraits' and public.can_access_character(public.try_uuid((storage.foldername(name))[1])));
+
+drop policy if exists "portraits_insert" on storage.objects;
+create policy "portraits_insert" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'portraits' and public.can_access_character(public.try_uuid((storage.foldername(name))[1])));
+
+drop policy if exists "portraits_delete" on storage.objects;
+create policy "portraits_delete" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'portraits' and public.can_access_character(public.try_uuid((storage.foldername(name))[1])));
 
 -- -----------------------------------------------------------------------------
 -- Make yourself the DM (run after you have signed in once):
