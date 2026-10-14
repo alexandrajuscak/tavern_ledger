@@ -1,13 +1,13 @@
-import { supabase, isConfigured, redirectUrl } from './supabase.js?v=5';
+import { supabase, isConfigured, redirectUrl } from './supabase.js?v=6';
 import {
   state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
   loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
   updateProfile, listCharacters, createCharacter, loadBundle, saver,
-} from './store.js?v=5';
-import { CLASSES } from './dnd.js?v=5';
-import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear } from './utils.js?v=5';
-import { mountSheet, unmountSheet } from './sheet.js?v=5';
-import { importCharacter, parseCharacterJson } from './transfer.js?v=5';
+} from './store.js?v=6';
+import { CLASSES } from './dnd.js?v=6';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear } from './utils.js?v=6';
+import { mountSheet, unmountSheet } from './sheet.js?v=6';
+import { importCharacter, parseCharacterJson } from './transfer.js?v=6';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders

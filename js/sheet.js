@@ -4,13 +4,13 @@ import {
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   ACTIVATIONS, ACTIVATION_BY_KEY, CASTING_TIMES, CONDITIONS, CONDITION_BY_NAME,
   weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, fmt, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js?v=5';
+} from './dnd.js?v=6';
 import {
   saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
-} from './store.js?v=5';
-import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=5';
-import { exportCharacter, downloadJson } from './transfer.js?v=5';
-import { openLevelUp } from './levelup.js?v=5';
+} from './store.js?v=6';
+import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=6';
+import { exportCharacter, downloadJson } from './transfer.js?v=6';
+import { openLevelUp } from './levelup.js?v=6';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.

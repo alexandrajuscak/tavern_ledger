@@ -1,5 +1,5 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js?v=5';
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js?v=6';
 
 const key = SUPABASE_PUBLISHABLE_KEY;
 
