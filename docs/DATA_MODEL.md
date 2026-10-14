@@ -20,7 +20,7 @@ AC and speed *are* stored. They depend on armor, shields and class features (e.g
 ## Character JSON (import / export)
 
 - Schema: [`character.schema.json`](character.schema.json) (JSON Schema 2020-12).
-- Example: [`../examples/bohdan-tichkrok-level1.json`](../examples/bohdan-tichkrok-level1.json).
+- Character files: keep them in `examples/` locally. That folder is in `.gitignore`, so real characters are never pushed to the public repo.
 - **Export:** sheet → **Bio** tab → *Download JSON*.
 - **Import:** character list → *Import JSON*. The importer also accepts the older hand-written format: `"class": {"name", "level"}`, plain feature strings, and `weapons` instead of `attacks`. Numbers stored as skill bonuses in that format are ignored, because they were derived values.
 

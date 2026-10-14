@@ -1,3 +1,7 @@
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Real campaign characters: keep them local, never publish
+examples/
+*.character.json

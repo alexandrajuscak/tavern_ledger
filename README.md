@@ -17,7 +17,7 @@ It's plain HTML, CSS and JavaScript, uses Supabase for login and storage, and is
 - **Conditions**: Prone, Grappled, Restrained, Poisoned, Blessed, Concentrating and the rest, plus custom ones; tap a condition to read what it does
 - Notes: character notes, session notes and campaign notes
 - **Portraits**: upload an image (resized automatically) or paste an image URL
-- **JSON import / export** of whole characters (`docs/character.schema.json`, example in `examples/`)
+- **JSON import / export** of whole characters (`docs/character.schema.json`). Keep real character files in `examples/`, which git ignores so they stay off GitHub
 - **Level Up Wizard**: set the new level, HP gain, subclass, features, resource pools and spell slots in one flow
 - **Campaigns**: an admin creates campaigns and adds people as **DMs** or **players**. A campaign's DMs see and edit every character in it (level ups, owners); players see their own characters
 - Short and long rest buttons that restore the right resources
