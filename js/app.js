@@ -1,10 +1,10 @@
-import { supabase, isConfigured, redirectUrl } from './supabase.js';
+import { supabase, isConfigured, redirectUrl } from './supabase.js?v=3';
 import {
   state, isDM, loadProfile, listProfiles, updateProfile, listCharacters, createCharacter, loadBundle, saver,
-} from './store.js';
-import { CLASSES } from './dnd.js';
-import { $, $$, esc, toast, openModal, cacheGet, cacheSet, cacheClear } from './utils.js';
-import { mountSheet, unmountSheet } from './sheet.js';
+} from './store.js?v=3';
+import { CLASSES } from './dnd.js?v=3';
+import { $, $$, esc, toast, openModal, cacheGet, cacheSet, cacheClear } from './utils.js?v=3';
+import { mountSheet, unmountSheet } from './sheet.js?v=3';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders

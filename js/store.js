@@ -1,5 +1,5 @@
-import { supabase } from './supabase.js';
-import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js';
+import { supabase } from './supabase.js?v=3';
+import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=3';
 
 export const state = {
   session: null,

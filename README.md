@@ -8,7 +8,7 @@ It's plain HTML, CSS and JavaScript, uses Supabase for login and storage, and is
 - A sticky combat bar keeps HP, AC, initiative, speed and resources on screen
 - Abilities, saves, skills (with expertise), hit dice and death saves
 - Custom resource trackers: Ki, Rage, Sorcery Points, Bardic Inspiration, Wild Shape and any others you add
-- **Attacks tab**: weapon cards with big “To hit” and “Damage” numbers, damage type, range and properties, auto-calculated from your stats; one-click SRD weapon list
+- **Combat tab**: a "how your turn works" guide for new players, weapon cards with big “To hit” and “Damage” numbers, damage type, range and properties, auto-calculated from your stats; one-click SRD weapon list, and a quick-reference of every combat spell
 - **Spells**: grouped as Cantrips / Level 1–9, each card shows casting time, range, duration, components, concentration/ritual, spell attack or save DC, and damage or healing
 - Spell slots for levels 1–9 as tick boxes
 - Inventory with quantity, weight and description, plus coins
@@ -169,3 +169,11 @@ There's no build step: every push to `main` redeploys.
 ## Updating an existing installation
 
 When a new version changes the database, re-run `supabase/schema.sql` in the SQL Editor **before** pushing the new code. The script is idempotent: it adds new tables and columns and leaves your data alone.
+
+### Making sure players get the new version
+
+Browsers cache the app's files. Every script and stylesheet link carries a version tag (`?v=3`). When you change the code, bump the number everywhere so phones and tablets load the new files straight away:
+
+```bash
+sed -i 's/?v=3/?v=4/g' index.html js/*.js
+```

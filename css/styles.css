@@ -729,3 +729,14 @@ input.big-num:focus { border-color: var(--gold) !important; }
 }
 .chip-toggle.on { color: var(--text); border-color: rgba(212, 166, 74, 0.6); background: var(--gold-soft); }
 .chip-toggle.on::before { background: var(--gold); border-color: var(--gold); }
+
+/* ---- Combat tab ------------------------------------------------------------ */
+
+.section-title { margin: 18px 0 10px; font-size: 1.05rem; }
+.section-head .section-title { margin: 0; }
+.turn-guide { margin-bottom: 4px; }
+.turn-guide summary { cursor: pointer; color: var(--gold); font-weight: 600; }
+.turn-guide ul { margin: 10px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 0.92rem; }
+.turn-guide strong { color: var(--text); }
+.turn-guide em { color: var(--gold); font-style: normal; font-weight: 600; }
+.combat-spell { border-left: 3px solid rgba(108, 156, 240, 0.6); }

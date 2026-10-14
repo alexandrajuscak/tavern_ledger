@@ -3,10 +3,10 @@ import {
   RESOURCE_PRESETS, RESET_LABELS, FEATURE_CATEGORIES,
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   weaponToAttack, ordinal, mod, fmt, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js';
-import { saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, state, isDM } from './store.js';
-import { $, $$, esc, clamp, toast, confirmDialog, cacheSet, debounce, autoResize } from './utils.js';
-import { openLevelUp } from './levelup.js';
+} from './dnd.js?v=3';
+import { saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, state, isDM } from './store.js?v=3';
+import { $, $$, esc, clamp, toast, confirmDialog, cacheSet, debounce, autoResize } from './utils.js?v=3';
+import { openLevelUp } from './levelup.js?v=3';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -20,7 +20,7 @@ const editing = new Set(); // "table:id" of attack/spell cards open for editing
 
 const TABS = [
   { key: 'stats', label: 'Stats' },
-  { key: 'attacks', label: 'Attacks' },
+  { key: 'attacks', label: 'Combat' },
   { key: 'spells', label: 'Spells' },
   { key: 'inventory', label: 'Inventory' },
   { key: 'features', label: 'Features' },
@@ -103,6 +103,7 @@ function deriveValue(key) {
     case 'pb': return fmt(pb());
     case 'init': return fmt(initiative());
     case 'level': return String(c.level);
+    case 'speed': return String(c.speed);
     case 'spelldc': return c.spellcasting_ability ? String(8 + pb() + abilityMod(c.spellcasting_ability)) : '—';
     case 'spellatk': return c.spellcasting_ability ? fmt(pb() + abilityMod(c.spellcasting_ability)) : '—';
     case 'xpnext': {
@@ -257,6 +258,7 @@ function afterChange(table) {
   refreshToggles();
   refreshHp();
   refreshViews();
+  if (table === 'spells') refreshCombatSpells();
   if (table === 'feature_trackers' || table === 'spell_slots') refreshPips();
   cacheLater();
 }
@@ -574,14 +576,48 @@ function attacksListHTML() {
     : '<p class="empty">No attacks yet. Pick a weapon above to add one.</p>';
 }
 
+// Spells that matter in a fight: they roll to hit, force a save, or deal damage/healing.
+const isCombatSpell = (s) => s.attack_type !== 'none' || !!String(s.damage || '').trim();
+const combatSpellIds = () => B.spells.filter(isCombatSpell).sort((a, b) => a.level - b.level).map((s) => s.id);
+let lastCombatSpellIds = '';
+
+function combatSpellsHTML() {
+  const ids = combatSpellIds();
+  lastCombatSpellIds = ids.join(',');
+  if (!ids.length) {
+    return '<p class="empty">No combat spells yet. Spells with an attack roll, saving throw or damage show up here automatically.</p>';
+  }
+  return ids.map((id) => {
+    const s = findRow('spells', id);
+    return `<article class="entry combat-spell"><div class="entry-view" data-view="spells:${id}">${spellViewHTML(s)}</div></article>`;
+  }).join('');
+}
+
+function refreshCombatSpells() {
+  if (combatSpellIds().join(',') !== lastCombatSpellIds) rerender('#combat-spells', combatSpellsHTML());
+}
+
 function attacksHTML() {
   const group = (cat, kind, label) => `
     <optgroup label="${label}">
       ${WEAPONS.map((w, i) => (w.cat === cat && w.kind === kind ? `<option value="${i}">${w.name} (${w.dice} ${w.type})</option>` : '')).join('')}
     </optgroup>`;
   return `
+  <details class="card turn-guide">
+    <summary>New to combat? How your turn works</summary>
+    <ul>
+      <li><strong>Move</strong> up to your speed (<span data-derive="speed"></span> ft). You can split it before and after your action.</li>
+      <li><strong>Action</strong> — one per turn: Attack, Cast a Spell, Dash, Disengage, Dodge, Help, Hide, Ready or Use an Object.</li>
+      <li><strong>Bonus action</strong> — only when a feature or spell says you can use one.</li>
+      <li><strong>Reaction</strong> — one per round, even on other turns, e.g. an opportunity attack when an enemy leaves your reach.</li>
+      <li><strong>Attacking:</strong> roll a d20 and add <em>To hit</em>. If the total equals or beats the target's AC, you hit: roll the <em>Damage</em>.</li>
+      <li><strong>Saving throw spells:</strong> the target rolls a d20 + their save. If they roll below your <em>DC</em>, the spell's full effect lands.</li>
+      <li><strong>Natural 20</strong> on an attack is a critical hit: roll the damage dice twice.</li>
+    </ul>
+  </details>
+
+  <h3 class="section-title">Weapons & attacks</h3>
   <section class="card">
-    <h3>Add a weapon or attack</h3>
     <div class="add-tracker">
       <select id="weapon-preset" aria-label="Weapon">
         <option value="custom">Custom attack…</option>
@@ -596,6 +632,13 @@ function attacksHTML() {
     <p class="muted small">“To hit” and “Damage” are worked out from your ability scores and proficiency, so they stay correct when you level up. Tap ✎ to change anything.</p>
   </section>
   <div id="attacks-list" class="entry-list">${attacksListHTML()}</div>
+
+  <div class="section-head mt">
+    <h3 class="section-title">Combat spells</h3>
+    <button type="button" class="btn btn-sm" data-action="tab" data-tab="spells">Manage spells →</button>
+  </div>
+  <div id="combat-spells" class="entry-list">${combatSpellsHTML()}</div>
+
   <section class="card mt">
     <h3>Other actions & notes</h3>
     ${textArea('notes', note('attacks'), 'content', 'notes-area', 'placeholder="Bonus actions, reactions, special moves…"')}
@@ -972,6 +1015,7 @@ function rerenderList(table) {
   if (table === 'feature_trackers') { rerender('#trackers-list', trackersListHTML()); renderStrip(); }
   if (table === 'attacks') rerender('#attacks-list', attacksListHTML());
   if (table === 'spells' || table === 'spell_slots') rerender('#spells-list', spellsListHTML());
+  if (table === 'spells') rerender('#combat-spells', combatSpellsHTML());
   if (table === 'spell_slots') refreshPips();
   afterChange(table);
 }
@@ -1079,6 +1123,9 @@ function openEditor(table, id) {
   const key = `${table}:${id}`;
   editing.add(key);
   const card = $(`[data-entry="${key}"]`, root);
+  // Editing a spell from the Combat tab jumps to its card on the Spells tab.
+  const panel = card?.closest('.panel');
+  if (panel?.hidden) showTab(panel.dataset.panel, false);
   card?.classList.add('editing');
   card?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   const input = $(`[data-t="${table}"][data-id="${id}"][data-f="name"]`, root);
@@ -1183,7 +1230,8 @@ const actions = {
   'toggle-edit': (el) => {
     const key = el.dataset.key;
     const card = $(`[data-entry="${key}"]`, root);
-    if (editing.has(key)) {
+    // Buttons outside the card itself (Combat tab quick-reference) always open the editor.
+    if (editing.has(key) && el.closest('[data-entry]')) {
       editing.delete(key);
       card?.classList.remove('editing');
     } else {

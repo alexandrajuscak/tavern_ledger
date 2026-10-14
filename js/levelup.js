@@ -1,12 +1,12 @@
 // Level Up Wizard: a guided editor, not a rules engine. It proposes sensible
 // defaults (average HP, next level) and lets the player/DM change anything.
 
-import { supabase } from './supabase.js';
+import { supabase } from './supabase.js?v=3';
 import {
   ABILITY_BY_KEY, FEATURE_CATEGORIES, HIT_DICE, RESOURCE_PRESETS, RESET_LABELS,
   mod, fmt, hitDieAverage, dieSize, profBonus,
-} from './dnd.js';
-import { $, $$, esc, toast, openModal } from './utils.js';
+} from './dnd.js?v=3';
+import { $, $$, esc, toast, openModal } from './utils.js?v=3';
 
 const STEPS = ['Level & HP', 'Subclass & Features', 'Resources', 'Spell Slots', 'Review'];
 
