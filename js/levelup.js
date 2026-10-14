@@ -1,12 +1,12 @@
 // Level Up Wizard: a guided editor, not a rules engine. It proposes sensible
 // defaults (average HP, next level) and lets the player/DM change anything.
 
-import { supabase } from './supabase.js?v=6';
+import { supabase } from './supabase.js?v=7';
 import {
   ABILITY_BY_KEY, FEATURE_CATEGORIES, ACTIVATIONS, HIT_DICE, RESOURCE_PRESETS, RESET_LABELS,
   mod, fmt, hitDieAverage, dieSize, profBonus,
-} from './dnd.js?v=6';
-import { $, $$, esc, toast, openModal } from './utils.js?v=6';
+} from './dnd.js?v=7';
+import { $, $$, esc, toast, openModal } from './utils.js?v=7';
 
 const STEPS = ['Level & HP', 'Subclass & Features', 'Resources', 'Spell Slots', 'Review'];
 
@@ -96,7 +96,7 @@ export function openLevelUp(bundle, { onApplied }) {
   function stepResources() {
     const existing = bundle.trackers.map((t) => `
       <div class="kv">
-        <span>${esc(t.name)} <small class="muted">(${t.max} now)</small></span>
+        <span>${esc(t.name)} <small class="muted">(${t.max} now${t.formula ? ` · formula: ${esc(t.formula)}` : ""})</small></span>
         <input type="number" class="small-num" min="0" data-tracker="${t.id}" value="${st.trackerMax[t.id]}" aria-label="${esc(t.name)} maximum">
       </div>`).join('');
     const added = st.newTrackers.map((t, i) => `

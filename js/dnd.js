@@ -185,6 +185,7 @@ export const ACTIVATIONS = [
   { key: 'action', label: 'Action', plural: 'Actions' },
   { key: 'bonus_action', label: 'Bonus Action', plural: 'Bonus Actions' },
   { key: 'reaction', label: 'Reaction', plural: 'Reactions' },
+  { key: 'special', label: 'Special (no action)', plural: 'Special' },
   { key: 'passive', label: 'Passive', plural: 'Passive Features' },
 ];
 export const ACTIVATION_BY_KEY = Object.fromEntries(ACTIVATIONS.map((a) => [a.key, a]));

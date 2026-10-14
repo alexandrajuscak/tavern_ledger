@@ -110,6 +110,21 @@
         "inspiration": { "type": "boolean" }
       }
     },
+    "pendingChoices": {
+      "type": "array",
+      "description": "Unresolved player choices (Fighting Style, Druid Circle, invocations, languages, skills, spells, tools, feats…). The app shows a reminder badge while any exist; resolve one by applying it to the sheet and removing it here.",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "description": "Stable slug, unique within the character." },
+          "type": { "type": "string", "examples": ["Fighting Style", "Druid Circle", "Warlock Invocation", "Language Choice", "Skill Choice", "Spell Choice", "Tool Choice", "Feat Choice"] },
+          "description": { "type": "string" },
+          "options": { "type": "array", "items": { "type": "string" }, "description": "Suggested options; may be empty when the choice is open-ended." }
+        }
+      }
+    },
     "conditions": {
       "type": "array",
       "items": { "type": "string" },
@@ -162,7 +177,8 @@
           "name": { "type": "string" },
           "current": { "type": "integer", "minimum": 0 },
           "max": { "type": "integer", "minimum": 0 },
-          "reset": { "enum": ["short", "long", "none"], "default": "long" }
+          "reset": { "enum": ["short", "long", "none"], "default": "long" },
+          "formula": { "type": "string", "examples": ["monkLevel", "paladinLevel * 5", "1 + charismaModifier", "2"], "description": "How the maximum is worked out. Stored and displayed only; the app does not evaluate it yet, so max must still be set." }
         }
       }
     },
@@ -197,7 +213,7 @@
         "additionalProperties": false,
         "properties": {
           "name": { "type": "string" },
-          "type": { "enum": ["Passive", "Action", "Bonus Action", "Reaction"], "description": "Decides where it appears on the Combat tab." },
+          "type": { "enum": ["Passive", "Action", "Bonus Action", "Reaction", "Special"], "description": "Decides where it appears on the Combat tab. Special = triggers on something else and uses no action, bonus action or reaction (Divine Smite, Sneak Attack, damage riders)." },
           "source": { "enum": ["racial", "class", "background", "feat", "custom", "magic_item"], "default": "custom" },
           "description": { "type": "string" }
         }
@@ -226,7 +242,8 @@
           "damage": { "type": "string", "examples": ["1d10", "3d6", "1d8 + 3"] },
           "damageType": { "$ref": "#/$defs/damageType" },
           "description": { "type": "string" },
-          "prepared": { "type": "boolean" }
+          "prepared": { "type": "boolean" },
+          "source": { "type": "string", "examples": ["Warlock", "Druid", "Magic Initiate", "Drow Magic", "The Great Old One", "Item"], "description": "Where the spell comes from: class, race, feat, patron, subclass, item or background." }
         }
       }
     },

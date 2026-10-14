@@ -186,7 +186,7 @@ alter table public.characters add column if not exists portrait_url text not nul
 alter table public.features add column if not exists activation text not null default 'passive';
 alter table public.features drop constraint if exists features_activation_check;
 alter table public.features add constraint features_activation_check
-  check (activation in ('passive', 'action', 'bonus_action', 'reaction'));
+  check (activation in ('passive', 'action', 'bonus_action', 'reaction', 'special'));
 
 -- Feature source gains "background".
 alter table public.features drop constraint if exists features_category_check;
@@ -261,6 +261,18 @@ begin
     on conflict do nothing;
   end if;
 end $$;
+
+-- -----------------------------------------------------------------------------
+-- v5: pending choices, resource formulas, spell sources, "special" activation
+-- (the "special" value is part of features_activation_check above).
+-- -----------------------------------------------------------------------------
+
+-- Unresolved player choices: [{"id", "type", "description", "options": [...]}]
+alter table public.characters add column if not exists pending_choices jsonb not null default '[]'::jsonb;
+-- Optional, display-only formula for a resource maximum, e.g. "monkLevel", "paladinLevel * 5"
+alter table public.feature_trackers add column if not exists formula text not null default '';
+-- Where a spell comes from, e.g. "Warlock", "Magic Initiate", "Drow Magic"
+alter table public.spells add column if not exists source text not null default '';
 
 create index if not exists characters_owner_idx        on public.characters (owner_id);
 create index if not exists attacks_char_idx            on public.attacks (character_id);

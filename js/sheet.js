@@ -4,13 +4,13 @@ import {
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   ACTIVATIONS, ACTIVATION_BY_KEY, CASTING_TIMES, CONDITIONS, CONDITION_BY_NAME,
   weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, fmt, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js?v=6';
+} from './dnd.js?v=7';
 import {
   saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
-} from './store.js?v=6';
-import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=6';
-import { exportCharacter, downloadJson } from './transfer.js?v=6';
-import { openLevelUp } from './levelup.js?v=6';
+} from './store.js?v=7';
+import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=7';
+import { exportCharacter, downloadJson } from './transfer.js?v=7';
+import { openLevelUp } from './levelup.js?v=7';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -337,7 +337,7 @@ function refreshPips() {
 
 function stripHTML() {
   const trackers = B.trackers.map((t) => `
-    <div class="res-chip">
+    <div class="res-chip" ${t.formula ? `title="Max: ${esc(t.formula)}"` : ''}>
       <div class="res-name">${esc(t.name)}</div>
       <div data-pips="tracker:${t.id}">${trackerPips(t)}</div>
     </div>`);
@@ -377,11 +377,40 @@ function conditionsHTML() {
 }
 
 /** Character-level bits that are not plain inputs: avatar and conditions. */
+// ---- Pending choices ---------------------------------------------------------
+
+const pendingChoices = () => (Array.isArray(C().pending_choices) ? C().pending_choices : []);
+
+function choicesBadgeHTML() {
+  const n = pendingChoices().length;
+  return n ? `⚠ ${n} choice${n === 1 ? '' : 's'} to make` : '';
+}
+
+function choicesListHTML() {
+  const list = pendingChoices();
+  if (!list.length) return '<p class="empty">Nothing pending. 🎉</p>';
+  return list.map((p) => `
+    <div class="choice-row">
+      <div class="choice-info">
+        <span class="choice-type">${esc(p.type)}</span>
+        ${p.description ? `<p class="choice-desc">${esc(p.description)}</p>` : ''}
+        ${Array.isArray(p.options) && p.options.length ? `<div class="choice-options">${p.options.map((o) => `<span class="choice-option">${esc(o)}</span>`).join('')}</div>` : ''}
+      </div>
+      <button type="button" class="btn btn-sm btn-good" data-action="resolve-choice" data-id="${esc(p.id)}" title="Remove from the list once applied to the sheet">✓ Done</button>
+    </div>`).join('');
+}
+
+/** Character-level bits that are not plain inputs: avatar, conditions, pending choices. */
 function refreshCharacterBits() {
-  for (const [sel, html] of [['#sheet-avatar', avatarHTML()], ['#conditions-row', conditionsHTML()], ['#portrait-preview', avatarHTML()]]) {
+  for (const [sel, html] of [
+    ['#sheet-avatar', avatarHTML()], ['#conditions-row', conditionsHTML()], ['#portrait-preview', avatarHTML()],
+    ['#choices-badge', choicesBadgeHTML()], ['#choices-list', choicesListHTML()],
+  ]) {
     const el = $(sel, root);
     if (el && el.__html !== html) { el.innerHTML = html; el.__html = html; }
   }
+  const badge = $('#choices-badge', root);
+  if (badge) badge.hidden = !pendingChoices().length;
 }
 
 function headerHTML() {
@@ -393,6 +422,7 @@ function headerHTML() {
       <h1 class="char-name" data-derive="name"></h1>
       <div class="char-sub" data-derive="subtitle"></div>
       ${owner && owner.id !== state.profile.id ? `<div class="owner-tag">Player: ${esc(owner.display_name || owner.email)}</div>` : ''}
+      <button type="button" class="choices-badge" id="choices-badge" data-action="goto-choices" ${pendingChoices().length ? '' : 'hidden'}>${choicesBadgeHTML()}</button>
     </div>
     <div class="sheet-actions">
       <button type="button" class="btn btn-gold" data-action="level-up">▲ Level Up</button>
@@ -621,6 +651,7 @@ const GROUP_HINTS = {
   action: 'One per turn. Anyone can also: Attack · Cast a Spell · Dash · Disengage · Dodge · Help · Hide · Ready · Use an Object.',
   bonus_action: 'One per turn, only if a feature or spell gives you one.',
   reaction: 'One per round, and it can happen on other creatures’ turns. Everyone can make an opportunity attack when an enemy leaves their reach.',
+  special: 'Uses no action: these trigger on something else, e.g. when you hit with an attack.',
 };
 const GROUP_EMPTY = {
   action: 'No special actions yet.',
@@ -663,9 +694,10 @@ const spellCard = (s) =>
 
 function combatGroupsHTML() {
   lastCombatSignature = combatSignature();
-  const groups = ['action', 'bonus_action', 'reaction'].map((key) => {
+  const groups = ['action', 'bonus_action', 'reaction', 'special'].map((key) => {
     const { feats, spells } = groupItems(key);
     const items = [...feats.map(featureCard), ...spells.map(spellCard)].join('');
+    if (key === 'special' && !items) return ''; // only shown when the character has something special
     return `
       <section class="combat-group group-${key}">
         <h3 class="section-title">${ACTIVATION_BY_KEY[key].plural}</h3>
@@ -738,6 +770,7 @@ function spellViewHTML(s) {
   const sub = s.level === 0
     ? `${s.school ? `${esc(s.school)} ` : ''}cantrip`
     : `${ordinal(s.level)}${s.school ? ` · ${esc(s.school)}` : ''}`;
+  const from = s.source ? ` · <span class="spell-source">${esc(s.source)}</span>` : '';
   const facts = [
     ['Casting time', s.casting_time], ['Range', s.range], ['Duration', s.duration], ['Components', s.components],
   ].filter(([, v]) => v);
@@ -764,7 +797,7 @@ function spellViewHTML(s) {
     <div class="entry-head">
       <div class="entry-title">
         <h4 class="entry-name">${esc(s.name || 'Unnamed spell')}</h4>
-        <div class="entry-sub">${sub}
+        <div class="entry-sub">${sub}${from}
           ${s.concentration ? '<span class="tag tag-c" title="Concentration">Concentration</span>' : ''}
           ${s.ritual ? '<span class="tag tag-r" title="Can be cast as a ritual">Ritual</span>' : ''}
         </div>
@@ -795,6 +828,7 @@ function spellEditHTML(s) {
       <label class="field"><span>Range</span>${textInput(t, s, 'range', '', 'placeholder="120 ft, Touch, Self…"')}</label>
       <label class="field"><span>Duration</span>${textInput(t, s, 'duration', '', 'placeholder="Instantaneous, 1 minute…"')}</label>
       <label class="field"><span>Components</span>${textInput(t, s, 'components', '', 'placeholder="V, S, M (a pinch of salt)"')}</label>
+      <label class="field"><span>Source</span>${textInput(t, s, 'source', '', 'list="spell-sources" placeholder="Class, race, feat, patron, item…"')}</label>
       <div class="span-2 check-row">
         ${checkField(t, s, 'concentration', 'Concentration')}
         ${checkField(t, s, 'ritual', 'Ritual')}
@@ -878,6 +912,7 @@ function spellsHTML() {
   </section>
   <div id="spells-list">${spellsListHTML()}</div>
   <datalist id="casting-times">${CASTING_TIMES.map((x) => `<option value="${x}">`).join("")}</datalist>
+  <datalist id="spell-sources">${[C().class_name, 'Race', 'Feat', 'Patron', 'Subclass', 'Item', 'Background'].filter(Boolean).map((x) => `<option value="${esc(x)}">`).join("")}</datalist>
   <section class="card mt">
     <h3>Spell notes</h3>
     ${textArea('notes', note('spells'), 'content', 'notes-area', 'placeholder="Anything else about your magic…"')}
@@ -970,6 +1005,7 @@ function trackerRowHTML(t) {
     ${textInput('feature_trackers', t, 'name', 'tracker-name', 'aria-label="Resource name"')}
     <label class="field-inline"><span>Current</span>${numInput('feature_trackers', t, 'current', 'small-num', 'min="0"')}</label>
     <label class="field-inline"><span>Max</span>${numInput('feature_trackers', t, 'max', 'small-num', 'min="0"')}</label>
+    <label class="field-inline tracker-formula"><span>Max formula</span>${textInput('feature_trackers', t, 'formula', '', 'placeholder="e.g. monkLevel" aria-label="Formula for the maximum"')}</label>
     <label class="field-inline"><span>Resets</span>
       <select ${bind('feature_trackers', t, 'reset_on')}>
         ${Object.entries(RESET_LABELS).map(([k, l]) => `<option value="${k}" ${t.reset_on === k ? 'selected' : ''}>${l}</option>`).join('')}
@@ -1055,6 +1091,20 @@ function bioHTML() {
     </div>
     <datalist id="class-list">${CLASSES.map((x) => `<option value="${x}">`).join('')}</datalist>
     <datalist id="alignment-list">${ALIGNMENTS.map((x) => `<option value="${x}">`).join('')}</datalist>
+  </section>
+  <section class="card" id="choices-card">
+    <h3>Pending choices <span class="hint">things still to decide: fighting style, circle, spells, languages…</span></h3>
+    <div id="choices-list" class="choice-list">${choicesListHTML()}</div>
+    <details class="add-choice mt">
+      <summary>+ Add a choice</summary>
+      <form id="add-choice-form" class="form-grid mt">
+        <label class="field"><span>Type</span><input type="text" name="type" required placeholder="e.g. Fighting Style" list="choice-types"></label>
+        <label class="field"><span>Options (comma separated)</span><input type="text" name="options" placeholder="Defense, Dueling, Protection"></label>
+        <label class="field span-2"><span>Description</span><input type="text" name="description" placeholder="Choose a Paladin Fighting Style"></label>
+        <div class="span-2"><button type="submit" class="btn btn-sm btn-gold">Add</button></div>
+      </form>
+      <datalist id="choice-types">${['Fighting Style', 'Druid Circle', 'Warlock Invocation', 'Language Choice', 'Skill Choice', 'Spell Choice', 'Tool Choice', 'Feat Choice', 'Subclass'].map((x) => `<option value="${x}">`).join('')}</datalist>
+    </details>
   </section>
   <section class="card">
     <h3>Portrait</h3>
@@ -1404,6 +1454,15 @@ const actions = {
     setTimeout(() => card?.classList.remove('flash'), 1400);
     $(`[data-t="features"][data-id="${el.dataset.id}"][data-f="description"]`, root)?.focus({ preventScroll: true });
   },
+  'goto-choices': () => {
+    showTab('bio', false);
+    $('#choices-card', root)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  },
+  'resolve-choice': (el) => {
+    const choice = pendingChoices().find((p) => p.id === el.dataset.id);
+    setRow('characters', C(), { pending_choices: pendingChoices().filter((p) => p.id !== el.dataset.id) });
+    if (choice) toast(`“${choice.type}” marked as done. Remember to add it to the sheet.`, 'good', 4000);
+  },
   'add-condition': () => openConditionPicker(),
   'show-condition': (el) => showCondition(Number(el.dataset.i)),
   'remove-portrait': async () => {
@@ -1536,6 +1595,23 @@ async function onClick(e) {
   }
 }
 
+function onSubmit(e) {
+  if (e.target.id !== 'add-choice-form') return;
+  e.preventDefault();
+  const f = e.target.elements;
+  const type = f.type.value.trim();
+  if (!type) return;
+  const base = type.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'choice';
+  let id = base;
+  for (let n = 2; pendingChoices().some((p) => p.id === id); n++) id = `${base}-${n}`;
+  const choice = {
+    id, type, description: f.description.value.trim(),
+    options: f.options.value.split(',').map((s) => s.trim()).filter(Boolean),
+  };
+  setRow('characters', C(), { pending_choices: [...pendingChoices(), choice] });
+  e.target.reset();
+}
+
 function onKeyDown(e) {
   if (e.target.id === 'hp-amount' && e.key === 'Enter') {
     e.preventDefault();
@@ -1616,6 +1692,7 @@ export function mountSheet(container, bundle, options = {}) {
   B.spells ||= [];
   B.character.equipment_proficiencies ||= {};
   B.character.conditions ||= [];
+  B.character.pending_choices ||= [];
   B.character.portrait_url ??= '';
   ctx = options;
   root = document.createElement('div');
@@ -1630,6 +1707,7 @@ export function mountSheet(container, bundle, options = {}) {
   root.addEventListener('change', onChange);
   root.addEventListener('click', onClick);
   root.addEventListener('keydown', onKeyDown);
+  root.addEventListener('submit', onSubmit);
   unsubscribe = subscribeCharacter(C().id, onRemote);
   cacheSet(`bundle:${C().id}`, B);
 }

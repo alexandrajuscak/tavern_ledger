@@ -3,8 +3,8 @@
 // dice and so on. Bonuses (skills, saves, passives, initiative, to-hit) are
 // always calculated by the app and never stored.
 
-import { supabase } from './supabase.js?v=6';
-import { ABILITIES, SKILLS, CLASS_HIT_DIE, ACTIVATIONS, FEATURE_CATEGORIES, skillLevel, skillValue, dieSize } from './dnd.js?v=6';
+import { supabase } from './supabase.js?v=7';
+import { ABILITIES, SKILLS, CLASS_HIT_DIE, ACTIVATIONS, FEATURE_CATEGORIES, skillLevel, skillValue, dieSize } from './dnd.js?v=7';
 
 export const SCHEMA_VERSION = 1;
 
@@ -25,10 +25,11 @@ function activationKey(v) {
   const k = snake(v || 'passive').replace(/^1_/, '');
   if (k.startsWith('bonus')) return 'bonus_action';
   if (k.startsWith('reaction')) return 'reaction';
+  if (k.startsWith('special') || k.startsWith('free') || k.startsWith('no_action')) return 'special';
   if (k.startsWith('action')) return 'action';
   return 'passive';
 }
-const activationLabel = (k) => ACTIVATIONS.find((a) => a.key === k)?.label || 'Passive';
+const activationLabel = (k) => (k === 'special' ? 'Special' : ACTIVATIONS.find((a) => a.key === k)?.label || 'Passive');
 
 function resetKey(v) {
   const k = snake(v || 'long');
@@ -41,6 +42,18 @@ const categoryKey = (v) => {
   const k = snake(v || 'custom').replace(/_features?$/, '').replace(/^race$/, 'racial');
   return FEATURE_CATEGORIES.some((c) => c.key === k) ? k : 'custom';
 };
+
+
+/** Normalise pendingChoices: [{id, type, description, options[]}]. */
+function parsePendingChoices(v) {
+  const used = new Set();
+  return list(v).filter((p) => p && typeof p === 'object').map((p, i) => {
+    let id = String(p.id || p.type || `choice-${i + 1}`).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || `choice-${i + 1}`;
+    while (used.has(id)) id += `-${i + 1}`;
+    used.add(id);
+    return { id, type: str(p.type, 'Choice'), description: str(p.description), options: list(p.options).map(String) };
+  });
+}
 
 // ---- Proficiencies: flags <-> lists ------------------------------------------
 
@@ -114,12 +127,15 @@ export function exportCharacter(B) {
       inspiration: !!c.inspiration,
     },
     conditions: Array.isArray(c.conditions) ? c.conditions : [],
+    pendingChoices: Array.isArray(c.pending_choices) ? c.pending_choices : [],
     proficiencies: joinProficiencies(c.equipment_proficiencies, c.proficiencies),
     spellcasting: {
       ability: c.spellcasting_ability || null,
       slots: Object.fromEntries(B.slots.filter((s) => s.total > 0).map((s) => [String(s.level), { total: s.total, used: s.used }])),
     },
-    resources: B.trackers.map((t) => ({ name: t.name, current: t.current, max: t.max, reset: t.reset_on })),
+    resources: B.trackers.map((t) => ({
+      name: t.name, current: t.current, max: t.max, reset: t.reset_on, ...(t.formula ? { formula: t.formula } : {}),
+    })),
     attacks: B.attacks.map((a) => ({
       name: a.name, type: a.attack_kind, ability: a.ability, proficient: a.proficient, magicBonus: a.magic_bonus,
       damageDice: a.damage_dice, damageType: a.damage_type, addModifier: a.add_modifier,
@@ -132,7 +148,7 @@ export function exportCharacter(B) {
       name: s.name, level: s.level, school: s.school, castingTime: s.casting_time, range: s.range,
       duration: s.duration, components: s.components, concentration: s.concentration, ritual: s.ritual,
       attack: s.attack_type, save: s.save_ability || null, damage: s.damage, damageType: s.damage_type,
-      description: s.description, prepared: s.prepared,
+      description: s.description, prepared: s.prepared, ...(s.source ? { source: s.source } : {}),
     })),
     inventory: B.inventory.map((i) => ({
       name: i.name, quantity: i.quantity, weight: Number(i.weight), equipped: i.equipped, description: i.description,
@@ -201,13 +217,14 @@ export function parseCharacterJson(j) {
     proficiencies: text,
     spellcasting_ability: ABILITIES.some((a) => a.key === j.spellcasting?.ability) ? j.spellcasting.ability : '',
     conditions: list(j.conditions).map(String),
+    pending_choices: parsePendingChoices(j.pendingChoices),
     ...Object.fromEntries(ABILITIES.map((a) => [a.col, Math.min(30, Math.max(1, int(j.abilities?.[a.key], 10)))])),
     ...Object.fromEntries(['cp', 'sp', 'ep', 'gp', 'pp'].map((k) => [k, Math.max(0, int(j.currency?.[k]))])),
   };
 
   const trackers = list(j.resources).map((r, i) => ({
     name: str(r.name, 'Resource'), max: Math.max(0, int(r.max, 1)),
-    current: Math.max(0, int(r.current ?? r.max, 1)), reset_on: resetKey(r.reset), sort_order: i,
+    current: Math.max(0, int(r.current ?? r.max, 1)), reset_on: resetKey(r.reset), formula: str(r.formula), sort_order: i,
   })).map((t) => ({ ...t, current: Math.min(t.current, t.max) }));
 
   const attacks = list(j.attacks ?? j.weapons).map((a, i) => ({
@@ -248,6 +265,7 @@ export function parseCharacterJson(j) {
     damage_type: str(s.damageType).toLowerCase(),
     description: str(s.description),
     prepared: bool(s.prepared),
+    source: str(s.source),
     sort_order: i,
   }));
 

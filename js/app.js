@@ -1,13 +1,13 @@
-import { supabase, isConfigured, redirectUrl } from './supabase.js?v=6';
+import { supabase, isConfigured, redirectUrl } from './supabase.js?v=7';
 import {
   state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
   loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
   updateProfile, listCharacters, createCharacter, loadBundle, saver,
-} from './store.js?v=6';
-import { CLASSES } from './dnd.js?v=6';
-import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear } from './utils.js?v=6';
-import { mountSheet, unmountSheet } from './sheet.js?v=6';
-import { importCharacter, parseCharacterJson } from './transfer.js?v=6';
+} from './store.js?v=7';
+import { CLASSES } from './dnd.js?v=7';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear } from './utils.js?v=7';
+import { mountSheet, unmountSheet } from './sheet.js?v=7';
+import { importCharacter, parseCharacterJson } from './transfer.js?v=7';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders
@@ -337,6 +337,7 @@ function characterCard(c) {
       <span title="Armor class">🛡 ${c.ac}</span>
     </div>
     ${Array.isArray(c.conditions) && c.conditions.length ? `<div class="cc-conditions">${c.conditions.map((x) => `<span class="condition-chip small">${esc(x)}</span>`).join('')}</div>` : ''}
+    ${Array.isArray(c.pending_choices) && c.pending_choices.length ? `<span class="choices-badge small">⚠ ${c.pending_choices.length} choice${c.pending_choices.length === 1 ? "" : "s"} to make</span>` : ""}
     <div class="hp-bar small"><div class="hp-fill" style="width:${hpPct(c)}%"></div></div>
   </a>`;
 }

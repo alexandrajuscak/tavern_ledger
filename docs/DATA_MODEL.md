@@ -86,3 +86,16 @@ Spells with longer casting times (1 minute, 10 minutes, rituals…) appear only 
 - `characters.campaign_id`: one campaign per character, or none. Deleting a campaign keeps its characters.
 - The v4 migration renames the old global `dm` role to `admin`. If characters already exist, it also creates **Our Campaign** containing them, with admins as DMs and everyone else as players.
 - Only admins add or remove campaign members.
+
+## Schema refinement (v5): choices, formulas, spell sources, Special
+
+All four additions are **optional** in the JSON. Files without them import exactly as before.
+
+| JSON | Database | Purpose |
+|---|---|---|
+| `pendingChoices: [{id, type, description, options[]}]` | `characters.pending_choices jsonb default '[]'` | Unresolved decisions. The sheet header and the character card show a "⚠ N choices to make" badge, and the Bio tab lists them with **✓ Done** and **+ Add a choice**. |
+| `resources[].formula` (string) | `feature_trackers.formula text default ''` | Shows how the maximum is worked out (`monkLevel`, `paladinLevel * 5`, `1 + charismaModifier`). **Display only**: not evaluated, so `max` must still be set. Shown on the Resources tab, as a tooltip on the combat-bar chip, and in the Level Up wizard. |
+| `spells[].source` (string) | `spells.source text default ''` | Where a spell comes from (`Warlock`, `Magic Initiate`, `Drow Magic`, `Druid`…). Shown next to the spell level and editable in the spell form. |
+| `features[].type: "Special"` | `features.activation = 'special'` | Triggers on something else and uses no action (Divine Smite, Sneak Attack, damage riders). Shown in its own **Special** group on the Combat tab, only when the character has one. |
+
+**Migration:** re-run `supabase/schema.sql`. It adds the three columns with empty defaults and allows `special`. Existing rows keep their values. Then deploy the frontend (asset tag `?v=7`).

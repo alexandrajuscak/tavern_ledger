@@ -177,8 +177,8 @@ When a new version changes the database, re-run `supabase/schema.sql` in the SQL
 
 ### Making sure players get the new version
 
-Browsers cache the app's files. Every script and stylesheet link carries a version tag (`?v=6`). When you change the code, bump the number everywhere so phones and tablets load the new files straight away:
+Browsers cache the app's files. Every script and stylesheet link carries a version tag (`?v=7`). When you change the code, bump the number everywhere so phones and tablets load the new files straight away:
 
 ```bash
-sed -i "s/?v=6/?v=7/g" index.html js/*.js
+sed -i "s/?v=7/?v=8/g" index.html js/*.js
 ```

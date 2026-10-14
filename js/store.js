@@ -1,5 +1,5 @@
-import { supabase } from './supabase.js?v=6';
-import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=6';
+import { supabase } from './supabase.js?v=7';
+import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=7';
 
 export const state = {
   session: null,
@@ -100,7 +100,7 @@ export async function listCharacters() {
   return check(
     await supabase
       .from('characters')
-      .select('id, owner_id, campaign_id, name, race, class_name, subclass, level, hp_current, hp_max, hp_temp, ac, portrait_url, conditions, updated_at')
+      .select('id, owner_id, campaign_id, name, race, class_name, subclass, level, hp_current, hp_max, hp_temp, ac, portrait_url, conditions, pending_choices, updated_at')
       .order('name'),
   );
 }
