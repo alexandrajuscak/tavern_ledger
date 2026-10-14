@@ -3,8 +3,8 @@
 // dice and so on. Bonuses (skills, saves, passives, initiative, to-hit) are
 // always calculated by the app and never stored.
 
-import { supabase } from './supabase.js?v=4';
-import { ABILITIES, SKILLS, CLASS_HIT_DIE, ACTIVATIONS, FEATURE_CATEGORIES, skillLevel, skillValue, dieSize } from './dnd.js?v=4';
+import { supabase } from './supabase.js?v=5';
+import { ABILITIES, SKILLS, CLASS_HIT_DIE, ACTIVATIONS, FEATURE_CATEGORIES, skillLevel, skillValue, dieSize } from './dnd.js?v=5';
 
 export const SCHEMA_VERSION = 1;
 
@@ -276,10 +276,11 @@ export function parseCharacterJson(j) {
 }
 
 /** Create a new character from JSON. Returns the new character id. */
-export async function importCharacter(json, ownerId) {
+export async function importCharacter(json, ownerId, campaignId) {
   const p = parseCharacterJson(json);
   const row = { ...p.character };
   if (ownerId) row.owner_id = ownerId;
+  if (campaignId) row.campaign_id = campaignId;
 
   const { data: c, error } = await supabase.from('characters').insert(row).select('id').single();
   if (error) throw error;

@@ -19,7 +19,7 @@ It's plain HTML, CSS and JavaScript, uses Supabase for login and storage, and is
 - **Portraits**: upload an image (resized automatically) or paste an image URL
 - **JSON import / export** of whole characters (`docs/character.schema.json`, example in `examples/`)
 - **Level Up Wizard**: set the new level, HP gain, subclass, features, resource pools and spell slots in one flow
-- **DM mode**: view and edit every character, run level ups and manage player roles
+- **Campaigns**: an admin creates campaigns and adds people as **DMs** or **players**. A campaign's DMs see and edit every character in it (level ups, owners); players see their own characters
 - Short and long rest buttons that restore the right resources
 
 ---
@@ -100,15 +100,15 @@ export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_...';
 
 The publishable key is meant to be public and safe to commit. Row Level Security is what protects the data. Never put the secret key (`sb_secret_...`) in this file.
 
-### 4. Become the DM
+### 4. Become the admin
 
 Sign in to the app once so your profile exists. Then run this in the SQL Editor:
 
 ```sql
-update public.profiles set role = 'dm' where email = 'you@example.com';
+update public.profiles set role = 'admin' where email = 'you@example.com';
 ```
 
-Reload the app and you'll see a red **DM** badge. The **Players** page now lets you promote co-DMs and rename players.
+Reload the app and you'll see a red **ADMIN** badge. Use **⚙ Manage** to create campaigns, add players and co-DMs to them, and rename people. New players appear on the Manage page after their first sign-in.
 
 ### 5. Run locally (optional)
 
@@ -167,7 +167,7 @@ There's no build step: every push to `main` redeploys.
 | "Could not load your profile" | `supabase/schema.sql` hasn't been run, or it failed. Run it again. |
 | Google login returns to the wrong page | The GitHub Pages URL is missing from Supabase **Redirect URLs**. |
 | Changes don't show live on another device | Check **Database → Publications → supabase_realtime** includes the tables. The schema adds them. |
-| Player sees no characters after the DM created one | In the sheet's **Bio** tab, the DM picks the player under *Player (owner)*. |
+| Player sees no characters after the DM created one | Check that the player is a member of the campaign (**⚙ Manage**) and is set as the owner in the sheet's **Bio** tab. |
 
 ---
 
@@ -177,8 +177,8 @@ When a new version changes the database, re-run `supabase/schema.sql` in the SQL
 
 ### Making sure players get the new version
 
-Browsers cache the app's files. Every script and stylesheet link carries a version tag (`?v=4`). When you change the code, bump the number everywhere so phones and tablets load the new files straight away:
+Browsers cache the app's files. Every script and stylesheet link carries a version tag (`?v=5`). When you change the code, bump the number everywhere so phones and tablets load the new files straight away:
 
 ```bash
-sed -i "s/?v=4/?v=5/g" index.html js/*.js
+sed -i "s/?v=5/?v=6/g" index.html js/*.js
 ```

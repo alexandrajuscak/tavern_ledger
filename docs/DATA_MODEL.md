@@ -72,3 +72,17 @@ Spells with longer casting times (1 minute, 10 minutes, rituals…) appear only 
 3. Renames note kind `quest` → `session` (existing Quest Log text is kept as Session Notes).
 4. Converts `skill_proficiencies` from numbers (`0/1/2`) to `{proficient, expertise}` objects.
 5. Creates the `portraits` storage bucket and its access policies.
+
+## Campaigns and permissions (v4)
+
+| Who | Sees | Can change |
+|---|---|---|
+| **Admin** (`profiles.role = 'admin'`) | everything | everything: campaigns, members, roles, all characters |
+| **Campaign DM** (`campaign_members.role = 'dm'`) | every character in their campaigns, and the names of the people in them | those characters (incl. level ups, owner); the campaign's name/description |
+| **Player** (`campaign_members.role = 'player'`) | their own characters, and the names of people in their campaigns | their own characters; may move them between campaigns they belong to |
+
+- `campaigns(id, name, description, created_by)`
+- `campaign_members(campaign_id, user_id, role)`: a person can be in several campaigns, with a different role in each.
+- `characters.campaign_id`: one campaign per character, or none. Deleting a campaign keeps its characters.
+- The v4 migration renames the old global `dm` role to `admin`. If characters already exist, it also creates **Our Campaign** containing them, with admins as DMs and everyone else as players.
+- Only admins add or remove campaign members.

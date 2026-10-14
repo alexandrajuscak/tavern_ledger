@@ -14,7 +14,7 @@ create table if not exists public.profiles (
   id           uuid primary key references auth.users (id) on delete cascade,
   email        text,
   display_name text,
-  role         text not null default 'player' check (role in ('player', 'dm')),
+  role         text not null default 'player' check (role in ('player', 'admin')),
   created_at   timestamptz not null default now()
 );
 
@@ -215,6 +215,53 @@ set skill_proficiencies = coalesce((
   from jsonb_each(c.skill_proficiencies) e), '{}'::jsonb)
 where exists (select 1 from jsonb_each(c.skill_proficiencies) e where jsonb_typeof(e.value) <> 'object');
 
+-- -----------------------------------------------------------------------------
+-- v4: campaigns. One global admin role; per-campaign DMs and players.
+-- -----------------------------------------------------------------------------
+
+create table if not exists public.campaigns (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null default 'New Campaign',
+  description text not null default '',
+  created_by  uuid default auth.uid() references public.profiles (id) on delete set null,
+  created_at  timestamptz not null default now()
+);
+
+create table if not exists public.campaign_members (
+  campaign_id uuid not null references public.campaigns (id) on delete cascade,
+  user_id     uuid not null references public.profiles (id) on delete cascade,
+  role        text not null default 'player' check (role in ('dm', 'player')),
+  created_at  timestamptz not null default now(),
+  primary key (campaign_id, user_id)
+);
+
+alter table public.characters add column if not exists campaign_id uuid references public.campaigns (id) on delete set null;
+create index if not exists characters_campaign_idx on public.characters (campaign_id);
+create index if not exists campaign_members_user_idx on public.campaign_members (user_id);
+
+-- The old global "dm" role becomes "admin" (sees and manages everything).
+alter table public.profiles drop constraint if exists profiles_role_check;
+update public.profiles set role = 'admin' where role = 'dm';
+alter table public.profiles add constraint profiles_role_check check (role in ('player', 'admin'));
+
+-- First run only: put every existing character and person into one campaign,
+-- with admins as its DMs, so nothing disappears.
+do $$
+declare camp uuid;
+begin
+  if not exists (select 1 from public.campaigns) and exists (select 1 from public.characters) then
+    insert into public.campaigns (name, description, created_by)
+    values ('Our Campaign', 'Created automatically from the existing characters. Rename it on the Campaigns page.',
+            (select id from public.profiles where role = 'admin' order by created_at limit 1))
+    returning id into camp;
+    update public.characters set campaign_id = camp where campaign_id is null;
+    insert into public.campaign_members (campaign_id, user_id, role)
+    select camp, p.id, case when p.role = 'admin' then 'dm' else 'player' end
+    from public.profiles p
+    on conflict do nothing;
+  end if;
+end $$;
+
 create index if not exists characters_owner_idx        on public.characters (owner_id);
 create index if not exists attacks_char_idx            on public.attacks (character_id);
 create index if not exists spells_char_idx             on public.spells (character_id);
@@ -229,20 +276,56 @@ create index if not exists features_char_idx           on public.features (chara
 -- without recursive policy evaluation)
 -- -----------------------------------------------------------------------------
 
+create or replace function public.is_admin()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (select 1 from public.profiles where id = auth.uid() and role = 'admin');
+$$;
+
+-- Kept for older policies/scripts; same as is_admin().
 create or replace function public.is_dm()
 returns boolean
 language sql stable security definer set search_path = public
 as $$
-  select exists (select 1 from public.profiles where id = auth.uid() and role = 'dm');
+  select public.is_admin();
 $$;
 
+create or replace function public.is_campaign_member(camp uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (select 1 from public.campaign_members where campaign_id = camp and user_id = auth.uid());
+$$;
+
+create or replace function public.is_campaign_dm(camp uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (select 1 from public.campaign_members where campaign_id = camp and user_id = auth.uid() and role = 'dm');
+$$;
+
+-- True when the current user and `other` are in at least one campaign together.
+create or replace function public.shares_campaign(other uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from public.campaign_members me
+    join public.campaign_members them on them.campaign_id = me.campaign_id
+    where me.user_id = auth.uid() and them.user_id = other
+  );
+$$;
+
+-- Owner, admin, or a DM of the character's campaign.
 create or replace function public.can_access_character(cid uuid)
 returns boolean
 language sql stable security definer set search_path = public
 as $$
   select exists (
     select 1 from public.characters c
-    where c.id = cid and (c.owner_id = auth.uid() or public.is_dm())
+    where c.id = cid
+      and (c.owner_id = auth.uid() or public.is_admin() or public.is_campaign_dm(c.campaign_id))
   );
 $$;
 
@@ -274,20 +357,20 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- Only a DM may change roles. Requests coming from the SQL editor / service role
--- (auth.uid() is null) are allowed, so the first DM can be bootstrapped.
+-- Only an admin may change roles. Requests coming from the SQL editor / service role
+-- (auth.uid() is null) are allowed, so the first admin can be bootstrapped.
 create or replace function public.protect_profile_role()
 returns trigger
 language plpgsql security definer set search_path = public
 as $$
 begin
-  if auth.uid() is null or public.is_dm() then
+  if auth.uid() is null or public.is_admin() then
     return new;
   end if;
   if tg_op = 'INSERT' then
     new.role := 'player';
   elsif new.role is distinct from old.role then
-    raise exception 'Only the DM can change roles';
+    raise exception 'Only an admin can change roles';
   end if;
   return new;
 end;
@@ -343,11 +426,14 @@ create trigger characters_seed after insert on public.characters
 
 -- -----------------------------------------------------------------------------
 -- Row Level Security
---   players: full access to their own characters
---   DM:      full access to every character and every profile
+--   admin:        everything
+--   campaign DM:  every character in their campaigns (and their players' names)
+--   player:       their own characters
 -- -----------------------------------------------------------------------------
 
 alter table public.profiles         enable row level security;
+alter table public.campaigns        enable row level security;
+alter table public.campaign_members enable row level security;
 alter table public.characters       enable row level security;
 alter table public.inventory_items  enable row level security;
 alter table public.notes            enable row level security;
@@ -357,10 +443,10 @@ alter table public.features         enable row level security;
 alter table public.attacks          enable row level security;
 alter table public.spells           enable row level security;
 
--- profiles
+-- profiles: yourself, everyone you share a campaign with, or everyone (admin)
 drop policy if exists "profiles_select" on public.profiles;
 create policy "profiles_select" on public.profiles
-  for select to authenticated using (id = auth.uid() or public.is_dm());
+  for select to authenticated using (id = auth.uid() or public.is_admin() or public.shares_campaign(id));
 
 drop policy if exists "profiles_insert" on public.profiles;
 create policy "profiles_insert" on public.profiles
@@ -369,27 +455,68 @@ create policy "profiles_insert" on public.profiles
 drop policy if exists "profiles_update" on public.profiles;
 create policy "profiles_update" on public.profiles
   for update to authenticated
-  using (id = auth.uid() or public.is_dm())
-  with check (id = auth.uid() or public.is_dm());
+  using (id = auth.uid() or public.is_admin())
+  with check (id = auth.uid() or public.is_admin());
+
+-- campaigns: members can see them; admins create/delete; admins and the campaign's DMs edit
+drop policy if exists "campaigns_select" on public.campaigns;
+create policy "campaigns_select" on public.campaigns
+  for select to authenticated using (public.is_admin() or public.is_campaign_member(id));
+
+drop policy if exists "campaigns_insert" on public.campaigns;
+create policy "campaigns_insert" on public.campaigns
+  for insert to authenticated with check (public.is_admin());
+
+drop policy if exists "campaigns_update" on public.campaigns;
+create policy "campaigns_update" on public.campaigns
+  for update to authenticated
+  using (public.is_admin() or public.is_campaign_dm(id))
+  with check (public.is_admin() or public.is_campaign_dm(id));
+
+drop policy if exists "campaigns_delete" on public.campaigns;
+create policy "campaigns_delete" on public.campaigns
+  for delete to authenticated using (public.is_admin());
+
+-- campaign_members: members see their campaign's roster; only admins change it
+drop policy if exists "campaign_members_select" on public.campaign_members;
+create policy "campaign_members_select" on public.campaign_members
+  for select to authenticated using (public.is_admin() or public.is_campaign_member(campaign_id));
+
+drop policy if exists "campaign_members_write" on public.campaign_members;
+create policy "campaign_members_write" on public.campaign_members
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- characters
 drop policy if exists "characters_select" on public.characters;
 create policy "characters_select" on public.characters
-  for select to authenticated using (owner_id = auth.uid() or public.is_dm());
+  for select to authenticated
+  using (owner_id = auth.uid() or public.is_admin() or public.is_campaign_dm(campaign_id));
 
+-- You may create/save a character if you are an admin, a DM of its campaign,
+-- or its owner and (it has no campaign or you are a member of that campaign).
 drop policy if exists "characters_insert" on public.characters;
 create policy "characters_insert" on public.characters
-  for insert to authenticated with check (owner_id = auth.uid() or public.is_dm());
+  for insert to authenticated
+  with check (
+    public.is_admin()
+    or public.is_campaign_dm(campaign_id)
+    or (owner_id = auth.uid() and (campaign_id is null or public.is_campaign_member(campaign_id)))
+  );
 
 drop policy if exists "characters_update" on public.characters;
 create policy "characters_update" on public.characters
   for update to authenticated
-  using (owner_id = auth.uid() or public.is_dm())
-  with check (owner_id = auth.uid() or public.is_dm());
+  using (owner_id = auth.uid() or public.is_admin() or public.is_campaign_dm(campaign_id))
+  with check (
+    public.is_admin()
+    or public.is_campaign_dm(campaign_id)
+    or (owner_id = auth.uid() and (campaign_id is null or public.is_campaign_member(campaign_id)))
+  );
 
 drop policy if exists "characters_delete" on public.characters;
 create policy "characters_delete" on public.characters
-  for delete to authenticated using (owner_id = auth.uid() or public.is_dm());
+  for delete to authenticated
+  using (owner_id = auth.uid() or public.is_admin() or public.is_campaign_dm(campaign_id));
 
 -- child tables: access follows the parent character
 do $$
@@ -406,7 +533,7 @@ end $$;
 
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on
-  public.profiles, public.characters, public.inventory_items, public.notes,
+  public.profiles, public.campaigns, public.campaign_members, public.characters, public.inventory_items, public.notes,
   public.spell_slots, public.feature_trackers, public.features, public.attacks, public.spells
 to authenticated;
 
@@ -468,7 +595,7 @@ create policy "portraits_delete" on storage.objects
   using (bucket_id = 'portraits' and public.can_access_character(public.try_uuid((storage.foldername(name))[1])));
 
 -- -----------------------------------------------------------------------------
--- Make yourself the DM (run after you have signed in once):
+-- Make yourself the admin (run after you have signed in once):
 --
---   update public.profiles set role = 'dm' where email = 'you@example.com';
+--   update public.profiles set role = 'admin' where email = 'you@example.com';
 -- -----------------------------------------------------------------------------

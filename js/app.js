@@ -1,11 +1,13 @@
-import { supabase, isConfigured, redirectUrl } from './supabase.js?v=4';
+import { supabase, isConfigured, redirectUrl } from './supabase.js?v=5';
 import {
-  state, isDM, loadProfile, listProfiles, updateProfile, listCharacters, createCharacter, loadBundle, saver,
-} from './store.js?v=4';
-import { CLASSES } from './dnd.js?v=4';
-import { $, $$, esc, toast, openModal, cacheGet, cacheSet, cacheClear } from './utils.js?v=4';
-import { mountSheet, unmountSheet } from './sheet.js?v=4';
-import { importCharacter, parseCharacterJson } from './transfer.js?v=4';
+  state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
+  loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
+  updateProfile, listCharacters, createCharacter, loadBundle, saver,
+} from './store.js?v=5';
+import { CLASSES } from './dnd.js?v=5';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear } from './utils.js?v=5';
+import { mountSheet, unmountSheet } from './sheet.js?v=5';
+import { importCharacter, parseCharacterJson } from './transfer.js?v=5';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders
@@ -63,14 +65,14 @@ async function handleSession(session) {
   }
   try {
     await loadProfile(session.user);
+    await loadCampaigns();
   } catch (err) {
     console.error(err);
-    renderError('Could not load your profile. Did you run supabase/schema.sql?', err);
+    renderError('Could not load your profile or campaigns. Did you run the latest supabase/schema.sql?', err);
     return;
   }
   $('#topbar').hidden = false;
-  $('#dm-badge').hidden = !isDM();
-  $('#user-name').textContent = state.profile.display_name || session.user.email;
+  updateBadges();
   route();
 }
 
@@ -92,7 +94,7 @@ function renderSaveStatus(s) {
 }
 
 // -----------------------------------------------------------------------------
-// Router: #/  ·  #/c/<id>  ·  #/players
+// Router: #/  ·  #/c/<id>  ·  #/campaigns (admin)
 // -----------------------------------------------------------------------------
 
 function route() {
@@ -105,7 +107,7 @@ function route() {
   if (charMatch) return openCharacter(charMatch[1], token);
 
   unmountSheet();
-  if (hash === '#/players' && isDM()) return renderPlayers(token);
+  if ((hash === '#/campaigns' || hash === '#/players') && isAdmin()) return renderCampaigns(token);
   return renderList(token);
 }
 
@@ -223,21 +225,54 @@ function hpPct(c) {
 const initials = (name) =>
   String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 
-function importDialog() {
-  const dm = isDM();
-  const ownerField = dm && state.profiles.length ? `
-    <label class="field"><span>Player</span>
-      <select name="owner_id">
-        ${state.profiles.map((p) => `<option value="${p.id}" ${p.id === state.profile.id ? 'selected' : ''}>${esc(p.display_name || p.email)}</option>`).join('')}
+// ---- Campaign + owner pickers shared by "New character" and "Import" ------------
+
+/** Owners the current user may assign in a campaign: admin → anyone; campaign DM → its members. */
+function ownerOptions(campaignId) {
+  if (isAdmin()) return state.profiles;
+  if (campaignId && isCampaignDM(campaignId)) {
+    const ids = new Set(campaignMembers(campaignId).map((m) => m.user_id));
+    return state.profiles.filter((p) => ids.has(p.id));
+  }
+  return [];
+}
+
+function campaignOwnerFields() {
+  const camps = myCampaigns();
+  const campField = camps.length ? `
+    <label class="field"><span>Campaign</span>
+      <select name="campaign_id">
+        ${camps.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}
+        ${isAdmin() ? '<option value="">— No campaign —</option>' : ''}
       </select>
     </label>` : '';
+  return `${campField}<label class="field" data-owner-field hidden><span>Player</span><select name="owner_id"></select></label>`;
+}
+
+/** Fill the Player select for the chosen campaign and keep it in sync. */
+function wireOwnerField(form) {
+  const fill = () => {
+    const owners = ownerOptions(form.elements.campaign_id?.value || null);
+    const field = $('[data-owner-field]', form);
+    field.hidden = owners.length === 0;
+    form.elements.owner_id.innerHTML = owners.map((p) =>
+      `<option value="${p.id}" ${p.id === state.profile.id ? 'selected' : ''}>${esc(p.display_name || p.email)}</option>`).join('');
+  };
+  form.elements.campaign_id?.addEventListener('change', fill);
+  fill();
+}
+
+const formCampaign = (f) => f.elements.campaign_id?.value || null;
+const formOwner = (f) => ($('[data-owner-field]', f).hidden ? undefined : f.elements.owner_id.value || undefined);
+
+function importDialog() {
   const m = openModal({
     title: 'Import character',
     body: `
       <form id="import-form" class="stack">
         <p class="muted small">Choose a character <code>.json</code> file, e.g. one downloaded from a sheet's Bio tab.</p>
         <label class="field"><span>File</span><input type="file" name="file" accept=".json,application/json" required></label>
-        ${ownerField}
+        <div class="form-grid">${campaignOwnerFields()}</div>
         <div id="import-preview" class="muted small"></div>
       </form>`,
     footer: `
@@ -246,6 +281,7 @@ function importDialog() {
   });
   const form = $('#import-form', m.el);
   const submit = $('button[type="submit"]', m.el);
+  wireOwnerField(form);
   let parsed = null;
 
   form.elements.file.addEventListener('change', async () => {
@@ -272,7 +308,7 @@ function importDialog() {
     if (!parsed) return;
     submit.disabled = true;
     try {
-      const id = await importCharacter(parsed, form.elements.owner_id?.value);
+      const id = await importCharacter(parsed, formOwner(form), formCampaign(form));
       m.close();
       toast('Character imported.', 'good');
       window.location.hash = `#/c/${id}`;
@@ -305,14 +341,52 @@ function characterCard(c) {
   </a>`;
 }
 
+function updateBadges() {
+  const badge = $('#dm-badge');
+  badge.textContent = isAdmin() ? 'ADMIN' : 'DM';
+  badge.hidden = !isAnyDM();
+  $('#user-name').textContent = state.profile.display_name || state.profile.email;
+}
+
+/** Characters of one campaign, grouped by player when you can see other people's. */
+function ownerGroupsHTML(chars, showOwners) {
+  if (!showOwners) return `<div class="char-grid">${chars.map(characterCard).join('')}</div>`;
+  const groups = new Map();
+  chars.forEach((c) => {
+    if (!groups.has(c.owner_id)) groups.set(c.owner_id, []);
+    groups.get(c.owner_id).push(c);
+  });
+  return [...groups.entries()]
+    .sort(([a], [b]) => (a === state.profile.id ? -1 : b === state.profile.id ? 1 : profileName(a).localeCompare(profileName(b))))
+    .map(([owner, list]) => `
+      <div class="owner-group">
+        <h3 class="owner-title">${esc(profileName(owner))}${owner === state.profile.id ? ' <span class="badge">you</span>' : ''}</h3>
+        <div class="char-grid">${list.map(characterCard).join('')}</div>
+      </div>`).join('');
+}
+
+function campaignHeaderHTML(camp) {
+  const members = campaignMembers(camp.id);
+  const dms = members.filter((m) => m.role === 'dm').map((m) => profileName(m.user_id));
+  const players = members.filter((m) => m.role === 'player').length;
+  const myRole = isCampaignDM(camp.id) ? 'DM'
+    : members.some((m) => m.user_id === state.profile.id) ? 'Player'
+      : isAdmin() ? 'Admin' : '';
+  return `
+    <div class="campaign-head">
+      <h2 class="campaign-title">${esc(camp.name)} ${myRole ? `<span class="badge ${myRole === 'Player' ? '' : 'badge-dm'}">${myRole}</span>` : ''}</h2>
+      <div class="muted small">DM${dms.length === 1 ? '' : 's'}: ${esc(dms.join(', ') || '—')} · ${players} player${players === 1 ? '' : 's'}</div>
+      ${camp.description ? `<p class="campaign-desc">${esc(camp.description)}</p>` : ''}
+    </div>`;
+}
+
 async function renderList(token) {
-  const dm = isDM();
   app.innerHTML = `
   <div class="page">
     <div class="page-head">
-      <h1 class="title">${dm ? 'The Party' : 'Your Characters'}</h1>
+      <h1 class="title">${isAnyDM() ? 'Campaigns' : 'Your Characters'}</h1>
       <div class="row gap">
-        ${dm ? '<a class="btn" href="#/players">Players</a>' : ''}
+        ${isAdmin() ? '<a class="btn" href="#/campaigns">⚙ Manage</a>' : ''}
         <button type="button" class="btn" id="btn-import">⬆ Import JSON</button>
         <button type="button" class="btn btn-gold" id="btn-new">+ New Character</button>
       </div>
@@ -325,44 +399,50 @@ async function renderList(token) {
   const paint = (chars) => {
     if (token !== routeToken) return;
     const host = $('#char-list');
-    if (!chars.length) {
+    const sections = [];
+    for (const camp of state.campaigns) {
+      const list = chars.filter((c) => c.campaign_id === camp.id);
+      const dmHere = isAdmin() || isCampaignDM(camp.id);
+      const memberHere = campaignMembers(camp.id).some((m) => m.user_id === state.profile.id);
+      if (!list.length && !dmHere && !memberHere) continue;
+      sections.push(`
+        <section class="campaign-group">
+          ${campaignHeaderHTML(camp)}
+          ${list.length ? ownerGroupsHTML(list, dmHere) : '<p class="empty">No characters in this campaign yet.</p>'}
+        </section>`);
+    }
+    const loose = chars.filter((c) => !c.campaign_id || !state.campaigns.some((k) => k.id === c.campaign_id));
+    if (loose.length) {
+      sections.push(`
+        <section class="campaign-group">
+          <div class="campaign-head">
+            <h2 class="campaign-title">Not in a campaign</h2>
+            <div class="muted small">Choose a campaign on the character's Bio tab.</div>
+          </div>
+          ${ownerGroupsHTML(loose, isAdmin())}
+        </section>`);
+    }
+    if (!sections.length) {
       host.innerHTML = `
         <div class="empty-state card">
           <div class="big-icon">🎲</div>
           <p>No characters yet.</p>
+          ${!myCampaigns().length && !isAdmin() ? '<p class="muted small">Ask your DM to add you to a campaign.</p>' : ''}
           <button type="button" class="btn btn-gold" id="btn-new-empty">Create your first character</button>
         </div>`;
       $('#btn-new-empty').addEventListener('click', newCharacterDialog);
       return;
     }
-    if (!dm) {
-      host.innerHTML = `<div class="char-grid">${chars.map(characterCard).join('')}</div>`;
-      return;
-    }
-    const groups = new Map();
-    chars.forEach((c) => {
-      if (!groups.has(c.owner_id)) groups.set(c.owner_id, []);
-      groups.get(c.owner_id).push(c);
-    });
-    const nameOf = (id) => {
-      const p = state.profiles.find((x) => x.id === id);
-      return p ? p.display_name || p.email : 'Unknown player';
-    };
-    host.innerHTML = [...groups.entries()]
-      .sort(([a], [b]) => (a === state.profile.id ? -1 : b === state.profile.id ? 1 : nameOf(a).localeCompare(nameOf(b))))
-      .map(([owner, list]) => `
-        <section class="owner-group">
-          <h2 class="owner-title">${esc(nameOf(owner))}${owner === state.profile.id ? ' <span class="badge">you</span>' : ''}</h2>
-          <div class="char-grid">${list.map(characterCard).join('')}</div>
-        </section>`).join('');
+    host.innerHTML = sections.join('');
   };
 
   const cached = cacheGet('list');
-  if (cached) paint(cached);
+  if (cached && state.campaigns.length) paint(cached);
 
   try {
-    const [chars] = await Promise.all([listCharacters(), dm ? listProfiles() : null]);
+    const [chars] = await Promise.all([listCharacters(), loadCampaigns()]);
     cacheSet('list', chars);
+    updateBadges();
     paint(chars);
   } catch (err) {
     console.error(err);
@@ -371,13 +451,6 @@ async function renderList(token) {
 }
 
 function newCharacterDialog() {
-  const dm = isDM();
-  const ownerField = dm && state.profiles.length ? `
-    <label class="field"><span>Player</span>
-      <select name="owner_id">
-        ${state.profiles.map((p) => `<option value="${p.id}" ${p.id === state.profile.id ? 'selected' : ''}>${esc(p.display_name || p.email)}</option>`).join('')}
-      </select>
-    </label>` : '';
   const m = openModal({
     title: 'New Character',
     body: `
@@ -387,7 +460,7 @@ function newCharacterDialog() {
           <label class="field"><span>Race</span><input name="race" placeholder="Dwarf"></label>
           <label class="field"><span>Class</span><input name="class_name" list="new-class-list" placeholder="Fighter"></label>
           <label class="field"><span>Level</span><input name="level" type="number" min="1" max="20" value="1"></label>
-          ${ownerField}
+          ${campaignOwnerFields()}
         </div>
         <datalist id="new-class-list">${CLASSES.map((c) => `<option value="${c}">`).join('')}</datalist>
       </form>`,
@@ -395,8 +468,10 @@ function newCharacterDialog() {
       <button type="button" class="btn" data-close>Cancel</button>
       <button type="submit" form="new-char" class="btn btn-gold">Create</button>`,
   });
+  const form = $('#new-char', m.el);
+  wireOwnerField(form);
 
-  $('#new-char', m.el).addEventListener('submit', async (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
     const submit = $('button[type="submit"]', m.el);
@@ -407,7 +482,8 @@ function newCharacterDialog() {
         race: f.elements.race.value.trim(),
         class_name: f.elements.class_name.value.trim(),
         level: f.elements.level.value,
-        owner_id: f.elements.owner_id?.value,
+        owner_id: formOwner(f),
+        campaign_id: formCampaign(f),
       });
       m.close();
       window.location.hash = `#/c/${c.id}`;
@@ -426,8 +502,9 @@ async function openCharacter(id, token) {
 
   try {
     await saver.flush();
-    const [bundle] = await Promise.all([loadBundle(id), isDM() && !state.profiles.length ? listProfiles() : null]);
+    const [bundle] = await Promise.all([loadBundle(id), loadCampaigns()]);
     if (token !== routeToken) return;
+    updateBadges();
     mountSheet(app, bundle, {
       reload: () => openCharacter(id, routeToken),
       onDeleted: () => { window.location.hash = '#/'; },
@@ -443,58 +520,157 @@ async function openCharacter(id, token) {
   }
 }
 
-async function renderPlayers(token) {
+// ---- Admin: campaigns & people ----------------------------------------------------
+
+function manageHTML(chars) {
+  const camps = state.campaigns.map((camp) => {
+    const members = campaignMembers(camp.id)
+      .sort((a, b) => (a.role === b.role ? profileName(a.user_id).localeCompare(profileName(b.user_id)) : a.role === 'dm' ? -1 : 1));
+    const memberIds = new Set(members.map((m) => m.user_id));
+    const addable = state.profiles.filter((p) => !memberIds.has(p.id));
+    const count = chars.filter((c) => c.campaign_id === camp.id).length;
+    return `
+    <section class="card manage-campaign" data-campaign="${camp.id}">
+      <div class="form-grid">
+        <label class="field"><span>Campaign name</span><input type="text" data-camp-field="name" value="${esc(camp.name)}"></label>
+        <label class="field"><span>Description</span><input type="text" data-camp-field="description" value="${esc(camp.description)}" placeholder="Optional"></label>
+      </div>
+      <h4>Members <span class="count">${members.length} · ${count} character${count === 1 ? '' : 's'}</span></h4>
+      <div class="member-list">
+        ${members.map((mb) => `
+          <div class="member-row" data-user="${mb.user_id}">
+            <span class="member-name">${esc(profileName(mb.user_id))}</span>
+            <select data-member-role aria-label="Role">
+              <option value="dm" ${mb.role === 'dm' ? 'selected' : ''}>DM</option>
+              <option value="player" ${mb.role === 'player' ? 'selected' : ''}>Player</option>
+            </select>
+            <button type="button" class="icon-btn danger" data-remove-member aria-label="Remove from campaign">✕</button>
+          </div>`).join('') || '<p class="empty">No members yet.</p>'}
+      </div>
+      ${addable.length ? `
+      <div class="add-member">
+        <select data-add-user aria-label="Person to add">${addable.map((p) => `<option value="${p.id}">${esc(p.display_name || p.email)}</option>`).join('')}</select>
+        <select data-add-role aria-label="Role"><option value="player">as Player</option><option value="dm">as DM</option></select>
+        <button type="button" class="btn btn-sm btn-gold" data-add-member>+ Add</button>
+      </div>` : '<p class="muted small">Everyone who has signed in is already in this campaign.</p>'}
+      <div class="row gap mt"><button type="button" class="btn btn-sm btn-bad" data-delete-campaign>Delete campaign</button></div>
+    </section>`;
+  }).join('');
+
+  const people = state.profiles.map((p) => `
+    <div class="player-row card" data-id="${p.id}">
+      <div class="player-info">
+        <input type="text" class="player-name" value="${esc(p.display_name || '')}" placeholder="Display name" aria-label="Display name">
+        <span class="muted small">${esc(p.email || '')} · ${chars.filter((c) => c.owner_id === p.id).length} character(s)</span>
+      </div>
+      <select class="player-role" aria-label="Global role">
+        <option value="player" ${p.role === 'player' ? 'selected' : ''}>Player</option>
+        <option value="admin" ${p.role === 'admin' ? 'selected' : ''}>Admin</option>
+      </select>
+    </div>`).join('');
+
+  return `
+    <div class="section-head">
+      <h3 class="section-title">Campaigns</h3>
+      <button type="button" class="btn btn-gold btn-sm" data-new-campaign>+ New campaign</button>
+    </div>
+    <p class="muted small">A campaign's DMs can see and edit every character in it. Players see only their own characters.</p>
+    ${camps || '<p class="empty">No campaigns yet.</p>'}
+
+    <h3 class="section-title mt">People</h3>
+    <p class="muted small">Everyone who has signed in. New players appear here after their first login; then add them to a campaign above. Admins see and manage everything.</p>
+    <div class="player-table">${people}</div>`;
+}
+
+async function renderCampaigns(token) {
   app.innerHTML = `
   <div class="page">
     <div class="page-head">
-      <h1 class="title">Players</h1>
+      <h1 class="title">Manage</h1>
       <a class="btn" href="#/">← Characters</a>
     </div>
-    <p class="muted">Everyone who has signed in appears here. Promote a co-DM or rename players.</p>
-    <div id="player-list"><div class="spinner"></div></div>
+    <div id="manage"><div class="spinner"></div></div>
   </div>`;
 
-  try {
-    const [profiles, chars] = await Promise.all([listProfiles(), listCharacters()]);
-    if (token !== routeToken) return;
-    $('#player-list').innerHTML = `
-      <div class="player-table">
-        ${profiles.map((p) => `
-          <div class="player-row card" data-id="${p.id}">
-            <div class="player-info">
-              <input type="text" class="player-name" value="${esc(p.display_name || '')}" placeholder="Display name" aria-label="Display name">
-              <span class="muted small">${esc(p.email || '')} · ${chars.filter((c) => c.owner_id === p.id).length} character(s)</span>
-            </div>
-            <select class="player-role" aria-label="Role">
-              <option value="player" ${p.role === 'player' ? 'selected' : ''}>Player</option>
-              <option value="dm" ${p.role === 'dm' ? 'selected' : ''}>DM</option>
-            </select>
-          </div>`).join('')}
-      </div>`;
+  let chars = [];
+  const refresh = async () => {
+    [chars] = await Promise.all([listCharacters(), loadCampaigns()]);
+    if (token === routeToken) $('#manage').innerHTML = manageHTML(chars);
+  };
+  const guard = (fn) => async (e) => {
+    try {
+      await fn(e);
+    } catch (err) {
+      console.error(err);
+      toast(err.message || 'Something went wrong', 'bad', 5000);
+      await refresh().catch(() => {});
+    }
+  };
 
-    $('#player-list').addEventListener('change', async (e) => {
-      const row = e.target.closest('.player-row');
-      if (!row) return;
-      const patch = e.target.classList.contains('player-role')
-        ? { role: e.target.value }
-        : { display_name: e.target.value.trim() };
-      try {
-        await updateProfile(row.dataset.id, patch);
-        toast('Saved', 'good');
-        if (row.dataset.id === state.profile.id) {
-          Object.assign(state.profile, patch);
-          $('#dm-badge').hidden = !isDM();
-          $('#user-name').textContent = state.profile.display_name || state.profile.email;
-          if (!isDM()) window.location.hash = '#/';
-        }
-      } catch (err) {
-        toast(err.message, 'bad');
-      }
-    });
+  try {
+    await refresh();
   } catch (err) {
     console.error(err);
-    renderError('Could not load players.', err);
+    renderError('Could not load campaigns. Did you re-run supabase/schema.sql?', err);
+    return;
   }
+
+  const host = $('#manage');
+  host.addEventListener('click', guard(async (e) => {
+    const box = e.target.closest('[data-campaign]');
+    const camp = box?.dataset.campaign;
+    if (e.target.closest('[data-new-campaign]')) {
+      const c = await createCampaign('New Campaign');
+      await setMember(c.id, state.profile.id, 'dm');
+      toast('Campaign created. You are its DM.', 'good');
+      await refresh();
+      $(`[data-campaign="${c.id}"] [data-camp-field="name"]`)?.select();
+    } else if (e.target.closest('[data-add-member]')) {
+      await setMember(camp, $('[data-add-user]', box).value, $('[data-add-role]', box).value);
+      await refresh();
+    } else if (e.target.closest('[data-remove-member]')) {
+      const user = e.target.closest('[data-user]').dataset.user;
+      const ok = await confirmDialog(
+        `Remove ${profileName(user)} from this campaign? Their characters stay, but this campaign's DMs will no longer see them.`,
+        { okLabel: 'Remove', danger: true },
+      );
+      if (!ok) return;
+      await removeMember(camp, user);
+      await refresh();
+    } else if (e.target.closest('[data-delete-campaign]')) {
+      const name = state.campaigns.find((c) => c.id === camp)?.name;
+      const ok = await confirmDialog(
+        `Delete the campaign “${name}”? Its characters are kept and move to “Not in a campaign”.`,
+        { okLabel: 'Delete', danger: true },
+      );
+      if (!ok) return;
+      await deleteCampaign(camp);
+      await refresh();
+    }
+  }));
+
+  host.addEventListener('change', guard(async (e) => {
+    const box = e.target.closest('[data-campaign]');
+    if (e.target.dataset.campField) {
+      await updateCampaign(box.dataset.campaign, { [e.target.dataset.campField]: e.target.value.trim() });
+      toast('Saved', 'good');
+    } else if (e.target.hasAttribute('data-member-role')) {
+      await setMember(box.dataset.campaign, e.target.closest('[data-user]').dataset.user, e.target.value);
+      toast('Saved', 'good');
+      await refresh();
+    } else if (e.target.closest('.player-row')) {
+      const row = e.target.closest('.player-row');
+      const patch = e.target.classList.contains('player-role') ? { role: e.target.value } : { display_name: e.target.value.trim() };
+      await updateProfile(row.dataset.id, patch);
+      toast('Saved', 'good');
+      if (row.dataset.id === state.profile.id) {
+        Object.assign(state.profile, patch);
+        updateBadges();
+        if (!isAdmin()) { window.location.hash = '#/'; return; }
+      }
+      await refresh();
+    }
+  }));
 }
 
 init().catch((err) => {

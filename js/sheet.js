@@ -4,13 +4,13 @@ import {
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   ACTIVATIONS, ACTIVATION_BY_KEY, CASTING_TIMES, CONDITIONS, CONDITION_BY_NAME,
   weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, fmt, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js?v=4';
+} from './dnd.js?v=5';
 import {
-  saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, state, isDM, uploadPortrait, removePortraitFile,
-} from './store.js?v=4';
-import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=4';
-import { exportCharacter, downloadJson } from './transfer.js?v=4';
-import { openLevelUp } from './levelup.js?v=4';
+  saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
+} from './store.js?v=5';
+import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=5';
+import { exportCharacter, downloadJson } from './transfer.js?v=5';
+import { openLevelUp } from './levelup.js?v=5';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -217,6 +217,7 @@ function parseValue(el) {
       return Number.isFinite(n) ? n : undefined;
     }
     case 'bool': return el.checked;
+    case 'nullable': return el.value || null;
     default: return el.value;
   }
 }
@@ -384,7 +385,7 @@ function refreshCharacterBits() {
 }
 
 function headerHTML() {
-  const owner = isDM() ? state.profiles.find((p) => p.id === C().owner_id) : null;
+  const owner = canManageCharacter(C()) ? state.profiles.find((p) => p.id === C().owner_id) : null;
   return `
   <header class="sheet-header">
     <button type="button" class="avatar" id="sheet-avatar" data-action="tab" data-tab="bio" aria-label="Portrait (edit on the Bio tab)">${avatarHTML()}</button>
@@ -449,80 +450,80 @@ const setCompact = (on) => { try { localStorage.setItem('tavern-ledger:compact',
 
 function statsHTML() {
   const c = C();
-  const abilities = ABILITIES.map((a) => `
-    <div class="ability">
-      <span class="ability-name" title="${a.name}">${a.short}</span>
-      <span class="ability-mod" data-derive="mod:${a.key}"></span>
-      ${numInput('characters', c, a.col, 'ability-score', `min="1" max="30" aria-label="${a.name} score"`)}
-    </div>`).join('');
-
-  const saves = ABILITIES.map((a) => `
-    <li>
-      <button type="button" class="prof-dot" data-action="toggle-save" data-k="${a.key}" aria-label="${a.name} save proficiency"></button>
-      <span class="bonus" data-derive="save:${a.key}"></span>
-      <span class="li-name">${a.name}</span>
-    </li>`).join('');
-
-  const skills = SKILLS.map((s) => `
-    <li>
-      <button type="button" class="prof-dot" data-action="cycle-skill" data-k="${s.key}" aria-label="${s.name} proficiency"></button>
-      <span class="bonus" data-derive="skill:${s.key}"></span>
-      <span class="li-name">${s.name}</span>
-      <span class="abil-tag">${ABILITY_BY_KEY[s.ability].short}</span>
-    </li>`).join('');
+  // One block per ability, like the paper sheet: the score and modifier on the
+  // left, and the saving throw plus every skill that uses that ability beside it.
+  const blocks = ABILITIES.map((a) => {
+    const skills = SKILLS.filter((s) => s.ability === a.key).map((s) => `
+      <li>
+        <button type="button" class="prof-dot" data-action="cycle-skill" data-k="${s.key}" aria-label="${s.name} proficiency"></button>
+        <span class="bonus" data-derive="skill:${s.key}"></span>
+        <span class="li-name">${s.name}</span>
+      </li>`).join('');
+    return `
+    <section class="ab-block">
+      <div class="ab-left">
+        <span class="ability-name">${a.name}</span>
+        <span class="ability-mod" data-derive="mod:${a.key}"></span>
+        ${numInput('characters', c, a.col, 'ability-score', `min="1" max="30" aria-label="${a.name} score"`)}
+      </div>
+      <ul class="prof-list ab-list">
+        <li class="save-row">
+          <button type="button" class="prof-dot save-dot" data-action="toggle-save" data-k="${a.key}" aria-label="${a.name} saving throw proficiency"></button>
+          <span class="bonus" data-derive="save:${a.key}"></span>
+          <span class="li-name">Saving Throw</span>
+        </li>
+        ${skills}
+      </ul>
+    </section>`;
+  }).join('');
 
   return `
-  <div class="stats-layout">
-    <div class="abilities">${abilities}</div>
+  <div class="stats-summary">
+    <div class="sum-tile"><span class="stat-label">Proficiency</span><strong data-derive="pb"></strong></div>
+    <div class="sum-tile"><span class="stat-label">Passive Perception</span><strong data-derive="passive:perception"></strong></div>
+    <div class="sum-tile"><span class="stat-label">Passive Insight</span><strong data-derive="passive:insight"></strong></div>
+    <div class="sum-tile"><span class="stat-label">Inspiration</span><button type="button" class="toggle" data-action="toggle-inspiration" aria-label="Inspiration"></button></div>
+  </div>
+  <p class="legend">
+    <span><i class="prof-dot"></i> not proficient</span>
+    <span><i class="prof-dot on"></i> proficient (+ proficiency bonus)</span>
+    <span><i class="prof-dot" data-level="2"></i> expertise (double)</span>
+    <span class="muted">Tap a circle to change it.</span>
+  </p>
+  <div class="ab-grid">${blocks}</div>
 
-    <div class="stats-cols">
-      <div class="col">
-        <section class="card">
-          <h3>Saving Throws</h3>
-          <ul class="prof-list">${saves}</ul>
-        </section>
-        <section class="card">
-          <h3>Senses & Status</h3>
-          <div class="kv-list">
-            <div class="kv"><span>Passive Perception</span><strong data-derive="passive:perception"></strong></div>
-            <div class="kv"><span>Passive Insight</span><strong data-derive="passive:insight"></strong></div>
-            <div class="kv"><span>Passive Investigation</span><strong data-derive="passive:investigation"></strong></div>
-            <div class="kv"><span>Inspiration</span><button type="button" class="toggle" data-action="toggle-inspiration" aria-label="Inspiration"></button></div>
-            <div class="kv"><span>Initiative misc. bonus</span>${numInput('characters', c, 'initiative_bonus', 'small-num', 'aria-label="Initiative bonus"')}</div>
-          </div>
-        </section>
-        <section class="card">
-          <h3>Hit Dice</h3>
-          <div class="hd-row">
-            ${numInput('characters', c, 'hit_dice_current', 'small-num', 'min="0" aria-label="Hit dice remaining"')}
-            <span class="muted">of <span data-derive="level"></span></span>
-            <select ${cbind('hit_die')} aria-label="Hit die">
-              ${HIT_DICE.map((d) => `<option ${c.hit_die === d ? 'selected' : ''}>${d}</option>`).join('')}
-            </select>
-          </div>
-          <h3 class="mt">Death Saves</h3>
-          ${deathSavesHTML()}
-        </section>
-      </div>
-
-      <div class="col">
-        <section class="card">
-          <h3>Skills <span class="hint">tap ○ to cycle: none → proficient → expertise</span></h3>
-          <ul class="prof-list skills-list">${skills}</ul>
-        </section>
-      </div>
-
-      <div class="col">
-        <section class="card">
-          <h3>Proficiencies <span class="hint">tap to toggle</span></h3>
-          <div class="chip-grid">
-            ${EQUIPMENT_PROFICIENCIES.map((p) => `<button type="button" class="chip-toggle" data-action="toggle-equip" data-k="${p.key}">${p.label}</button>`).join('')}
-          </div>
-          <label class="field mt"><span>Tools, languages & other</span>
-            ${textArea('characters', c, 'proficiencies', 'notes-area', 'placeholder="Tools: Thieves\' tools&#10;Languages: Common, Elvish"')}
-          </label>
-        </section>
-      </div>
+  <div class="stats-cols mt">
+    <div class="col">
+      <section class="card">
+        <h3>Hit Dice</h3>
+        <div class="hd-row">
+          ${numInput('characters', c, 'hit_dice_current', 'small-num', 'min="0" aria-label="Hit dice remaining"')}
+          <span class="muted">of <span data-derive="level"></span></span>
+          <select ${cbind('hit_die')} aria-label="Hit die">
+            ${HIT_DICE.map((d) => `<option ${c.hit_die === d ? 'selected' : ''}>${d}</option>`).join('')}
+          </select>
+        </div>
+        <h3 class="mt">Death Saves</h3>
+        ${deathSavesHTML()}
+      </section>
+      <section class="card">
+        <h3>Other</h3>
+        <div class="kv-list">
+          <div class="kv"><span>Passive Investigation</span><strong data-derive="passive:investigation"></strong></div>
+          <div class="kv"><span>Initiative misc. bonus</span>${numInput('characters', c, 'initiative_bonus', 'small-num', 'aria-label="Initiative bonus"')}</div>
+        </div>
+      </section>
+    </div>
+    <div class="col">
+      <section class="card">
+        <h3>Proficiencies <span class="hint">tap to toggle</span></h3>
+        <div class="chip-grid">
+          ${EQUIPMENT_PROFICIENCIES.map((p) => `<button type="button" class="chip-toggle" data-action="toggle-equip" data-k="${p.key}">${p.label}</button>`).join('')}
+        </div>
+        <label class="field mt"><span>Tools, languages & other</span>
+          ${textArea('characters', c, 'proficiencies', 'notes-area', 'placeholder="Tools: Thieves\' tools&#10;Languages: Common, Elvish"')}
+        </label>
+      </section>
     </div>
   </div>`;
 }
@@ -1016,12 +1017,27 @@ function notesHTML() {
 
 function bioHTML() {
   const c = C();
-  const ownerSelect = isDM() && state.profiles.length ? `
+  const manage = canManageCharacter(c);
+  // Admin: anyone. Campaign DM: members of this character's campaign.
+  const owners = isAdmin()
+    ? state.profiles
+    : state.profiles.filter((p) => p.id === c.owner_id || campaignMembers(c.campaign_id).some((m) => m.user_id === p.id));
+  const ownerSelect = manage && owners.length ? `
     <label class="field"><span>Player (owner)</span>
       <select ${cbind('owner_id')}>
-        ${state.profiles.map((p) => `<option value="${p.id}" ${p.id === c.owner_id ? 'selected' : ''}>${esc(p.display_name || p.email)}${p.role === 'dm' ? ' (DM)' : ''}</option>`).join('')}
+        ${owners.map((p) => `<option value="${p.id}" ${p.id === c.owner_id ? 'selected' : ''}>${esc(p.display_name || p.email)}</option>`).join('')}
       </select>
     </label>` : '';
+  const camps = myCampaigns();
+  const current = state.campaigns.find((k) => k.id === c.campaign_id);
+  const campaignSelect = `
+    <label class="field"><span>Campaign</span>
+      <select ${cbind('campaign_id', 'nullable')}>
+        ${[...camps, ...(current && !camps.includes(current) ? [current] : [])].map((k) =>
+          `<option value="${k.id}" ${k.id === c.campaign_id ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}
+        <option value="" ${!c.campaign_id ? 'selected' : ''}>— No campaign —</option>
+      </select>
+    </label>`;
   return `
   <section class="card">
     <h3>Identity</h3>
@@ -1034,6 +1050,7 @@ function bioHTML() {
       <label class="field"><span>Alignment</span>${textInput('characters', c, 'alignment', '', 'list="alignment-list"')}</label>
       <label class="field"><span>Level</span>${numInput('characters', c, 'level', '', 'min="1" max="20"')}</label>
       <label class="field"><span>Experience</span>${numInput('characters', c, 'experience', '', 'min="0"')}<small class="muted" data-derive="xpnext"></small></label>
+      ${campaignSelect}
       ${ownerSelect}
     </div>
     <datalist id="class-list">${CLASSES.map((x) => `<option value="${x}">`).join('')}</datalist>

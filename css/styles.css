@@ -233,7 +233,7 @@ main { max-width: 1240px; margin: 0 auto; padding: 14px 12px 80px; }
 .char-card:hover { border-color: var(--gold); transform: translateY(-2px); }
 .cc-top { display: flex; justify-content: space-between; gap: 10px; }
 .cc-id { min-width: 0; }
-.cc-name { font-family: var(--font-display); font-weight: 700; font-size: 1.15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-name { font-family: var(--font-display); font-weight: 700; font-size: 1.15rem; line-height: 1.2; overflow-wrap: anywhere; }
 .cc-sub { color: var(--muted); font-size: 0.85rem; }
 .cc-level { flex: none; width: 50px; height: 50px; border-radius: 50%; border: 2px solid var(--gold); display: grid; place-content: center; text-align: center; font-family: var(--font-display); font-weight: 700; font-size: 1.2rem; line-height: 1; color: var(--gold); }
 .cc-level small { font-size: 0.55rem; letter-spacing: 0.1em; color: var(--muted); }
@@ -804,3 +804,64 @@ input.big-num:focus { border-color: var(--gold) !important; }
 .feature-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .feature-meta select { font-size: 0.85rem; }
 .feature.flash { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-soft), var(--shadow); transition: box-shadow 0.3s; }
+
+/* ---- Stats tab: ability blocks (paper-sheet layout) ---------------------------- */
+
+.stats-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+@media (min-width: 640px) { .stats-summary { grid-template-columns: repeat(4, 1fr); } }
+.sum-tile {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px;
+}
+.sum-tile strong { font-family: var(--font-display); font-size: 1.4rem; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.78rem; color: var(--muted); margin: 0 0 10px; align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend .prof-dot { display: inline-block; width: 14px; height: 14px; cursor: default; }
+.legend .prof-dot[data-level='2'] { border-color: var(--gold); background: var(--gold); box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--gold); }
+
+.ab-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+@media (min-width: 680px) { .ab-grid { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1100px) { .ab-grid { grid-template-columns: repeat(3, 1fr); } }
+
+.ab-block {
+  display: grid; grid-template-columns: 92px 1fr; gap: 12px; align-items: start;
+  background: linear-gradient(180deg, var(--panel) 0%, #18181d 100%);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; box-shadow: var(--shadow);
+}
+.ab-left {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding-right: 12px; border-right: 1px solid var(--border);
+}
+.ab-left .ability-name { font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; text-align: center; }
+.ab-left .ability-mod { font-size: 2.3rem; line-height: 1.05; }
+.ab-left .ability-score { position: static; transform: none; }
+.ab-list li { padding: 5px 0; }
+.ab-list .save-row { border-bottom: 1px solid var(--border-strong); margin-bottom: 2px; }
+.ab-list .save-row .li-name { font-weight: 600; color: var(--gold); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; }
+/* Saving-throw dots are diamonds, like on the paper sheet */
+.prof-dot.save-dot { border-radius: 3px; transform: rotate(45deg) scale(0.86); }
+
+@media (min-width: 1100px) { .panel[data-panel='stats'] .stats-cols { grid-template-columns: 1fr 1fr; } }
+
+/* ---- Campaigns --------------------------------------------------------------------- */
+
+.campaign-group { margin-bottom: 30px; }
+.campaign-head { border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 14px; }
+.campaign-title { font-family: var(--font-display); font-size: 1.3rem; color: var(--gold); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.campaign-desc { margin: 6px 0 0; color: #cfcbd4; font-size: 0.9rem; }
+.campaign-group .owner-title { font-family: var(--font-display); font-size: 0.95rem; color: var(--muted); margin: 0 0 8px; letter-spacing: 0.04em; }
+.campaign-group .owner-group { margin-bottom: 16px; }
+
+.manage-campaign { margin-bottom: 14px; }
+.member-list { display: flex; flex-direction: column; gap: 6px; }
+.member-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 6px 8px; background: var(--panel-2); border-radius: var(--radius-sm); }
+.member-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-row select { width: auto; }
+.add-member { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; margin-top: 10px; }
+.add-member select { width: auto; min-width: 0; }
+.add-member select[data-add-user] { width: 100%; }
+@media (max-width: 480px) {
+  .add-member { grid-template-columns: 1fr 1fr; }
+  .add-member select[data-add-user] { grid-column: 1 / -1; }
+}

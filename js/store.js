@@ -1,13 +1,31 @@
-import { supabase } from './supabase.js?v=4';
-import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=4';
+import { supabase } from './supabase.js?v=5';
+import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=5';
 
 export const state = {
   session: null,
   profile: null,
-  profiles: [], // DM only: every profile
+  profiles: [], // every profile you can see (admins: everyone; others: people in your campaigns)
+  campaigns: [], // campaigns you can see
+  members: [], // campaign_members rows you can see
 };
 
-export const isDM = () => state.profile?.role === 'dm';
+/** Global admin: sees and manages every campaign, character and person. */
+export const isAdmin = () => state.profile?.role === 'admin';
+/** DM of this particular campaign. */
+export const isCampaignDM = (campaignId) =>
+  !!campaignId && state.members.some((m) => m.campaign_id === campaignId && m.user_id === state.profile?.id && m.role === 'dm');
+/** DM of at least one campaign (or admin). */
+export const isAnyDM = () => isAdmin() || state.members.some((m) => m.user_id === state.profile?.id && m.role === 'dm');
+/** Can edit this character's ownership, delete it, level it up as a DM… */
+export const canManageCharacter = (c) => isAdmin() || isCampaignDM(c?.campaign_id);
+/** Campaigns the current user can put a character into. */
+export const myCampaigns = () =>
+  (isAdmin() ? state.campaigns : state.campaigns.filter((c) => state.members.some((m) => m.campaign_id === c.id && m.user_id === state.profile?.id)));
+export const campaignMembers = (campaignId) => state.members.filter((m) => m.campaign_id === campaignId);
+export const profileName = (id) => {
+  const p = state.profiles.find((x) => x.id === id);
+  return p ? p.display_name || p.email : 'Unknown player';
+};
 
 function check({ data, error }) {
   if (error) throw error;
@@ -42,18 +60,52 @@ export async function updateProfile(id, patch) {
   return check(await supabase.from('profiles').update(patch).eq('id', id).select().single());
 }
 
+// ---- Campaigns ----------------------------------------------------------------
+
+/** Load campaigns, memberships and the profiles you can see. */
+export async function loadCampaigns() {
+  const [campaigns, members, profiles] = await Promise.all([
+    supabase.from('campaigns').select('*').order('name').then(check),
+    supabase.from('campaign_members').select('*').then(check),
+    supabase.from('profiles').select('*').order('display_name').then(check),
+  ]);
+  Object.assign(state, { campaigns, members, profiles });
+  return state;
+}
+
+export async function createCampaign(name, description = '') {
+  return check(await supabase.from('campaigns').insert({ name, description }).select().single());
+}
+
+export async function updateCampaign(id, patch) {
+  check(await supabase.from('campaigns').update(patch).eq('id', id));
+}
+
+export async function deleteCampaign(id) {
+  check(await supabase.from('campaigns').delete().eq('id', id));
+}
+
+export async function setMember(campaignId, userId, role) {
+  check(await supabase.from('campaign_members')
+    .upsert({ campaign_id: campaignId, user_id: userId, role }, { onConflict: 'campaign_id,user_id' }));
+}
+
+export async function removeMember(campaignId, userId) {
+  check(await supabase.from('campaign_members').delete().eq('campaign_id', campaignId).eq('user_id', userId));
+}
+
 // ---- Characters -------------------------------------------------------------
 
 export async function listCharacters() {
   return check(
     await supabase
       .from('characters')
-      .select('id, owner_id, name, race, class_name, subclass, level, hp_current, hp_max, hp_temp, ac, portrait_url, conditions, updated_at')
+      .select('id, owner_id, campaign_id, name, race, class_name, subclass, level, hp_current, hp_max, hp_temp, ac, portrait_url, conditions, updated_at')
       .order('name'),
   );
 }
 
-export async function createCharacter({ name, race, class_name, level, owner_id }) {
+export async function createCharacter({ name, race, class_name, level, owner_id, campaign_id }) {
   const hit_die = CLASS_HIT_DIE[class_name] || 'd8';
   const lvl = Math.min(20, Math.max(1, Number(level) || 1));
   // First level: max die; later levels: average. CON is 10 by default, so no modifier yet.
@@ -69,6 +121,7 @@ export async function createCharacter({ name, race, class_name, level, owner_id 
     hp_current: hp,
   };
   if (owner_id) row.owner_id = owner_id;
+  if (campaign_id) row.campaign_id = campaign_id;
   return check(await supabase.from('characters').insert(row).select().single());
 }
 
