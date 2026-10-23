@@ -4,58 +4,343 @@
   "title": "Tavern Ledger character",
   "description": "Source-of-truth character data. Skill and save bonuses, passive scores, initiative and attack bonuses are NOT stored: the app calculates them from ability scores, the proficiency bonus (from level) and the proficiency/expertise flags.",
   "type": "object",
-  "required": ["schemaVersion", "name", "level", "abilities"],
+  "required": [
+    "schemaVersion",
+    "name",
+    "level",
+    "abilities"
+  ],
   "additionalProperties": false,
   "$defs": {
-    "abilityKey": { "enum": ["str", "dex", "con", "int", "wis", "cha"] },
-    "score": { "type": "integer", "minimum": 1, "maximum": 30 },
+    "abilityKey": {
+      "enum": [
+        "str",
+        "dex",
+        "con",
+        "int",
+        "wis",
+        "cha"
+      ]
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 30
+    },
     "skill": {
       "type": "object",
-      "required": ["proficient", "expertise"],
+      "required": [
+        "proficient",
+        "expertise"
+      ],
       "additionalProperties": false,
       "properties": {
-        "proficient": { "type": "boolean" },
-        "expertise": { "type": "boolean", "description": "Double proficiency (Rogue, Bard…). Implies proficient." }
+        "proficient": {
+          "type": "boolean"
+        },
+        "expertise": {
+          "type": "boolean",
+          "description": "Double proficiency (Rogue, Bard…). Implies proficient."
+        }
       }
     },
     "save": {
       "type": "object",
-      "required": ["proficient"],
+      "required": [
+        "proficient"
+      ],
       "additionalProperties": false,
-      "properties": { "proficient": { "type": "boolean" } }
+      "properties": {
+        "proficient": {
+          "type": "boolean"
+        }
+      }
     },
     "damageType": {
-      "enum": ["", "acid", "bludgeoning", "cold", "fire", "force", "lightning", "necrotic", "piercing", "poison", "psychic", "radiant", "slashing", "thunder", "healing"]
+      "enum": [
+        "",
+        "acid",
+        "bludgeoning",
+        "cold",
+        "fire",
+        "force",
+        "lightning",
+        "necrotic",
+        "piercing",
+        "poison",
+        "psychic",
+        "radiant",
+        "slashing",
+        "thunder",
+        "healing"
+      ]
     }
   },
   "properties": {
-    "$schema": { "type": "string" },
-    "schemaVersion": { "const": 1 },
-    "name": { "type": "string", "minLength": 1 },
-    "race": { "type": "string" },
-    "class": { "type": "string" },
-    "subclass": { "type": "string" },
-    "background": { "type": "string" },
-    "alignment": { "type": "string" },
-    "level": { "type": "integer", "minimum": 1, "maximum": 20 },
-    "experience": { "type": "integer", "minimum": 0 },
-    "portrait": { "type": "string", "description": "Image URL (uploaded portrait or any link). Empty for none." },
-
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "race": {
+      "description": "Legacy free-text race from older sheets only (exported when present). It never grants mechanics; on import it is kept as unmapped legacy text.",
+      "type": "string"
+    },
+    "lineage": {
+      "description": "Structured lineage selection (Tavern Ledger lineage catalog). Import applies the exact version only; an unknown or refused version is kept as legacy race text with a warning.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version"
+      ],
+      "properties": {
+        "lineageId": {
+          "description": "Canonical lineage id (readable reference; the version decides).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Readable lineage (and sub-lineage) name.",
+          "type": "string"
+        },
+        "versionLabel": {
+          "description": "Readable version and source.",
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "subversion": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "abilityBonusesIncluded": {
+          "type": "boolean"
+        },
+        "choices": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "backgroundVersion": {
+      "description": "Structured background selection (Tavern Ledger background catalog: a 2024 or legacy version id); re-applied on import, otherwise 'background' is kept as text.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "ability": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "2024 only: {mode: plus2_plus1 | plus1_x3, allocation: {str: 2, con: 1}}",
+          "properties": {
+            "mode": {
+              "enum": [
+                "plus2_plus1",
+                "plus1_x3"
+              ]
+            },
+            "allocation": {
+              "type": "object",
+              "additionalProperties": {
+                "enum": [
+                  1,
+                  2
+                ]
+              }
+            }
+          }
+        },
+        "bonusesIncluded": {
+          "type": "boolean",
+          "description": "the stored ability scores already contain the background increases"
+        },
+        "choices": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "choice key -> ['skill:stealth' | 'tool:dice-set' | 'language:elvish']"
+        },
+        "replacements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "skill",
+                  "tool"
+                ]
+              },
+              "original": {
+                "type": "string"
+              },
+              "replacement": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "characteristics": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dmApproved": {
+          "type": "boolean",
+          "description": "the version needs the DM's permission (playtest) and it was given"
+        }
+      }
+    },
+    "class": {
+      "type": "string"
+    },
+    "subclass": {
+      "type": "string"
+    },
+    "classes": {
+      "description": "Class rows (class version + level). When present they are authoritative: the total level, proficiency bonus and spell slots are derived from them; 'level' and 'class' stay for older readers.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "classVersion",
+          "level"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "classVersion": {
+            "type": "string",
+            "description": "e.g. wizard-phb, artificer-tce"
+          },
+          "level": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "subclassVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "one-third caster progression, e.g. fighter-eldritch-knight-phb"
+          },
+          "primary": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "background": {
+      "type": "string"
+    },
+    "alignment": {
+      "type": "string"
+    },
+    "level": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20
+    },
+    "experience": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "portrait": {
+      "type": "string",
+      "description": "Image URL (uploaded portrait or any link). Empty for none."
+    },
     "abilities": {
       "type": "object",
-      "required": ["str", "dex", "con", "int", "wis", "cha"],
+      "required": [
+        "str",
+        "dex",
+        "con",
+        "int",
+        "wis",
+        "cha"
+      ],
       "additionalProperties": false,
       "properties": {
-        "str": { "$ref": "#/$defs/score" }, "dex": { "$ref": "#/$defs/score" }, "con": { "$ref": "#/$defs/score" },
-        "int": { "$ref": "#/$defs/score" }, "wis": { "$ref": "#/$defs/score" }, "cha": { "$ref": "#/$defs/score" }
+        "str": {
+          "$ref": "#/$defs/score"
+        },
+        "dex": {
+          "$ref": "#/$defs/score"
+        },
+        "con": {
+          "$ref": "#/$defs/score"
+        },
+        "int": {
+          "$ref": "#/$defs/score"
+        },
+        "wis": {
+          "$ref": "#/$defs/score"
+        },
+        "cha": {
+          "$ref": "#/$defs/score"
+        }
       }
     },
     "savingThrows": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "str": { "$ref": "#/$defs/save" }, "dex": { "$ref": "#/$defs/save" }, "con": { "$ref": "#/$defs/save" },
-        "int": { "$ref": "#/$defs/save" }, "wis": { "$ref": "#/$defs/save" }, "cha": { "$ref": "#/$defs/save" }
+        "str": {
+          "$ref": "#/$defs/save"
+        },
+        "dex": {
+          "$ref": "#/$defs/save"
+        },
+        "con": {
+          "$ref": "#/$defs/save"
+        },
+        "int": {
+          "$ref": "#/$defs/save"
+        },
+        "wis": {
+          "$ref": "#/$defs/save"
+        },
+        "cha": {
+          "$ref": "#/$defs/save"
+        }
       }
     },
     "skills": {
@@ -63,18 +348,62 @@
       "description": "All 18 skills. Missing skills count as not proficient.",
       "additionalProperties": false,
       "properties": {
-        "acrobatics": { "$ref": "#/$defs/skill" }, "animal_handling": { "$ref": "#/$defs/skill" },
-        "arcana": { "$ref": "#/$defs/skill" }, "athletics": { "$ref": "#/$defs/skill" },
-        "deception": { "$ref": "#/$defs/skill" }, "history": { "$ref": "#/$defs/skill" },
-        "insight": { "$ref": "#/$defs/skill" }, "intimidation": { "$ref": "#/$defs/skill" },
-        "investigation": { "$ref": "#/$defs/skill" }, "medicine": { "$ref": "#/$defs/skill" },
-        "nature": { "$ref": "#/$defs/skill" }, "perception": { "$ref": "#/$defs/skill" },
-        "performance": { "$ref": "#/$defs/skill" }, "persuasion": { "$ref": "#/$defs/skill" },
-        "religion": { "$ref": "#/$defs/skill" }, "sleight_of_hand": { "$ref": "#/$defs/skill" },
-        "stealth": { "$ref": "#/$defs/skill" }, "survival": { "$ref": "#/$defs/skill" }
+        "acrobatics": {
+          "$ref": "#/$defs/skill"
+        },
+        "animal_handling": {
+          "$ref": "#/$defs/skill"
+        },
+        "arcana": {
+          "$ref": "#/$defs/skill"
+        },
+        "athletics": {
+          "$ref": "#/$defs/skill"
+        },
+        "deception": {
+          "$ref": "#/$defs/skill"
+        },
+        "history": {
+          "$ref": "#/$defs/skill"
+        },
+        "insight": {
+          "$ref": "#/$defs/skill"
+        },
+        "intimidation": {
+          "$ref": "#/$defs/skill"
+        },
+        "investigation": {
+          "$ref": "#/$defs/skill"
+        },
+        "medicine": {
+          "$ref": "#/$defs/skill"
+        },
+        "nature": {
+          "$ref": "#/$defs/skill"
+        },
+        "perception": {
+          "$ref": "#/$defs/skill"
+        },
+        "performance": {
+          "$ref": "#/$defs/skill"
+        },
+        "persuasion": {
+          "$ref": "#/$defs/skill"
+        },
+        "religion": {
+          "$ref": "#/$defs/skill"
+        },
+        "sleight_of_hand": {
+          "$ref": "#/$defs/skill"
+        },
+        "stealth": {
+          "$ref": "#/$defs/skill"
+        },
+        "survival": {
+          "$ref": "#/$defs/skill"
+        }
       }
     },
-
     "combat": {
       "type": "object",
       "additionalProperties": false,
@@ -83,31 +412,70 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "current": { "type": "integer", "minimum": 0 },
-            "max": { "type": "integer", "minimum": 1 },
-            "temp": { "type": "integer", "minimum": 0 }
+            "current": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "temp": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         },
-        "ac": { "type": "integer", "description": "Stored because it depends on armor and class features the app does not model." },
-        "speed": { "type": "integer", "description": "Walking speed in feet." },
-        "initiativeBonus": { "type": "integer", "description": "Misc. bonus only; initiative = DEX modifier + this." },
+        "ac": {
+          "type": "integer",
+          "description": "Stored because it depends on armor and class features the app does not model."
+        },
+        "speed": {
+          "type": "integer",
+          "description": "Walking speed in feet."
+        },
+        "initiativeBonus": {
+          "type": "integer",
+          "description": "Misc. bonus only; initiative = DEX modifier + this."
+        },
         "hitDice": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "die": { "enum": ["d6", "d8", "d10", "d12"] },
-            "current": { "type": "integer", "minimum": 0, "description": "Remaining; the maximum equals the level." }
+            "die": {
+              "enum": [
+                "d6",
+                "d8",
+                "d10",
+                "d12"
+              ]
+            },
+            "current": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Remaining; the maximum equals the level."
+            }
           }
         },
         "deathSaves": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "successes": { "type": "integer", "minimum": 0, "maximum": 3 },
-            "failures": { "type": "integer", "minimum": 0, "maximum": 3 }
+            "successes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3
+            },
+            "failures": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3
+            }
           }
         },
-        "inspiration": { "type": "boolean" }
+        "inspiration": {
+          "type": "boolean"
+        }
       }
     },
     "pendingChoices": {
@@ -115,39 +483,206 @@
       "description": "Unresolved player choices (Fighting Style, Druid Circle, invocations, languages, skills, spells, tools, feats…). The app shows a reminder badge while any exist; resolve one by applying it to the sheet and removing it here.",
       "items": {
         "type": "object",
-        "required": ["id", "type", "description"],
+        "required": [
+          "id",
+          "type",
+          "description"
+        ],
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "description": "Stable slug, unique within the character." },
-          "type": { "type": "string", "examples": ["Fighting Style", "Druid Circle", "Warlock Invocation", "Language Choice", "Skill Choice", "Spell Choice", "Tool Choice", "Feat Choice"] },
-          "description": { "type": "string" },
-          "options": { "type": "array", "items": { "type": "string" }, "description": "Suggested options; may be empty when the choice is open-ended." }
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "description": "Stable slug, unique within the character."
+          },
+          "type": {
+            "type": "string",
+            "examples": [
+              "Fighting Style",
+              "Druid Circle",
+              "Warlock Invocation",
+              "Language Choice",
+              "Skill Choice",
+              "Spell Choice",
+              "Tool Choice",
+              "Feat Choice"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Suggested options; may be empty when the choice is open-ended."
+          }
         }
       }
     },
     "conditions": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Active conditions, e.g. \"Prone\", \"Poisoned\", \"Concentrating\" or any custom text."
     },
-
     "proficiencies": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "armor": { "type": "array", "items": { "type": "string" }, "description": "\"Light armor\", \"Medium armor\", \"Heavy armor\", \"Shields\" become checkboxes." },
-        "weapons": { "type": "array", "items": { "type": "string" }, "description": "\"Simple weapons\" and \"Martial weapons\" become checkboxes; others are listed as text." },
-        "tools": { "type": "array", "items": { "type": "string" } },
-        "languages": { "type": "array", "items": { "type": "string" } },
-        "other": { "type": "array", "items": { "type": "string" } }
+        "armor": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "\"Light armor\", \"Medium armor\", \"Heavy armor\", \"Shields\" become checkboxes."
+        },
+        "weapons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "\"Simple weapons\" and \"Martial weapons\" become checkboxes; others are listed as text."
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "other": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
-
     "spellcasting": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "ability": { "oneOf": [{ "$ref": "#/$defs/abilityKey" }, { "type": "null" }] },
+        "ability": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/abilityKey"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sources": {
+          "description": "Stored spellcasting sources (class preview, subclass, feat, item, manual, other); 'key' links catalogSpells to a source.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "type",
+              "label"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "class",
+                  "subclass",
+                  "feat",
+                  "item",
+                  "manual",
+                  "other"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "classVersion": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "spellList": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "castingAbility": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "allowedAbilities": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "fixedDc": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "fixedAttackBonus": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "dcBonus": {
+                "type": "integer"
+              },
+              "attackBonus": {
+                "type": "integer"
+              },
+              "preparationMode": {
+                "type": "string"
+              },
+              "ritualMode": {
+                "type": "string"
+              },
+              "usesSpellSlots": {
+                "type": "boolean"
+              },
+              "classLevel": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "enforceSpellList": {
+                "type": "boolean"
+              },
+              "alwaysPreparedAllowed": {
+                "type": "boolean"
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "classKey": {
+                "type": "string",
+                "description": "the class row this source belongs to (re-linked on import)"
+              }
+            }
+          }
+        },
         "slots": {
           "type": "object",
           "description": "Keyed by spell level \"1\"–\"9\".",
@@ -156,8 +691,15 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "total": { "type": "integer", "minimum": 0, "maximum": 9 },
-                "used": { "type": "integer", "minimum": 0 }
+                "total": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9
+                },
+                "used": {
+                  "type": "integer",
+                  "minimum": 0
+                }
               }
             }
           },
@@ -165,101 +707,437 @@
         }
       }
     },
-
     "resources": {
       "type": "array",
       "description": "Generic trackers: Ki, Rage, Sorcery Points, or anything custom.",
       "items": {
         "type": "object",
-        "required": ["name", "current", "max"],
+        "required": [
+          "name",
+          "current",
+          "max"
+        ],
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string" },
-          "current": { "type": "integer", "minimum": 0 },
-          "max": { "type": "integer", "minimum": 0 },
-          "reset": { "enum": ["short", "long", "none"], "default": "long" },
-          "formula": { "type": "string", "examples": ["monkLevel", "paladinLevel * 5", "1 + charismaModifier", "2"], "description": "How the maximum is worked out. Stored and displayed only; the app does not evaluate it yet, so max must still be set." }
+          "name": {
+            "type": "string"
+          },
+          "current": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reset": {
+            "enum": [
+              "short",
+              "long",
+              "none"
+            ],
+            "default": "long"
+          },
+          "formula": {
+            "type": "string",
+            "examples": [
+              "monkLevel",
+              "paladinLevel * 5",
+              "1 + charismaModifier",
+              "2"
+            ],
+            "description": "How the maximum is worked out. Stored and displayed only; the app does not evaluate it yet, so max must still be set."
+          }
         }
       }
     },
-
     "attacks": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "damageDice", "damageType"],
+        "required": [
+          "name",
+          "damageDice",
+          "damageType"
+        ],
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string" },
-          "type": { "enum": ["melee", "ranged"] },
-          "ability": { "enum": ["str", "dex", "finesse", "spell", "none"], "description": "finesse = the better of STR and DEX." },
-          "proficient": { "type": "boolean", "default": true },
-          "magicBonus": { "type": "integer", "default": 0, "description": "Added to both to-hit and damage." },
-          "damageDice": { "type": "string", "examples": ["1d8", "2d6", "1"] },
-          "damageType": { "$ref": "#/$defs/damageType" },
-          "addModifier": { "type": "boolean", "default": true, "description": "Add the ability modifier to damage." },
-          "range": { "type": "string", "examples": ["5 ft", "20/60 ft", "5 ft or 30/120 ft"] },
-          "properties": { "type": "string" },
-          "notes": { "type": "string" }
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "melee",
+              "ranged"
+            ]
+          },
+          "ability": {
+            "enum": [
+              "str",
+              "dex",
+              "finesse",
+              "spell",
+              "none"
+            ],
+            "description": "finesse = the better of STR and DEX."
+          },
+          "proficient": {
+            "type": "boolean",
+            "default": true
+          },
+          "magicBonus": {
+            "type": "integer",
+            "default": 0,
+            "description": "Added to both to-hit and damage."
+          },
+          "damageDice": {
+            "type": "string",
+            "examples": [
+              "1d8",
+              "2d6",
+              "1"
+            ]
+          },
+          "damageType": {
+            "$ref": "#/$defs/damageType"
+          },
+          "addModifier": {
+            "type": "boolean",
+            "default": true,
+            "description": "Add the ability modifier to damage."
+          },
+          "range": {
+            "type": "string",
+            "examples": [
+              "5 ft",
+              "20/60 ft",
+              "5 ft or 30/120 ft"
+            ]
+          },
+          "properties": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
         }
       }
     },
-
     "features": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "type"],
+        "required": [
+          "name",
+          "type"
+        ],
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string" },
-          "type": { "enum": ["Passive", "Action", "Bonus Action", "Reaction", "Special"], "description": "Decides where it appears on the Combat tab. Special = triggers on something else and uses no action, bonus action or reaction (Divine Smite, Sneak Attack, damage riders)." },
-          "source": { "enum": ["racial", "class", "background", "feat", "custom", "magic_item"], "default": "custom" },
-          "description": { "type": "string" }
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "Passive",
+              "Action",
+              "Bonus Action",
+              "Reaction",
+              "Special"
+            ],
+            "description": "Decides where it appears on the Combat tab. Special = triggers on something else and uses no action, bonus action or reaction (Divine Smite, Sneak Attack, damage riders)."
+          },
+          "source": {
+            "enum": [
+              "racial",
+              "class",
+              "background",
+              "feat",
+              "custom",
+              "magic_item"
+            ],
+            "default": "custom"
+          },
+          "description": {
+            "type": "string"
+          }
         }
       }
     },
-
+    "catalogSpells": {
+      "description": "Spells from the spell catalog: stable spell version id + per-source state. Unresolvable entries are imported as free-text spells.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "spell",
+          "source"
+        ],
+        "properties": {
+          "spell": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9
+          },
+          "source": {
+            "type": "string"
+          },
+          "known": {
+            "type": "boolean"
+          },
+          "prepared": {
+            "type": "boolean"
+          },
+          "alwaysPrepared": {
+            "type": "boolean"
+          },
+          "castingAbility": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "slotState": {
+      "description": "Runtime slot usage only (maximums are derived from the classes).",
+      "type": "object",
+      "properties": {
+        "standard": {
+          "type": "object",
+          "description": "slot level -> expended",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "pact": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "characterResources": {
+      "description": "Generic resources (future class features, free casts, item charges).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "name"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sourceType": {
+            "type": "string"
+          },
+          "sourceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "classKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maxFormula": {
+            "type": "object"
+          },
+          "die": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recharge": {
+            "enum": [
+              "short_rest",
+              "long_rest",
+              "short_or_long_rest",
+              "dawn",
+              "manual",
+              "none"
+            ]
+          },
+          "unlockLevel": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "spellVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "castLevel": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expended": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
     "spells": {
       "type": "array",
       "description": "Lightweight entries; no spell database. castingTime decides the Combat tab group (Action / Bonus Action / Reaction).",
       "items": {
         "type": "object",
-        "required": ["name", "level"],
+        "required": [
+          "name",
+          "level"
+        ],
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string" },
-          "level": { "type": "integer", "minimum": 0, "maximum": 9, "description": "0 = cantrip." },
-          "school": { "type": "string" },
-          "castingTime": { "type": "string", "examples": ["1 action", "1 bonus action", "1 reaction", "1 minute"] },
-          "range": { "type": "string" },
-          "duration": { "type": "string" },
-          "components": { "type": "string" },
-          "concentration": { "type": "boolean" },
-          "ritual": { "type": "boolean" },
-          "attack": { "enum": ["none", "attack", "save"], "default": "none" },
-          "save": { "oneOf": [{ "$ref": "#/$defs/abilityKey" }, { "type": "null" }] },
-          "damage": { "type": "string", "examples": ["1d10", "3d6", "1d8 + 3"] },
-          "damageType": { "$ref": "#/$defs/damageType" },
-          "description": { "type": "string" },
-          "prepared": { "type": "boolean" },
-          "source": { "type": "string", "examples": ["Warlock", "Druid", "Magic Initiate", "Drow Magic", "The Great Old One", "Item"], "description": "Where the spell comes from: class, race, feat, patron, subclass, item or background." }
+          "name": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9,
+            "description": "0 = cantrip."
+          },
+          "school": {
+            "type": "string"
+          },
+          "castingTime": {
+            "type": "string",
+            "examples": [
+              "1 action",
+              "1 bonus action",
+              "1 reaction",
+              "1 minute"
+            ]
+          },
+          "range": {
+            "type": "string"
+          },
+          "duration": {
+            "type": "string"
+          },
+          "components": {
+            "type": "string"
+          },
+          "concentration": {
+            "type": "boolean"
+          },
+          "ritual": {
+            "type": "boolean"
+          },
+          "attack": {
+            "enum": [
+              "none",
+              "attack",
+              "save"
+            ],
+            "default": "none"
+          },
+          "save": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/abilityKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "damage": {
+            "type": "string",
+            "examples": [
+              "1d10",
+              "3d6",
+              "1d8 + 3"
+            ]
+          },
+          "damageType": {
+            "$ref": "#/$defs/damageType"
+          },
+          "description": {
+            "type": "string"
+          },
+          "prepared": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string",
+            "examples": [
+              "Warlock",
+              "Druid",
+              "Magic Initiate",
+              "Drow Magic",
+              "The Great Old One",
+              "Item"
+            ],
+            "description": "Where the spell comes from: class, race, feat, patron, subclass, item or background."
+          }
         }
       }
     },
-
     "inventory": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string" },
-          "quantity": { "type": "integer", "minimum": 0, "default": 1 },
-          "weight": { "type": "number", "minimum": 0, "description": "Pounds, per item." },
-          "equipped": { "type": "boolean" },
-          "description": { "type": "string" }
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 1
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Pounds, per item."
+          },
+          "equipped": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          }
         }
       }
     },
@@ -267,20 +1145,347 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "cp": { "type": "integer", "minimum": 0 }, "sp": { "type": "integer", "minimum": 0 },
-        "ep": { "type": "integer", "minimum": 0 }, "gp": { "type": "integer", "minimum": 0 },
-        "pp": { "type": "integer", "minimum": 0 }
+        "cp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ep": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pp": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "notes": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "character": { "type": "string" },
-        "session": { "type": "string" },
-        "campaign": { "type": "string" },
-        "spells": { "type": "string" },
-        "combat": { "type": "string" }
+        "character": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "campaign": {
+          "type": "string"
+        },
+        "spells": {
+          "type": "string"
+        },
+        "combat": {
+          "type": "string"
+        }
+      }
+    },
+    "feats": {
+      "description": "Feats (migration 20261019000300, docs/FEATS.md): stable catalog version ids (2014 and 2024 are distinct versions) and the character's choices. Direct feats are re-assigned on import through assign_character_feat (campaign governance applies); background, lineage and ASI feats only get their choices back when their source exists after import. An unknown or invisible version is reported, never created. DM-only data (hidden notes, secret conditions) is never exported.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["version"],
+        "properties": {
+          "version": { "type": "string", "description": "feat_versions.id, e.g. 2024 or 2014 version id" },
+          "name": { "type": "string" },
+          "ruleset": { "type": "string", "enum": ["2014", "2024"] },
+          "sourceType": { "type": "string", "enum": ["direct", "dm_grant", "campaign_reward", "approved_request", "import", "background", "lineage", "class"] },
+          "sourceLabel": { "type": ["string", "null"] },
+          "grantKey": { "type": ["string", "null"], "description": "bg:<version>, lin:<choice>:<pick> or asi:<class row>:<unlock>:<choice> for derived feats" },
+          "choices": { "type": "object", "description": "choice key -> array of values" },
+          "notes": { "type": ["string", "null"] },
+          "custom": { "type": "boolean", "description": "a campaign custom feat (resolves only where the importer can see it)" }
+        }
+      }
+    },
+    "companions": {
+      "description": "Companions (migration 20261017000800): a catalog creature id (SRD creature catalog) or a custom companion with a name and hit points. Active states (Rage), the current Wild Shape form and infusions are runtime state and are not exported; the infusions a character knows are part of classFeatures.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "creature": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          },
+          "hpMax": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 2000
+          },
+          "hpCurrent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "classFeatures": {
+      "description": "Class feature state (migration 20261015001800): stable catalog ids and the character's decisions only, never the feature catalog. classKey is the 'key' of a row in 'classes'. Unresolvable entries are reported on import and kept as pending choices.",
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "const": "tavern-ledger/class-features"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "classKey",
+              "unlock",
+              "choice",
+              "values"
+            ],
+            "properties": {
+              "classKey": {
+                "type": "string"
+              },
+              "classVersion": {
+                "type": "string"
+              },
+              "subclassVersion": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "unlock": {
+                "type": "string",
+                "description": "class_feature_unlocks.id"
+              },
+              "choice": {
+                "type": "string",
+                "description": "class_feature_choices.id"
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "manualStatus": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "applied_manually",
+                  "confirmed",
+                  null
+                ]
+              }
+            }
+          }
+        },
+        "optionalFeatures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "classKey",
+              "unlock"
+            ],
+            "properties": {
+              "classKey": {
+                "type": "string"
+              },
+              "classVersion": {
+                "type": "string"
+              },
+              "unlock": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "classKey",
+              "resource",
+              "expended"
+            ],
+            "properties": {
+              "classKey": {
+                "type": "string"
+              },
+              "classVersion": {
+                "type": "string"
+              },
+              "resource": {
+                "type": "string",
+                "description": "class_feature_resources.id"
+              },
+              "expended": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "temporaryBonus": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxAdjustment": {
+                "type": "integer",
+                "minimum": -20,
+                "maximum": 20
+              }
+            }
+          }
+        }
+      }
+    },
+    "wildShape": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Wild Shape (docs/WILD_SHAPE_UI.md). Seen forms, favorites and settings are restored on import; 'active' is a reference copy only: the character is imported in normal form and form HP / statistics are never trusted from a file.",
+      "properties": {
+        "seen": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "type": "object",
+            "required": [
+              "creature"
+            ],
+            "properties": {
+              "creature": {
+                "type": "string"
+              },
+              "source": {
+                "enum": [
+                  "seen",
+                  "dm_grant",
+                  "fixture",
+                  "import"
+                ]
+              }
+            }
+          }
+        },
+        "favorites": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "type": "string"
+          }
+        },
+        "settings": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "seenMode": {
+              "enum": [
+                "enforce",
+                "warn",
+                "unrestricted",
+                null
+              ]
+            },
+            "defaultEquipment": {
+              "enum": [
+                "merge",
+                "drop",
+                "wear",
+                null
+              ]
+            },
+            "confirmLethal": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "description": "'unrestricted' is never restored (DM-only setting)."
+        },
+        "active": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "creature": {
+              "type": "string"
+            },
+            "formHp": {
+              "type": "integer"
+            },
+            "formHpMax": {
+              "type": "integer"
+            },
+            "formTempHp": {
+              "type": "integer"
+            },
+            "elemental": {
+              "type": "boolean"
+            },
+            "equipment": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "startedAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "policy": {
+              "type": "string"
+            }
+          }
+        }
       }
     }
   }

@@ -119,6 +119,7 @@ export const EQUIPMENT_PROFICIENCIES = [
   { key: 'shields', label: 'Shields' },
   { key: 'simple', label: 'Simple weapons' },
   { key: 'martial', label: 'Martial weapons' },
+  { key: 'firearms', label: 'Firearms' },
 ];
 
 export const ordinal = (n) => (n === 0 ? 'Cantrip' : `${n}${['', 'st', 'nd', 'rd'][n] || 'th'} level`);

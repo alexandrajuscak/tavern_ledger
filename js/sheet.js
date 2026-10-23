@@ -3,14 +3,53 @@ import {
   RESOURCE_PRESETS, RESET_LABELS, FEATURE_CATEGORIES,
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   ACTIVATIONS, ACTIVATION_BY_KEY, CASTING_TIMES, CONDITIONS, CONDITION_BY_NAME,
-  weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, fmt, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js?v=7';
+  weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, profBonus, xpForNextLevel, levelForXp,
+} from './dnd.js?v=10';
 import {
   saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
-} from './store.js?v=7';
-import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=7';
-import { exportCharacter, downloadJson } from './transfer.js?v=7';
-import { openLevelUp } from './levelup.js?v=7';
+} from './store.js?v=10';
+import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=10';
+import { mountInventory } from './inventory-ui.js?v=10';
+import { exportCharacter, downloadJson } from './transfer.js?v=10';
+import { getDerivedStats, getProficiencies, setCharacterProficiency } from './inventory-api.js?v=10';
+import { backgroundCardHTML, openBackgroundPicker, openBackgroundEquipment, openReplaceDuplicate, saveCharacteristics, rollCharacteristic,
+  removeBackground } from './background-ui.js?v=10';
+import { getCharacterBackground } from './background-api.js?v=10';
+import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=10';
+import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=10';
+import {
+  acNote, openAcBreakdown, equippedWeaponsHTML, trackWeaponDetails, toolsHTML, specificProficienciesHTML,
+  openProficiencyManager, equipmentNotes,
+} from './derived-ui.js?v=10';
+import { openLevelUp } from './levelup.js?v=10';
+import { mountGovernance } from './request-ui.js?v=10';
+import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=10';
+import { exportFeats } from './feat-api.js?v=10';
+import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=10';
+import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=10';
+import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=10';
+import {
+  emptyFilters, filtersHTML, readFilter, sourcesHTML, spellbookListHTML, openSpellDetail, openAddSpell, openSourceEditor, rememberSpellSections,
+} from './spell-ui.js?v=10';
+import {
+  getClassSummary, getSpellSlots, getClassCatalog, expendStandardSlot, restoreStandardSlot, expendPactSlot, restorePactSlot,
+  setSlotState, setCharacterClass, shortRest, longRest, getClassFeatures, getResources, exportClassFeatures, useTemporarySlot,
+  restoreTemporarySlot, getStartingEquipmentState, getStartingEquipment, getStates,
+} from './class-api.js?v=10';
+import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=10';
+import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=10';
+import { openStartingEquipment } from './class-setup.js?v=10';
+import {
+  companionsHTML, openAddCompanion, changeCompanionHp, removeCompanionConfirm,
+} from './creature-ui.js?v=10';
+import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=10';
+import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=10';
+import {
+  featuresPanelHTML, featureSummaryHTML, restoreDrafts, resourceListHTML, attachFeatureHandlers, hydrateSpellChoices, restResourceLines, restResultText, restSummaryHTML,
+  riderDiceRange, statesHTML, glanceHTML,
+} from './feature-ui.js?v=10';
+import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=10';
+import { sectionHTML, sectionHead } from './section.js?v=10';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -20,18 +59,74 @@ let B = null; // bundle: { character, inventory, notes, slots, trackers, feature
 let root = null;
 let ctx = null; // { reload, onDeleted }
 let unsubscribe = null;
+let inventory = null; // inventory-ui controller
+let governance = null; // request-ui controller: lock banner, pending changes, approval requests
+let featState = null;   // get_character_feats: every feat grant with its source, choices, effects, spells and resources
+let featSeq = 0;
 const editing = new Set(); // "table:id" of attack/spell cards open for editing
+// Derived stats (AC, speed, equipped weapons, warnings) come from get_character_derived_stats; never stored.
+let derived = null;
+// Resolved proficiencies (get_character_proficiencies): every proficiency with all its sources; profPending holds a manual
+// chip change until the server answers (shown at once, replaced by the authoritative result).
+let profState = null;
+let profPending = {};
+let derivedSeq = 0;
+let derivedDirty = false;  // a local edit of a field that affects derived stats is waiting to be saved
+let unsubSaver = null;
+// Resolved lineage (get_character_lineage): traits, choices and their status; never stored on the character.
+let lineage = null;
+// Background (get_character_background): version, ability increases, grants, feat, equipment state; never stored here.
+let background = null;
+let backgroundSeq = 0;
+let lineageSeq = 0;
+let lineageRef = null;
+let lineageSuggestion = null;   // a reliable catalog match for an old free-text race (exact name), else null
+// Resolved spellbook (get_character_spellbook): sources with their own Save DC / attack bonus, spells with every grant.
+let spellbook = null;
+let spellbookSeq = 0;
+let spellRef = null;
+const spellFilters = emptyFilters();
+// Classes and spell slots (get_character_class_summary / get_character_spell_slots): levels, PB, slots; never stored.
+let classSummary = null;
+let slotState = null;
+let classCatalog = null;
+let classSeq = 0;
+// Slot mutations (Use / Restore): one request per slot line at a time; the RPC result is authoritative. A read that overlaps a
+// mutation (Realtime refresh, class reload) may hold the state from before it, so it never overwrites the slots (slotEpoch).
+let slotBusy = new Set();
+let slotEpoch = 0;
+let slotMutSeq = 0;
+let slotMutApplied = 0;
+let slotsSeq = 0;
+// Class feature engine (get_character_class_features / get_character_resources): features, choices, resources; never stored.
+let classFeatures = null;
+let classResources = null;
+let startEqState = null;
+let classStates = null;       // get_character_states: Rage-style states (Start / End)
+let transformState = null;    // get_character_transformation: Wild Shape forms and the current form
+// Wild Shape mutations: one request per control at a time; a read that overlaps a change never overwrites it (tfEpoch)
+let tfBusy = new Set();
+let tfEpoch = 0;
+let tfSeq = 0;
+let companions = null;        // character_companions with their catalog creature
+let infusionState = null;     // get_character_infusions: known infusions and infused items      // {class_version_id, applied, has_options} of the primary class (starting equipment review)
+const hasClasses = () => (classSummary?.classes?.length || 0) > 0;
+const DERIVED_FIELDS = new Set(['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma', 'level', 'speed', 'ac_override']);
+const PROF_GROUP_BY_FLAG = { simple: 'simple-weapons', martial: 'martial-weapons', firearms: 'firearms', light: 'light-armor',
+  medium: 'medium-armor', heavy: 'heavy-armor', shields: 'shields' };
 
+// Six sections, ordered by how often they are used at the table (docs/UX_INFORMATION_ARCHITECTURE_AUDIT.md). The keys are the
+// historical ones (stable deep links, stored tab, tests); the labels are what the player sees. `short` is the bottom-bar label.
 const TABS = [
-  { key: 'combat', label: 'Combat' },
-  { key: 'stats', label: 'Stats' },
-  { key: 'spells', label: 'Spells' },
-  { key: 'inventory', label: 'Inventory' },
-  { key: 'features', label: 'Features' },
-  { key: 'resources', label: 'Resources' },
-  { key: 'notes', label: 'Notes' },
-  { key: 'bio', label: 'Bio' },
+  { key: 'combat', label: 'Play', short: 'Play', hint: 'Attacks, actions, resources and active effects' },
+  { key: 'stats', label: 'Abilities', short: 'Abilities', hint: 'Ability scores, saving throws, skills and proficiencies' },
+  { key: 'spells', label: 'Spells', short: 'Spells', hint: 'Spell slots and the spells you can cast' },
+  { key: 'inventory', label: 'Inventory', short: 'Items', hint: 'Equipment, items and coins' },
+  { key: 'features', label: 'Build', short: 'Build', hint: 'Classes, lineage, background, feats and level-ups' },
+  { key: 'bio', label: 'Bio', short: 'Bio', hint: 'Identity, portrait, notes and backup' },
 ];
+// sections that were merged into others (older stored tab, links in older builds)
+const TAB_ALIAS = { attacks: 'combat', resources: 'combat', notes: 'bio' };
 
 const LIST_KEY = {
   inventory_items: 'inventory',
@@ -51,7 +146,7 @@ const note = (kind) => B.notes.find((n) => n.kind === kind);
 const getTab = () => {
   let t = 'combat';
   try { t = localStorage.getItem('tavern-ledger:tab') || 'combat'; } catch { /* ignore */ }
-  return t === 'attacks' ? 'combat' : t; // the Combat tab used to be called "attacks"
+  return TAB_ALIAS[t] || t;
 };
 const setTab = (t) => { try { localStorage.setItem('tavern-ledger:tab', t); } catch { /* ignore */ } };
 
@@ -61,13 +156,39 @@ const cacheLater = debounce(() => { if (B) cacheSet(`bundle:${C().id}`, B); }, 1
 // Derived values
 // -----------------------------------------------------------------------------
 
-const pb = () => profBonus(C().level);
-const abilityMod = (key) => mod(C()[ABILITY_BY_KEY[key].col]);
-const saveProf = (key) => !!C().save_proficiencies?.[key];
-const skillProf = (key) => skillLevel(C().skill_proficiencies?.[key]); // 0 none, 1 proficient, 2 expertise
-const saveBonus = (key) => abilityMod(key) + (saveProf(key) ? pb() : 0);
-const skillBonus = (key) => abilityMod(SKILL_BY_KEY[key].ability) + skillProf(key) * pb();
-const initiative = () => abilityMod('dex') + (C().initiative_bonus || 0);
+// Signed modifiers on the sheet: "+3", "+0", and a true minus sign for negatives ("−1").
+const fmt = (n) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`);
+const pb = () => derived?.proficiency_bonus?.value ?? profBonus(C().level);   // the server value is authoritative
+// Effective score = stored base + the server's lineage/item adjustment (instant while an edited base is still saving).
+const abilityScore = (key) => {
+  const a = derived?.abilities?.[key];
+  return C()[ABILITY_BY_KEY[key].col] + (a ? a.score - a.base : 0);
+};
+const abilityMod = (key) => mod(abilityScore(key));
+const profEntry = (kind, id) => profState?.[kind]?.find((e) => e.id === id) || null;
+// level granted by sources other than the manual mark (class, feature, lineage, background), from the resolver
+const grantedLevel = (kind, id, kinds = ['class', 'feature', 'background', 'item']) => {
+  const ds = derivedSources(profEntry(kind, id)).filter((x) => kinds.includes(x.kind));
+  return ds.some((x) => x.expertise) ? 2 : ds.length ? 1 : 0;
+};
+const lineageSkill = (key) => !!derived?.skills?.[key]?.lineage_proficient;
+const saveManual = (key) => !!C().save_proficiencies?.[key];
+const classSave = (key) => !!derived?.saving_throws?.[key]?.class_proficient || grantedLevel('saves', key) > 0;
+const saveProf = (key) => saveManual(key) || classSave(key);
+const skillProf = (key) => skillLevel(C().skill_proficiencies?.[key]); // 0 none, 1 proficient, 2 expertise (stored on the character)
+const classSkill = (key) => Math.max(derived?.skills?.[key]?.class_expertise ? 2 : derived?.skills?.[key]?.class_proficient ? 1 : 0, grantedLevel('skills', key));
+const skillTotal = (key) => Math.max(skillProf(key), lineageSkill(key) ? 1 : 0, classSkill(key));
+const itemSaveBonus = (key) => Number(derived?.saving_throws?.[key]?.item_bonus) || 0;
+// a class feature that adds an ability modifier to your saves (an aura): the server sends the best value per save
+const classSaveBonus = (key) => Number(derived?.saving_throws?.[key]?.class_bonus) || 0;
+// in Wild Shape the server's form totals decide (the higher of your proficiency and the form's printed bonus)
+const saveBonus = (key) => (derived?.saving_throws?.[key]?.form_total != null ? Number(derived.saving_throws[key].form_total)
+  : abilityMod(key) + (saveProf(key) ? pb() : 0) + itemSaveBonus(key) + classSaveBonus(key));
+// half proficiency (Jack of All Trades, Remarkable Athlete …): the server says which skills qualify; only without proficiency
+const skillHalf = (key) => (skillTotal(key) ? 0 : Number(derived?.skills?.[key]?.half_proficiency?.value) || 0);
+const skillBonus = (key) => (derived?.skills?.[key]?.form_total != null ? Number(derived.skills[key].form_total)
+  : abilityMod(SKILL_BY_KEY[key].ability) + skillTotal(key) * pb() + skillHalf(key));
+const initiative = () => abilityMod('dex') + (C().initiative_bonus || 0) + (Number(derived?.initiative?.bonus) || 0);
 const castingMod = () => (C().spellcasting_ability ? abilityMod(C().spellcasting_ability) : null);
 const spellAttackBonus = () => (castingMod() == null ? null : pb() + castingMod());
 const spellSaveDC = () => (castingMod() == null ? null : 8 + pb() + castingMod());
@@ -92,10 +213,15 @@ function attackDamage(a) {
   return `${dice} ${bonus > 0 ? '+' : '−'} ${Math.abs(bonus)}`;
 }
 
+/** "Paladin 6 (Devotion) · Human" — classes first (multiclass: "Level 5 · Wizard 3 / Warlock 2 · …"). */
 function subtitle() {
   const c = C();
-  const cls = [c.class_name, c.subclass && `(${c.subclass})`].filter(Boolean).join(' ');
-  return [`Level ${c.level}`, c.race, cls].filter(Boolean).join(' · ');
+  const multi = (classSummary?.classes?.length || 0) > 1;
+  const cls = hasClasses()
+    ? classSummary.classes.map((k) => `${k.class_name} ${k.level}${k.subclass_name ? ` (${k.subclass_name})` : ''}`).join(' / ')
+    : [c.class_name && `${c.class_name} ${c.level}`, c.subclass && `(${c.subclass})`].filter(Boolean).join(' ');
+  const lin = derived?.lineage ? [derived.lineage.name, derived.lineage.subversion_name].filter(Boolean).join(' · ') : c.race;
+  return [multi || !cls ? `Level ${c.level}` : '', cls, lin].filter(Boolean).join(' · ');
 }
 
 function deriveValue(key) {
@@ -111,7 +237,7 @@ function deriveValue(key) {
     case 'pb': return fmt(pb());
     case 'init': return fmt(initiative());
     case 'level': return String(c.level);
-    case 'speed': return String(c.speed);
+    case 'speed': return String(derived?.speed?.value ?? c.speed);
     case 'spelldc': return c.spellcasting_ability ? String(8 + pb() + abilityMod(c.spellcasting_ability)) : '—';
     case 'spellatk': return c.spellcasting_ability ? fmt(pb() + abilityMod(c.spellcasting_ability)) : '—';
     case 'xpnext': {
@@ -119,10 +245,6 @@ function deriveValue(key) {
       if (next == null) return 'Max level';
       const ready = levelForXp(c.experience) > c.level;
       return ready ? `Ready to level up! (${next.toLocaleString()} XP)` : `Next level at ${next.toLocaleString()} XP`;
-    }
-    case 'weight': {
-      const w = B.inventory.reduce((sum, i) => sum + Number(i.weight || 0) * Number(i.quantity || 0), 0);
-      return `${Math.round(w * 100) / 100} lb`;
     }
     default: return '';
   }
@@ -140,12 +262,24 @@ function refreshToggles() {
   $$('[data-action="toggle-save"]', root).forEach((el) => {
     const on = saveProf(el.dataset.k);
     el.classList.toggle('on', on);
+    el.classList.toggle('from-class', classSave(el.dataset.k) && !saveManual(el.dataset.k));
     el.setAttribute('aria-pressed', on);
+    const e = profEntry('saves', el.dataset.k);
+    el.title = e ? `${sourceText(e)}${e.derived ? ' · granted, not removable here' : ''}` : classSave(el.dataset.k) && !saveManual(el.dataset.k) ? 'Proficient (from your class)' : on ? 'Proficient' : 'Not proficient';
   });
   $$('[data-action="cycle-skill"]', root).forEach((el) => {
-    const lvl = skillProf(el.dataset.k);
-    el.dataset.level = lvl;
-    el.title = ['Not proficient', 'Proficient', 'Expertise'][lvl];
+    const k = el.dataset.k;
+    const lvl = skillProf(k);
+    const total = skillTotal(k);
+    const fromClass = classSkill(k) > lvl && classSkill(k) >= (lineageSkill(k) ? 1 : 0);
+    const fromLineage = !fromClass && lineageSkill(k) && lvl === 0;
+    el.dataset.level = total;
+    el.classList.toggle('from-lineage', fromLineage);
+    el.classList.toggle('from-class', fromClass);
+    const e = profEntry('skills', k);
+    el.title = e ? `${sourceText(e)}${e.derived ? ' · tap to set your own mark (the grant stays)' : ''}`
+      : fromClass ? `${['', 'Proficient', 'Expertise'][total]} (from your class)` : fromLineage ? 'Proficient (from your lineage)'
+      : ['Not proficient', 'Proficient', 'Expertise'][lvl];
   });
   $$('[data-action="toggle-inspiration"]', root).forEach((el) => {
     el.classList.toggle('on', !!c.inspiration);
@@ -154,12 +288,9 @@ function refreshToggles() {
   $$('[data-action="death"]', root).forEach((el) => {
     const count = el.dataset.kind === 'success' ? c.death_successes : c.death_failures;
     el.classList.toggle('on', Number(el.dataset.i) < count);
+    el.setAttribute('aria-pressed', String(Number(el.dataset.i) < count));
   });
-  $$('[data-action="toggle-equip"]', root).forEach((el) => {
-    const on = !!c.equipment_proficiencies?.[el.dataset.k];
-    el.classList.toggle('on', on);
-    el.setAttribute('aria-pressed', on);
-  });
+  putHTML($('#prof-chips', root), profChipsHTML());
 }
 
 /** Re-render the read-only "view" part of attack & spell cards whose content changed. */
@@ -176,9 +307,20 @@ function refreshViews() {
   });
 }
 
+/** Maximum HP in play: the stored base (the editable field) + feat bonuses resolved by the server (hit_points.feat_bonus). */
+const featHpBonus = () => Number(derived?.hit_points?.feat_bonus) || 0;
+const hpMax = (c = C()) => Math.max(1, c.hp_max + featHpBonus());
+
 function refreshHp() {
   const c = C();
-  const max = Math.max(1, c.hp_max);
+  const max = hpMax(c);
+  const hpNote = $('[data-derived-hp]', root);
+  if (hpNote) {
+    const bonus = featHpBonus();
+    const from = (derived?.hit_points?.feat_sources || []).map((x) => x.source_name.replace(/^Feat: /, '')).join(', ');
+    hpNote.hidden = !bonus;
+    hpNote.textContent = bonus ? `Maximum ${max}: base ${c.hp_max} + ${bonus} from ${from || 'feats'}.` : '';
+  }
   const pct = clamp((c.hp_current / max) * 100, 0, 100);
   const tempPct = clamp((c.hp_temp / max) * 100, 0, 100 - pct);
   const card = $('#hp-card', root);
@@ -186,7 +328,18 @@ function refreshHp() {
   $('.hp-fill', card).style.width = `${pct}%`;
   $('.hp-temp-fill', card).style.left = `${pct}%`;
   $('.hp-temp-fill', card).style.width = `${tempPct}%`;
-  card.dataset.state = c.hp_current <= 0 ? 'down' : pct <= 25 ? 'critical' : pct <= 50 ? 'bloodied' : 'healthy';
+  card.dataset.state = hpState(c.hp_current, max);
+  const ws = transformState?.active?.sheet;
+  const stWord = HP_STATE_TEXT[ws ? hpState(ws.hp.current, ws.hp.max) : card.dataset.state];
+  const stEl = $('[data-hp-state-text]', card);
+  if (stEl) { stEl.hidden = !stWord; stEl.textContent = stWord; stEl.dataset.state = card.dataset.state; }
+  const tEl = $('[data-hp-temp-badge]', card);
+  if (tEl) { tEl.hidden = !(c.hp_temp > 0); tEl.textContent = c.hp_temp > 0 ? `+${c.hp_temp} temp` : ''; }
+  $$('[data-derived="hp-max"]', card).forEach((el) => {
+    if (el.textContent !== String(max)) el.textContent = String(max);
+    el.setAttribute('aria-label', `Maximum hit points ${max}`);
+  });
+  refreshTopbarVitals();
 }
 
 // -----------------------------------------------------------------------------
@@ -227,14 +380,16 @@ function clampField(table, field, v, row) {
     if (field === 'level') return clamp(v, 1, 20);
     if (ABILITIES.some((a) => a.col === field)) return clamp(v, 1, 30);
     if (field === 'hp_max') return Math.max(1, v);
-    if (field === 'hp_current') return clamp(v, 0, 9999);
-    if (['hp_temp', 'experience', 'hit_dice_current', 'cp', 'sp', 'ep', 'gp', 'pp'].includes(field)) return Math.max(0, v);
+    // current HP never exceeds the authoritative maximum (base + feats); before the derived stats load only the base is known,
+    // so the bound waits for them rather than cutting a feat bonus off
+    if (field === 'hp_current') return clamp(v, 0, derived ? hpMax(row) : 9999);
+    if (field === 'hit_dice_current') return clamp(v, 0, row.level || 20);   // one pool of hit dice: at most one per level
+    if (['hp_temp', 'experience', 'cp', 'sp', 'ep', 'gp', 'pp'].includes(field)) return Math.max(0, v);
   }
   if (table === 'feature_trackers') {
     if (field === 'max') return clamp(v, 0, 999);
     if (field === 'current') return clamp(v, 0, row.max);
   }
-  if (table === 'inventory_items' && (field === 'quantity' || field === 'weight')) return Math.max(0, v);
   if (table === 'attacks' && field === 'magic_bonus') return clamp(v, -10, 10);
   if (table === 'spells' && field === 'level') return clamp(v, 0, 9);
   return v;
@@ -257,6 +412,7 @@ function syncInputs(table, id) {
 /** Apply a patch locally, queue it for saving and refresh the UI. */
 function setRow(table, row, patch) {
   Object.assign(row, patch);
+  if (table === 'characters' && Object.keys(patch).some((k) => DERIVED_FIELDS.has(k))) derivedDirty = true;
   saver.queue(table, row.id, patch);
   syncInputs(table, row.id);
   afterChange(table);
@@ -268,7 +424,7 @@ function afterChange(table) {
   refreshHp();
   refreshViews();
   if (table === 'spells' || table === 'features') refreshCombat();
-  if (table === 'characters') refreshCharacterBits();
+  if (table === 'characters') { refreshCharacterBits(); inventory?.render(); }
   if (table === 'feature_trackers' || table === 'spell_slots') refreshPips();
   cacheLater();
 }
@@ -282,6 +438,7 @@ function commitField(el) {
   v = clampField(table, field, v, row);
   if (row[field] === v) return;
   row[field] = v;
+  if (table === 'characters' && DERIVED_FIELDS.has(field)) derivedDirty = true;
   // Keep tracker current within a lowered max.
   if (table === 'feature_trackers' && field === 'max' && row.current > v) {
     row.current = v;
@@ -292,6 +449,547 @@ function commitField(el) {
   }
   afterChange(table);
   if (table === 'feature_trackers' && field === 'name') renderStrip();
+  if (table === 'characters' && ['cp', 'sp', 'ep', 'gp', 'pp'].includes(field)) inventory?.renderSummary?.();   // the Coins summary card
+}
+
+// -----------------------------------------------------------------------------
+// Derived stats (server-calculated; re-read after equipment, attunement, proficiency or relevant character changes)
+// -----------------------------------------------------------------------------
+
+// Request order of the derived stats and the spellbook (both read the same server state): a spellbook read that started after a
+// derived read is already as fresh, so the derived render does not need to re-read it (one spellbook read on open, not three).
+let reqClock = 0;
+let spellbookStartedAt = 0;
+
+async function loadDerived() {
+  if (!B) return;
+  const my = ++derivedSeq;
+  const startedAt = ++reqClock;
+  const id = C().id;
+  try {
+    const [d, p] = await Promise.all([getDerivedStats(id), getProficiencies(id).catch((err) => { console.warn('[proficiencies]', err?.message || err); return null; })]);
+    if (!B || my !== derivedSeq || C().id !== id) return;   // an older response, or another sheet is open now
+    derived = d;
+    profState = p;
+    profPending = {};
+    renderDerived(startedAt);
+  } catch (err) {
+    if (my === derivedSeq) console.warn('[derived]', err?.message || err);
+  }
+}
+const scheduleDerived = debounce(loadDerived, 300);
+
+async function loadFeats() {
+  const my = ++featSeq;
+  try {
+    const r = await loadCharacterFeats(C().id);
+    if (my !== featSeq || !root) return;
+    featState = r;
+    rerender('#feats-card', featsCardHTML(featState, { editable: !ctx?.readOnly }));
+    renderSheetChips();
+  } catch (err) { console.warn('Feats unavailable:', err.message); }
+}
+
+/** Feats change derived values (HP, scores, proficiencies, spells, resources): reload the dependent views too. */
+function featsChanged() {
+  loadFeats();
+  loadDerived();
+  loadSpellbook();
+  loadClasses();
+}
+
+async function loadLineage() {
+  if (!B) return;
+  const my = ++lineageSeq;
+  const id = C().id;
+  try {
+    const [res, ref] = await Promise.all([getCharacterLineage(id), lineageRef || getLineageReference().catch(() => null)]);
+    if (!B || my !== lineageSeq || C().id !== id) return;
+    lineage = res;
+    lineageRef = ref;
+    lineageSuggestion = !res.selected && C().race ? suggestLineage(C().race, await getLineageCatalog().catch(() => [])) : null;
+    if (!B || my !== lineageSeq) return;
+    renderLineage();
+    renderSheetChips();
+  } catch (err) {
+    if (my === lineageSeq) console.warn('[lineage]', err?.message || err);
+  }
+}
+const scheduleLineage = debounce(loadLineage, 300);
+
+async function loadBackground() {
+  if (!B) return;
+  const my = ++backgroundSeq;
+  const id = C().id;
+  try {
+    const res = await getCharacterBackground(id);
+    if (!B || my !== backgroundSeq || C().id !== id) return;
+    background = res;
+    renderBackground();
+    renderSheetChips();
+  } catch (err) {
+    if (my === backgroundSeq) console.warn('[background]', err?.message || err);
+  }
+}
+const scheduleBackground = debounce(loadBackground, 300);
+
+function renderBackground() {
+  if (!root) return;
+  putHTML($('#background-card-body', root), backgroundCardHTML(background, { editable: !ctx?.readOnly, legacyText: C().background }));
+}
+
+/** After a background change: the card, ability scores, proficiencies and (for a new background) the equipment review. */
+async function backgroundChanged(res, { changed = false } = {}) {
+  backgroundSeq += 1;
+  background = res;
+  renderBackground();
+  loadDerived();
+  loadFeats();        // a 2024 background grants its Origin feat
+  if (changed && res?.selected && (res.equipment || []).length && !res.equipment_applied_here
+      && await confirmDialog('Review the starting equipment of this background now? Nothing is added without your confirmation.',
+        { title: 'Starting equipment', okLabel: 'Review equipment' })) {
+    openBackgroundEquipment({ characterId: C().id, bg: background, onApplied: () => { inventory?.refresh?.(); loadBackground(); } });
+  }
+}
+
+async function loadSpellbook() {
+  if (!B) return;
+  const my = ++spellbookSeq;
+  spellbookStartedAt = ++reqClock;
+  const id = C().id;
+  try {
+    const [book, ref] = await Promise.all([getSpellbook(id), spellRef || getSpellReference().catch(() => null)]);
+    if (!B || my !== spellbookSeq || C().id !== id) return;
+    spellbook = book;
+    spellRef = ref;
+    renderSpellbook();
+  } catch (err) {
+    if (my === spellbookSeq) console.warn('[spellbook]', err?.message || err);
+  }
+}
+const scheduleSpellbook = debounce(loadSpellbook, 300);
+
+async function loadClasses() {
+  if (!B) return;
+  const my = ++classSeq;
+  const id = C().id;
+  const tfAt = tfEpoch;
+  const epoch = slotEpoch;
+  try {
+    const [summary, slots, cat, feats, res, sts] = await Promise.all([getClassSummary(id), getSpellSlots(id),
+      classCatalog || getClassCatalog().catch(() => null), getClassFeatures(id), getResources(id), getStates(id).catch(() => null)]);
+    const [tf, comps, infs] = await Promise.all([getTransformation(id).catch(() => null), getCompanions(id).catch(() => null),
+      getInfusions(id).catch(() => null)]);
+    const eq = ctx?.readOnly ? null : await getStartingEquipmentState(id, summary).catch(() => null);
+    if (!B || my !== classSeq || C().id !== id) return;
+    startEqState = eq;
+    classStates = sts;
+    if (tfAt === tfEpoch && !tfBusy.size) transformState = tf;   // a Wild Shape change overlapped this read: keep the newer state
+    companions = comps;
+    infusionState = infs;
+    classSummary = summary;
+    if (slotsFresh(epoch)) slotState = slots;
+    else scheduleSlots();     // a slot change overlapped this read: keep the newer slots, re-read them in a moment
+    classCatalog = cat;
+    classFeatures = feats;
+    classResources = res;
+    renderClasses();
+  } catch (err) {
+    if (my === classSeq) console.warn('[classes]', err?.message || err);
+  }
+}
+const scheduleClasses = debounce(loadClasses, 250);
+
+/** Re-read only the Wild Shape state (Realtime on character_transformations); a read overlapping a change is dropped. */
+async function loadTransform() {
+  if (!B) return;
+  const my = ++tfSeq;
+  const id = C().id;
+  const epoch = tfEpoch;
+  try {
+    const st = await getTransformation(id);
+    if (!B || my !== tfSeq || C().id !== id) return;
+    if (epoch !== tfEpoch || tfBusy.size) { scheduleTransform(); return; }
+    const was = !!transformState?.active;
+    transformState = st;
+    renderClasses();
+    if (was !== !!st.active) loadDerived();
+  } catch (err) {
+    if (my === tfSeq) console.warn('[wild shape]', err?.message || err);
+  }
+}
+const scheduleTransform = debounce(loadTransform, 250);
+
+/** A confirmed Wild Shape state from the server: render it, refresh the derived stats and announce the change. */
+async function tfApplied(r, { quiet = false } = {}) {
+  if (!B || !r) return;
+  tfEpoch += 1;
+  transformState = r.character_id === C().id ? r : transformState;
+  renderClasses();
+  loadDerived();
+  scheduleClasses();                 // resources (uses) and slots
+  const res = r.result;
+  let msg = '';
+  if (res?.expired) msg = 'The Wild Shape duration was over: you are back in your normal form.';
+  else if (res?.ended && res.carryover != null && res.reason !== 'manual') {
+    msg = `The form drops to 0 HP and Wild Shape ends.${res.carryover ? ` ${res.carryover} damage carries over to your normal form (${res.normal_hp_before} → ${res.normal_hp_after}).` : ''}`;
+  } else if (!quiet && r.active) msg = `You are a ${r.active.name}.`;
+  if (msg) announceWs(msg, res?.ended ? 'bad' : 'good');
+}
+
+function announceWs(msg, kind = 'good') {
+  const st = root && $('#ws-status', root);
+  if (st) { st.textContent = msg; st.dataset.kind = kind; }
+  toast(msg, kind, 6000);
+}
+
+/** One Wild Shape change: duplicate clicks ignored, late answers for another character ignored, focus kept. */
+async function tfMutation(key, call, message) {
+  if (!B || tfBusy.has(key)) return null;
+  const busy = tfBusy;
+  const id = C().id;
+  busy.add(key);
+  tfEpoch += 1;
+  try {
+    const r = await call(id);
+    if (!B || busy !== tfBusy || C().id !== id) return null;
+    await tfApplied(r, { quiet: true });
+    const msg = typeof message === 'function' ? message(r) : message;
+    if (msg && !(r.result?.ended && r.result?.carryover != null)) announceWs(msg);
+    return r;
+  } catch (err) {
+    if (B && busy === tfBusy && C().id === id) { toast(err.message, 'bad'); scheduleTransform(); }
+    return null;
+  } finally {
+    busy.delete(key);
+    if (busy === tfBusy) tfEpoch += 1;
+  }
+}
+
+/** Damage or heal the form (sign -1 / +1); lethal damage asks first when the setting says so. */
+async function formHp(sign, amount, key) {
+  const amt = Math.floor(Number(amount));
+  if (!amt || amt < 1) { toast('Enter an amount first'); $('[data-tf-amount]', root)?.focus(); return; }
+  const sheet = transformState?.active?.sheet;
+  if (!sheet) return;
+  if (sign < 0 && transformState.settings?.confirm_lethal !== false && !(await confirmLethal(sheet, amt))) return;
+  const r = await tfMutation(key, (id) => (sign < 0 ? damageForm(id, amt) : healForm(id, amt)),
+    (x) => (sign < 0 ? `Form takes ${amt} damage: ${x.result.form_hp_after} / ${sheet.hp.max}.` : `Form regains ${x.result.healed} HP: ${x.result.form_hp_after} / ${sheet.hp.max}.`));
+  if (r) { const inp = $('[data-tf-amount]', root); if (inp) inp.value = ''; }
+}
+
+/** A dialog changed slots (recovery, conversion, smite): older reads must not bring the previous slots back. */
+function slotsChangedElsewhere() { slotEpoch += 1; return loadClasses(); }
+
+/** A slot read started at `epoch` may be applied: no slot change was sent or answered since, and none is in flight. */
+const slotsFresh = (epoch) => epoch === slotEpoch && slotBusy.size === 0;
+
+/** Re-read only the slots (Realtime slot events); the class page itself did not change. */
+async function loadSlots() {
+  if (!B) return;
+  const my = ++slotsSeq;
+  const id = C().id;
+  const epoch = slotEpoch;
+  try {
+    const slots = await getSpellSlots(id);
+    if (!B || my !== slotsSeq || C().id !== id) return;
+    if (!slotsFresh(epoch)) { scheduleSlots(); return; }
+    slotState = slots;
+    renderClasses();
+  } catch (err) {
+    if (my === slotsSeq) console.warn('[slots]', err?.message || err);
+  }
+}
+const scheduleSlots = debounce(loadSlots, 250);
+
+/**
+ * One slot Use / Restore. `key` is the slot line ("standard:1", "pact", "temporary:<id>"): while its request runs, further
+ * clicks on that line are ignored and its buttons show as busy. The RPC result is the new authoritative state; an answer for
+ * another character (switched meanwhile) or older than an answer already shown is ignored.
+ */
+async function slotMutation(key, verb, call) {
+  if (!B || slotBusy.has(key)) return;
+  const busy = slotBusy;            // this sheet's set (a remount makes a new one)
+  const id = C().id;
+  const seq = ++slotMutSeq;
+  const status = () => $('#slot-status', root);
+  busy.add(key);
+  slotEpoch += 1;
+  renderClasses();
+  try {
+    const res = await call(id);
+    if (!B || busy !== slotBusy || C().id !== id) return;
+    if (seq > slotMutApplied) {
+      slotMutApplied = seq;
+      slotState = res;
+    }
+    const [pool, k] = key.split(/:(.*)/s);
+    const msg = slotChangeMessage(slotState, pool, k, verb);
+    const st = status();
+    if (st) { st.textContent = msg; st.dataset.kind = 'good'; }
+  } catch (err) {
+    if (!B || busy !== slotBusy || C().id !== id) return;
+    const st = status();
+    if (st) { st.textContent = friendlySlotError(err); st.dataset.kind = 'bad'; }
+    toast(friendlySlotError(err), 'bad');
+    scheduleSlots();               // show the authoritative state again
+  } finally {
+    busy.delete(key);
+    if (busy === slotBusy) {
+      slotEpoch += 1;
+      if (B && C().id === id) renderClasses();
+    }
+  }
+}
+
+function friendlySlotError(err) {
+  const m = err?.message || '';
+  if (/No .* slot left/i.test(m)) return `${m}. Nothing was spent.`;
+  if (/No expended .* to restore/i.test(m)) return `${m}: it is already full.`;
+  if (/fetch|network/i.test(m)) return 'Could not reach the server. The slots were not changed.';
+  return m || 'The slot could not be changed.';
+}
+
+/** After a class change: everything level-dependent is re-read from the server. */
+async function classesChanged() {
+  await loadClasses();
+  inventory?.refresh?.();   // starting equipment may have been added
+  loadDerived();
+  loadLineage();
+  loadSpellbook();
+  loadFeats();              // an Ability Score Improvement may name a feat
+}
+
+/**
+ * Replace a container's HTML only when it changed. Keeps keyboard focus on the element with the same data-focus-key (or its
+ * data-focus-alt when that one is now disabled, e.g. Restore at the maximum) and keeps details[data-open-key] open.
+ */
+function putHTML(el, html) {
+  if (!el || el.__html === html) return;
+  const a = document.activeElement;
+  const had = a && el.contains(a) ? a : null;
+  const key = had?.dataset.focusKey || null;
+  const alt = had?.dataset.focusAlt || null;
+  const open = new Set([...el.querySelectorAll('details[data-open-key]')].filter((d) => d.open).map((d) => d.dataset.openKey));
+  el.innerHTML = html;
+  el.__html = html;
+  for (const d of el.querySelectorAll('details[data-open-key]')) if (open.has(d.dataset.openKey)) d.open = true;
+  if (!had) return;
+  const q = (k) => (k ? $(`[data-focus-key="${CSS.escape(k)}"]`, el) : null);
+  let target = q(key);
+  if (!target || target.disabled) target = q(alt) && !q(alt).disabled ? q(alt) : target;
+  (target && !target.disabled ? target : el.closest('[tabindex], section, .card'))?.focus?.({ preventScroll: true });
+}
+
+/** The weapon and armor chips from the resolver (falls back to the manual flags while it loads). */
+function profChipsHTML() {
+  const groups = EQUIPMENT_PROFICIENCIES.map((p) => ({ id: PROF_GROUP_BY_FLAG[p.key], label: p.label }));
+  const flagOf = (gid) => Object.keys(PROF_GROUP_BY_FLAG).find((k) => PROF_GROUP_BY_FLAG[k] === gid);
+  const state = profState || { groups: groups.map((g) => ({ id: g.id, manual: !!C().equipment_proficiencies?.[flagOf(g.id)], sources: [] })) };
+  return proficiencyChipsHTML(state, groups, { flagOf, pendingManual: profPending });
+}
+
+/** Add or remove the manual mark of a group or item; the resolver result replaces the optimistic chip. */
+// Writes run one after another: two quick clicks (add, then remove) sent in parallel could commit in the wrong order.
+let profQueue = Promise.resolve();
+function setManualProficiency({ group = null, item = null, enabled, flag = null }) {
+  if (flag) { profPending = { ...profPending, [flag]: enabled }; refreshToggles(); }
+  const id = C().id;
+  const run = async () => {
+    try {
+      await setCharacterProficiency(id, { group, item, enabled });
+    } catch (err) {
+      if (flag && profPending[flag] === enabled) { const { [flag]: _, ...rest } = profPending; profPending = rest; refreshToggles(); }
+      toast(err.message, 'bad');
+    }
+    if (B && C().id === id) await loadDerived();
+  };
+  profQueue = profQueue.then(run, run);
+  return profQueue;
+}
+
+function gotoSource(where) {
+  showTab('features');
+  const el = $(where === 'lineage' ? '#lineage-card' : where === 'background' ? '#background-card' : '#class-card', root);
+  el?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  el?.querySelector('button, select, summary')?.focus({ preventScroll: true });
+}
+
+function levelFieldHTML() {
+  const c = C();
+  return hasClasses()
+    ? `<input type="number" value="${c.level}" readonly aria-describedby="level-from-classes" data-level-ro>
+       <small class="muted" id="level-from-classes">Set by your classes</small>`
+    : numInput('characters', c, 'level', '', 'min="1" max="20"');
+}
+
+function renderClasses() {
+  if (!root) return;
+  const put = (sel, html) => putHTML($(sel, root), html);
+  const editable = !ctx?.readOnly;
+  put('#class-card-body', classCardHTML(classSummary, classCatalog, { editable, startEq: startEqState }));
+  put('#level-field', levelFieldHTML());
+  put('#slot-tracker', slotTrackerHTML(slotState, { editable, pending: slotBusy }));
+  put('#slot-actions', slotActionsHTML(classResources, slotState, { editable }));
+  put('#class-features', featuresPanelHTML(classFeatures, { editable, derived, states: classStates }));
+  put('#combat-states', playGlanceHTML());
+  $$('[data-play-ready]', root).forEach((el) => { el.hidden = !playGlanceHTML(); });
+  renderFormHp();
+  put('#class-transform', wildShapePanelHTML(transformState, { editable, place: 'class' }));
+  put('#combat-transform', wildShapePanelHTML(transformState, { editable, place: 'combat' }));
+  put('#companions-body', companionsHTML(companions, { editable }));
+  put('#infusions-slot', infusionsHTML(infusionState, { editable }));
+  restoreDrafts($('#class-features', root));
+  put('#class-resources', resourceListHTML(classResources, { editable }));
+  put('#class-feature-summary', featureSummaryHTML(classFeatures));
+  put('#combat-groups', combatGroupsHTML());
+  put('#sheet-avatar', avatarHTML());
+  hydrateSpellChoices(root);
+  renderStrip();
+  renderSheetChips();
+  $$('[data-legacy-slots]', root).forEach((el) => { el.hidden = !!slotState && !slotState.legacy_manual_active; });
+  renderSpellbook();
+  refreshDerived();
+}
+
+/** While transformed, the vitals show the form's HP first; the normal HP stays below it, protected. */
+function renderFormHp() {
+  const card = $('#hp-card', root);
+  if (!card) return;
+  const ws = transformState?.active?.sheet;
+  card.classList.toggle('is-form', !!ws);
+  const box = $('[data-ws-hp]', card);
+  if (box) {
+    box.hidden = !ws;
+    putHTML(box, ws ? `<span class="hp-form-label">${icon('actions/wild-shape', { size: 18 })}Wild Shape · ${esc(ws.creature.name)}</span>
+      <span class="hp-form-num" aria-label="Form hit points ${ws.hp.current} of ${ws.hp.max}"><strong>${ws.hp.current}</strong><span class="hp-sep">/</span>${ws.hp.max}</span>` : '');
+  }
+  const note = $('[data-ws-hpnote]', card);
+  if (note) {
+    note.hidden = !ws;
+    note.textContent = ws ? 'Damage and Heal apply to the form. Your normal hit points are protected until you revert.' : '';
+  }
+  refreshHp();   // HP state word and top-bar readout follow the form
+}
+
+function renderSpellbook() {
+  if (!root) return;
+  const put = (sel, html) => putHTML($(sel, root), html);
+  const editable = !ctx?.readOnly;
+  put('#spellcasting-sources', sourcesHTML(spellbook, { editable, classes: classSummary?.classes }));
+  const filters = $('#spellbook-filters', root);
+  if (filters && spellRef && !filters.childElementCount) filters.innerHTML = filtersHTML(spellFilters, spellRef, { book: true });
+  put('#spellbook-list', spellbookListHTML(spellbook, spellFilters, { editable }));
+}
+
+/** The Lineage card on the Build tab (re-rendered in place; keeps keyboard focus). */
+function lineageSectionHTML() {
+  const c = C();
+  // The old free-text race is compatibility data: shown (and editable) only in a folded legacy detail, never as an active field
+  return `
+    ${sectionHead({ id: 'lineage-card-title', icon: 'build.lineage', title: 'Lineage', desc: 'Your people, their traits and choices.' })}
+    <div id="lineage-card-body">${lineageCardHTML(lineage, c, { editable: !ctx?.readOnly, ref: lineageRef, suggestion: lineageSuggestion })}</div>
+    ${c.race ? `<details class="quiet-details tl-detail legacy-race" data-legacy-race>
+      <summary>Legacy race text (kept, grants no traits)</summary>
+      <label class="field"><span>Race as written on the old sheet</span>${textInput('characters', c, 'race')}</label>
+      <p class="muted small">Only used for display while no lineage is chosen. Choosing a lineage never deletes it.</p>
+    </details>` : ''}`;
+}
+
+function renderLineage() {
+  const el = root && $('#lineage-card', root);
+  if (!el) return;
+  const html = lineageSectionHTML();
+  if (el.__html === html) return;
+  const a = document.activeElement;
+  const key = a && el.contains(a) ? a.dataset.focusKey : null;
+  el.innerHTML = html;
+  el.__html = html;
+  if (key) $(`[data-focus-key="${CSS.escape(key)}"]`, el)?.focus();
+}
+
+async function lineageChanged(res) {
+  lineage = res;
+  renderLineage();
+  loadFeats();           // Variant Human / Custom Lineage feat choice
+  await loadDerived();   // refreshes the subtitle, abilities, speed, skills … through renderDerived
+}
+
+/** Update only the derived bits in place; a re-rendered block keeps keyboard focus (stable data-focus-key). */
+function renderDerived(startedAt = 0) {
+  if (!root || !derived) return;
+  const set = (key, text) => $$(`[data-derived="${key}"]`, root).forEach((el) => { if (el.textContent !== text) el.textContent = text; });
+  refreshHp();                                               // the feat bonus to maximum HP may have changed
+  set('ac', String(derived.armor_class.value));
+  set('ac-note', acNote(derived));
+  set('ac-note-short', acNote(derived, { short: true }));   // phones: the shield-shaped tile has room for ~2 short lines
+  const sp = derived.speed;
+  const modes = Object.entries(sp.movement || {}).filter(([k, m]) => k !== 'walk' && m.active).map(([k, m]) => `${k} ${m.value}`);
+  // feat effects use the class-feature row shape; their source name is "Feat: <name>"
+  const fromFeat = (sp.breakdown || []).filter((x) => x.source_type === 'class_feature' && /^Feat: /.test(x.source_name || ''));
+  const fromClass = (sp.breakdown || []).some((x) => x.source_type === 'class_feature' && !/^Feat: /.test(x.source_name || ''));
+  const speedFrom = sp.base_source === 'lineage' ? 'lineage'
+    : fromFeat.length && !fromClass ? fromFeat.map((x) => x.source_name.replace(/^Feat: /, '')).join(', ')
+      : fromClass && fromFeat.length ? 'class features and feats' : fromClass ? 'class features' : 'equipment';
+  set('speed-note', derived.wild_shape ? `Form: walk ${sp.value} ft${modes.length ? ` · ${modes.join(' · ')}` : ''}`
+    : [sp.value !== sp.base ? `Base ${sp.base} ft, now ${sp.value} ft (${speedFrom})` : '', ...modes].filter(Boolean).join(' · '));
+  const inForm = ABILITIES.some((a) => derived.abilities?.[a.key]?.form_score != null);
+  for (const a of ABILITIES) {
+    const x = derived.abilities?.[a.key];
+    set(`abform:${a.key}`, x?.form_score != null ? String(x.form_score) : '');
+    set(`absrc:${a.key}`, !inForm ? '' : x?.form_score != null ? 'From form' : 'Retained from character');
+    $$(`#ability-cards [data-ability="${a.key}"]`, root).forEach((el) => { el.dataset.src = !inForm ? '' : x?.form_score != null ? 'form' : 'retained'; });
+    if (x?.form_score != null) { set(`abnote:${a.key}`, `${x.form_name} form (your score ${x.base})`); continue; }
+    const items = x ? x.score - x.base - (x.lineage_applied || 0) - (x.background_applied || 0) : 0;
+    const parts = [];
+    if (x?.lineage_applied) parts.push(`+${x.lineage_applied} lineage`);
+    if (x?.background_applied) parts.push(`+${x.background_applied} background`);
+    if (items) parts.push(`${items > 0 ? '+' : ''}${items} items`);
+    set(`abnote:${a.key}`, parts.length ? `${parts.join(', ')} = ${x.score}` : '');
+  }
+  const keep = (sel, html) => {
+    const el = $(sel, root);
+    if (!el || el.__html === html) return;
+    const a = document.activeElement;
+    const key = a && el.contains(a) ? a.dataset.focusKey : null;
+    el.innerHTML = html;
+    el.__html = html;
+    if (key) $(`[data-focus-key="${CSS.escape(key)}"]`, el)?.focus();
+  };
+  keep('#equipped-weapons', equippedWeaponsHTML(derived));
+  keep('#feature-attacks', featureAttacksHTML());
+  keep('#class-features', featuresPanelHTML(classFeatures, { editable: !ctx?.readOnly, derived, states: classStates }));
+  keep('#combat-states', playGlanceHTML());
+  $$('[data-play-ready]', root).forEach((el) => { el.hidden = !playGlanceHTML(); });
+  restoreDrafts($('#class-features', root));
+  hydrateSpellChoices(root);
+  keep('#prof-chips', profChipsHTML());
+  keep('#specific-profs', proficiencyDetailsHTML(profState, { editable: !ctx?.readOnly }));
+  keep('#tool-profs', toolsHTML(derived));
+  keep('#lineage-stats', lineageStatsHTML(derived));
+  keep('#senses-list', sensesHTML());
+  keep('#lineage-spells', lineageSpellsHTML(derived, { spells: false }));
+  $$('[data-lineage-spells-card]', root).forEach((el) => { el.hidden = !derived.lineage_actions?.length; });
+  $$('[data-derive^="save:"]', root).forEach((el) => {
+    const st = derived.saving_throws?.[el.dataset.derive.slice(5)];
+    if (st?.class_bonus) el.title = `Includes +${st.class_bonus} from ${(st.class_bonus_sources || []).join(', ')}`;
+    else el.removeAttribute('title');
+  });
+  $$('[data-dis]', root).forEach((el) => {
+    const [kind, k] = el.dataset.dis.split(':');
+    el.hidden = !(kind === 'save' ? derived.saving_throws?.[k]?.disadvantage : derived.skills?.[k]?.disadvantage);
+  });
+  if (!startedAt || spellbookStartedAt < startedAt) scheduleSpellbook();    // Save DC / attack bonus depend on scores, level and lineage
+  refreshToggles();       // skill dots show lineage proficiencies
+  renderStrip();
+  refreshDerived();       // saves include item bonuses; "move up to your speed" uses the derived speed
+  inventory?.render();    // proficiency notes on equipped items
+}
+
+/** Open an equipped item from the AC breakdown: Inventory tab, then the item's detail. */
+function gotoInventoryItem(inventoryItemId) {
+  showTab('inventory');
+  setTimeout(() => $(`[data-focus-key="inventory-item:${CSS.escape(inventoryItemId)}:details"]`, root)?.click(), 50);
 }
 
 // -----------------------------------------------------------------------------
@@ -335,20 +1033,55 @@ function refreshPips() {
   renderStrip();
 }
 
+// Quick resources in the vitals: a restrained, deterministic summary. Class resources with few uses (in class order, at most 4),
+// then the player's own trackers, then one spell-slot line and one Pact Magic line (authoritative slot state). Everything else
+// is managed in Play ("+ N more" links there).
+const QUICK_CLASS_RES = 4;
+const QUICK_MAX = 6;
+const ORD = (n) => `${n}${n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`;
+
 function stripHTML() {
+  const pips = (cur, max, label) => `<div class="pips" aria-label="${esc(label)}: ${cur} of ${max}">${Array.from({ length: max }, (_, i) =>
+    `<span class="slot-dot ${i < cur ? 'is-full' : ''}"></span>`).join('')}</div>`;
+  const classRes = (classResources?.resources || []).filter((r) => r.kind === 'feature' && r.active && r.max != null && r.max <= 12)
+    .map((r) => `
+    <div class="res-chip" data-quick="class" title="${esc(r.class_name)}: ${esc(r.feature_name)}">
+      <div class="res-name">${esc(r.name)}</div>
+      ${pips(r.remaining, r.max, r.name)}
+    </div>`);
   const trackers = B.trackers.map((t) => `
-    <div class="res-chip" ${t.formula ? `title="Max: ${esc(t.formula)}"` : ''}>
+    <div class="res-chip" data-quick="tracker" ${t.formula ? `title="Max: ${esc(t.formula)}"` : ''}>
       <div class="res-name">${esc(t.name)}</div>
       <div data-pips="tracker:${t.id}">${trackerPips(t)}</div>
     </div>`);
-  const slots = B.slots.filter((s) => s.total > 0).map((s) => `
-    <div class="res-chip slot-chip">
-      <div class="res-name">Lvl ${s.level} slots</div>
-      <div data-pips="slot:${s.id}">${slotBoxes(s)}</div>
+  const slots = [];
+  const std = (slotState?.standard || []).filter((x) => x.max > 0);
+  if (std.length) {
+    slots.push(`<div class="res-chip slot-chip" data-quick="slots">
+      <div class="res-name">Spell slots</div>
+      <div class="res-slots">${std.map((x) => `<span class="res-slot" aria-label="${ORD(x.slot_level)} level: ${x.remaining} of ${x.max}"><span class="res-slot-lvl" aria-hidden="true">${ORD(x.slot_level)}</span><span class="res-num" aria-hidden="true">${x.remaining}/${x.max}</span></span>`).join('')}</div>
     </div>`);
-  const all = [...trackers, ...slots];
+  }
+  const pact = slotState?.pact_magic;
+  if (pact?.max) {
+    slots.push(`<div class="res-chip slot-chip" data-quick="pact">
+      <div class="res-name">Pact Magic · ${ORD(pact.slot_level)}</div>
+      ${pips(pact.remaining, pact.max, 'Pact Magic slots')}
+    </div>`);
+  }
+  // legacy hand-tracked slots only when the character has no class slot table (or still uses the manual tracker)
+  if (!slotState || slotState.legacy_manual_active) {
+    B.slots.filter((x) => x.total > 0).forEach((x) => slots.push(`
+    <div class="res-chip slot-chip" data-quick="manual-slots">
+      <div class="res-name">Lvl ${x.level} slots</div>
+      <div data-pips="slot:${x.id}">${slotBoxes(x)}</div>
+    </div>`));
+  }
+  const all = [...classRes.slice(0, QUICK_CLASS_RES), ...trackers, ...slots];
+  const shown = all.slice(0, QUICK_MAX);
+  const more = all.length - shown.length + Math.max(0, classRes.length - QUICK_CLASS_RES);
   return all.length
-    ? all.join('')
+    ? `${shown.join('')}${more > 0 ? `<button type="button" class="res-more" data-action="tab" data-tab="combat">+ ${more} more in Play</button>` : ''}`
     : `<button type="button" class="res-empty" data-action="tab" data-tab="resources">+ Add resources (Ki, Rage, Bardic Inspiration…)</button>`;
 }
 
@@ -365,7 +1098,7 @@ function avatarHTML() {
   const c = C();
   return c.portrait_url
     ? `<img src="${esc(c.portrait_url)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${esc(initials(c.name)).replace(/'/g, '')}'}))">`
-    : `<span>${esc(initials(c.name))}</span>`;
+    : classIcon(classSummary?.classes?.find((k) => k.is_primary)?.class_name || c.class_name, { size: 48, cls: 'avatar-emblem' });
 }
 
 const activeConditions = () => (Array.isArray(C().conditions) ? C().conditions : []);
@@ -381,14 +1114,9 @@ function conditionsHTML() {
 
 const pendingChoices = () => (Array.isArray(C().pending_choices) ? C().pending_choices : []);
 
-function choicesBadgeHTML() {
-  const n = pendingChoices().length;
-  return n ? `⚠ ${n} choice${n === 1 ? '' : 's'} to make` : '';
-}
-
 function choicesListHTML() {
   const list = pendingChoices();
-  if (!list.length) return '<p class="empty">Nothing pending. 🎉</p>';
+  if (!list.length) return '<p class="empty">No reminders. Add one for a choice you want to make later.</p>';
   return list.map((p) => `
     <div class="choice-row">
       <div class="choice-info">
@@ -404,30 +1132,100 @@ function choicesListHTML() {
 function refreshCharacterBits() {
   for (const [sel, html] of [
     ['#sheet-avatar', avatarHTML()], ['#conditions-row', conditionsHTML()], ['#portrait-preview', avatarHTML()],
-    ['#choices-badge', choicesBadgeHTML()], ['#choices-list', choicesListHTML()],
+    ['#choices-list', choicesListHTML()],
   ]) {
     const el = $(sel, root);
     if (el && el.__html !== html) { el.innerHTML = html; el.__html = html; }
   }
-  const badge = $('#choices-badge', root);
-  if (badge) badge.hidden = !pendingChoices().length;
+  renderSheetChips();
+}
+
+/** Governance state of this character (request-ui onState): lock, decisions, open requests. Null until loaded / ungoverned. */
+let govState = null;
+
+const LOCKED_MODES = new Set(['progression_locked', 'build_locked', 'fully_locked', 'archived']);
+const LOCK_CHIP = { progression_locked: 'Progression locked', build_locked: 'Build locked', fully_locked: 'Locked by the DM', archived: 'Archived' };
+
+/** How Level Up behaves now: { mode: 'normal' | 'request' | 'blocked', reason }. The server still decides; this only labels. */
+function levelUpMode() {
+  const g = govState?.gov;
+  if (!g || g.is_dm) return { mode: 'normal' };
+  if (LOCKED_MODES.has(g.lock_mode)) {
+    // say which lock applies (the banner names the DM's reason); runtime play stays available under every lock but archive
+    const LOCK_REASON = { progression_locked: 'Your DM has paused progression for this character.',
+      build_locked: 'Your DM has locked the build: levels and other permanent changes wait until it is unlocked.',
+      fully_locked: 'Your DM has locked this character.', archived: 'This character is archived.' };
+    return { mode: 'blocked', reason: LOCK_REASON[g.lock_mode] || LOCK_REASON.progression_locked };
+  }
+  const d = g.decisions?.['build.class_level'];
+  if (d === 'dm_only' || d === 'disabled') return { mode: 'blocked', reason: 'Only your DM changes levels in this campaign.' };
+  if (d === 'approval_required') return { mode: 'request' };
+  return { mode: 'normal' };
+}
+
+function levelUpButtonHTML() {
+  const m = levelUpMode();
+  if (m.mode === 'blocked') {
+    return `<button type="button" class="btn" disabled aria-describedby="level-up-reason" data-level-up-blocked>${icon('ui/locked', { size: 18 })}Level up</button>
+      <span class="field-note" id="level-up-reason">${esc(m.reason)}</span>`;
+  }
+  return `<button type="button" class="btn btn-gold" data-action="level-up" data-focus-key="level-up">${icon('actions/level-up', { size: 18 })}${
+    m.mode === 'request' ? 'Request level up' : 'Level up'}</button>${m.mode === 'request'
+    ? '<span class="field-note">Your DM approves level-ups in this campaign: you choose everything, then send it for approval.</span>' : ''}`;
+}
+
+/** Open class-feature choices and subclasses still to pick (from get_character_class_features). */
+function openBuildChoices() {
+  const st = classFeatures;
+  if (!st?.classes?.length) return 0;
+  const subs = st.classes.filter((k) => !k.subclass?.selected && k.subclass?.status === 'available').length;
+  return (st.incomplete_choices || []).filter((x) => x.kind !== 'subclass').length + subs;
+}
+
+/** Small state chips under the name: campaign, owner, lock, requests, Wild Shape, open choices. Text always carries the meaning. */
+function sheetChipsHTML() {
+  const c = C();
+  const chips = [];
+  const camp = state.campaigns.find((k) => k.id === c.campaign_id);
+  if (camp) chips.push(`<span class="chip chip-quiet">${icon('dm/campaign', { size: 16 })}${esc(camp.name)}</span>`);
+  const owner = canManageCharacter(c) ? state.profiles.find((p) => p.id === c.owner_id) : null;
+  if (owner && owner.id !== state.profile.id) chips.push(`<span class="chip chip-quiet owner-tag">Player: ${esc(owner.display_name || owner.email)}</span>`);
+  const g = govState?.gov;
+  if (g && LOCKED_MODES.has(g.lock_mode)) chips.push(`<span class="chip chip-locked" data-chip="lock">${icon('ui/locked', { size: 16 })}${esc(LOCK_CHIP[g.lock_mode])}</span>`);
+  const reqs = govState?.requests || [];
+  const waiting = reqs.filter((r) => r.status === 'submitted').length;
+  const returned = reqs.filter((r) => r.status === 'returned_for_changes').length;
+  if (waiting || returned) {
+    chips.push(`<button type="button" class="chip chip-pending" data-action="open-requests" data-chip="requests">${icon('ui/pending', { size: 16 })}${
+      returned ? `${returned} returned to you` : `${waiting} waiting for your DM`}</button>`);
+  } else if (g?.governed && !g.is_dm) chips.push(`<button type="button" class="chip chip-quiet" data-action="open-requests" data-chip="requests">${icon('dm/approved', { size: 16 })}Requests</button>`);
+  const ws = transformState?.active?.sheet;
+  if (ws) {
+    chips.push(`<button type="button" class="chip chip-nature" data-action="tf-open-combat" data-chip="wild-shape">${icon('actions/wild-shape', { size: 16 })}Wild Shape: ${esc(ws.creature.name)}</button>`);
+  }
+  const n = pendingChoices().length + openBuildChoices();
+  if (n) chips.push(`<button type="button" class="chip chip-warn choices-badge" id="choices-badge" data-action="goto-choices">${icon('ui/incomplete', { size: 16 })}${n} choice${n === 1 ? '' : 's'} to make</button>`);
+  return chips.join('');
+}
+
+function renderSheetChips() {
+  if (!root) return;
+  putHTML($('#sheet-chips', root), sheetChipsHTML());
+  putHTML($('#build-next-wrap', root), buildNextSectionHTML());
 }
 
 function headerHTML() {
-  const owner = canManageCharacter(C()) ? state.profiles.find((p) => p.id === C().owner_id) : null;
   return `
   <header class="sheet-header">
-    <button type="button" class="avatar" id="sheet-avatar" data-action="tab" data-tab="bio" aria-label="Portrait (edit on the Bio tab)">${avatarHTML()}</button>
+    <button type="button" class="avatar" id="sheet-avatar" data-action="tab" data-tab="bio" aria-label="Portrait (change it on the Bio tab)">${avatarHTML()}</button>
     <div class="sheet-id">
       <h1 class="char-name" data-derive="name"></h1>
-      <div class="char-sub" data-derive="subtitle"></div>
-      ${owner && owner.id !== state.profile.id ? `<div class="owner-tag">Player: ${esc(owner.display_name || owner.email)}</div>` : ''}
-      <button type="button" class="choices-badge" id="choices-badge" data-action="goto-choices" ${pendingChoices().length ? '' : 'hidden'}>${choicesBadgeHTML()}</button>
+      <p class="char-sub" data-derive="subtitle"></p>
+      <div class="sheet-chips" id="sheet-chips">${sheetChipsHTML()}</div>
     </div>
-    <div class="sheet-actions">
-      <button type="button" class="btn btn-gold" data-action="level-up">▲ Level Up</button>
-      <button type="button" class="btn" data-action="short-rest" title="Restore short-rest resources">☾ Short Rest</button>
-      <button type="button" class="btn" data-action="long-rest" title="Restore HP, slots and resources">☀ Long Rest</button>
+    <div class="sheet-actions" role="group" aria-label="Rests">
+      <button type="button" class="btn btn-quiet" data-action="short-rest" title="Restore short-rest resources">${icon('actions/short-rest', { size: 18 })}Short rest</button>
+      <button type="button" class="btn btn-quiet" data-action="long-rest" title="Restore HP, slots and resources">${icon('actions/long-rest', { size: 18 })}Long rest</button>
     </div>
   </header>`;
 }
@@ -441,120 +1239,183 @@ function deathSavesHTML() {
   return `<div class="death-saves">${row('success', 'Successes')}${row('failure', 'Failures')}</div>`;
 }
 
+/** The vitals panel shown above every section (original character-sheet design): HP card with Damage / Heal, the AC shield,
+ *  Initiative, Speed and Proficiency cards, conditions and quick resources. Collapsed, the same components shrink: HP value and
+ *  bar, AC shield and the three cards stay; controls, temp field and resources fold away (temp HP and the HP state stay as
+ *  badges). The maximum is the authoritative one (base + feat bonus from the server); the base is edited on Build. */
 function combatHTML() {
   const c = C();
+  const compact = getCompact();
   return `
+  <div class="vitals-body" id="vitals-body">
   <div class="combat-grid">
     <div class="hp-card" id="hp-card">
       <div class="hp-top">
-        <span class="stat-label">Hit Points</span>
-        <label class="temp-hp">Temp ${numInput('characters', c, 'hp_temp', 'temp-input', 'min="0" aria-label="Temporary hit points"')}</label>
+        <span class="stat-label">${icon('actions/heal', { size: 16 })}Hit points</span>
+        <label class="temp-hp">${icon('ui/temp-hp', { size: 16 })}Temp ${numInput('characters', c, 'hp_temp', 'temp-input', 'min="0" aria-label="Temporary hit points"')}</label>
       </div>
+      <div class="hp-form" data-ws-hp hidden></div>
       <div class="hp-row">
+        <span class="hp-normal-label">Normal form</span>
         ${numInput('characters', c, 'hp_current', 'hp-current', 'aria-label="Current hit points"')}
-        <span class="hp-sep">/</span>
-        ${numInput('characters', c, 'hp_max', 'hp-max', 'min="1" aria-label="Maximum hit points"')}
+        <span class="hp-sep" aria-hidden="true">/</span>
+        <span class="hp-max" data-derived="hp-max" aria-label="Maximum hit points ${hpMax(c)}">${hpMax(c)}</span>
+        <span class="hp-badges"><span class="hp-temp-badge" data-hp-temp-badge hidden></span><span class="hp-state-text" data-hp-state-text hidden></span></span>
       </div>
-      <div class="hp-bar"><div class="hp-fill"></div><div class="hp-temp-fill"></div></div>
+      <div class="hp-bar" aria-hidden="true"><div class="hp-fill"></div><div class="hp-temp-fill"></div></div>
+      <p class="hp-feat-note small muted" data-derived-hp hidden></p>
+      <p class="hp-ws-note small" data-ws-hpnote role="status" aria-live="polite" hidden></p>
       <div class="hp-controls">
         <button type="button" class="btn btn-bad" data-action="hp-damage">Damage</button>
-        <input type="number" inputmode="numeric" min="0" id="hp-amount" placeholder="0" aria-label="Amount">
+        <input type="number" inputmode="numeric" min="0" id="hp-amount" placeholder="0" aria-label="Amount of damage or healing">
         <button type="button" class="btn btn-good" data-action="hp-heal">Heal</button>
       </div>
       <div class="down-only">${deathSavesHTML()}</div>
     </div>
     <div class="tiles">
-      <div class="tile tile-ac"><span class="stat-label"><span class="lbl-long">Armor Class</span><span class="lbl-short">AC</span></span>${numInput('characters', c, 'ac', 'big-num', 'aria-label="Armor class"')}</div>
-      <div class="tile"><span class="stat-label">Initiative</span><span class="big-num" data-derive="init"></span></div>
-      <div class="tile"><span class="stat-label">Speed</span><div class="with-unit">${numInput('characters', c, 'speed', 'big-num', 'aria-label="Speed"')}<span class="unit">ft</span></div></div>
-      <div class="tile"><span class="stat-label">Proficiency</span><span class="big-num" data-derive="pb"></span></div>
+      <div class="tile tile-ac"><span class="stat-label" id="ac-label">${icon('equipment-slots/shield', { size: 16 })}<span class="lbl-long">Armor Class</span><span class="lbl-short">AC</span></span>
+        <button type="button" class="big-num ac-button" data-action="ac-breakdown" data-focus-key="ac-breakdown" aria-describedby="ac-label ac-note">
+          <span data-derived="ac">—</span><span class="sr-only"> (show how it is calculated)</span></button>
+        <span class="tile-note" id="ac-note"><span class="lbl-long" data-derived="ac-note"></span><span class="lbl-short" data-derived="ac-note-short"></span></span></div>
+      <div class="tile tile-init"><span class="stat-label">${icon('actions/initiative', { size: 16 })}Initiative</span><span class="big-num" data-derive="init"></span></div>
+      <div class="tile tile-speed"><span class="stat-label" id="speed-label">${icon('actions/speed', { size: 16 })}Speed</span>
+        <span class="big-num" aria-describedby="speed-label speed-note"><span data-derive="speed"></span><span class="unit"> ft</span></span>
+        <span class="tile-note" id="speed-note" data-derived="speed-note"></span></div>
+      <div class="tile tile-pb"><span class="stat-label">${icon('actions/proficiency', { size: 16 })}<span class="lbl-long">Proficiency</span><span class="lbl-short">Prof.</span></span><span class="big-num" data-derive="pb"></span></div>
     </div>
   </div>
-  <div class="conditions-row" id="conditions-row" aria-label="Conditions">${conditionsHTML()}</div>
-  <div class="resource-strip" id="resource-strip">${stripHTML()}</div>
-  <button type="button" class="compact-toggle" data-action="toggle-compact" aria-label="Collapse or expand combat bar"></button>`;
+  <div class="vitals-foot">
+    <div class="conditions-row" id="conditions-row" role="group" aria-label="Conditions">${conditionsHTML()}</div>
+    <div class="resource-strip" id="resource-strip" role="group" aria-label="Quick resources">${stripHTML()}</div>
+  </div>
+  </div>
+  <button type="button" class="compact-toggle" data-action="toggle-compact" aria-controls="vitals-body" aria-expanded="${!compact}"
+    aria-label="${compact ? 'Expand vitals' : 'Collapse vitals'}"><span class="ct-text" aria-hidden="true">${compact ? 'More' : 'Less'}</span></button>`;
 }
 
-const getCompact = () => { try { return localStorage.getItem('tavern-ledger:compact') === '1'; } catch { return false; } };
+/** HP state in words as well as colour: Bloodied, Critical, Down. */
+const HP_STATE_TEXT = { healthy: '', bloodied: 'Bloodied', critical: 'Critical', down: 'Down' };
+function hpState(cur, max) {
+  const pct = (cur / max) * 100;
+  return cur <= 0 ? 'down' : pct <= 25 ? 'critical' : pct <= 50 ? 'bloodied' : 'healthy';
+}
+
+// Collapsed or expanded vitals: the player's explicit choice wins; without one, phones start collapsed and wider screens expanded.
+const getCompact = () => {
+  let v = null;
+  try { v = localStorage.getItem('tavern-ledger:compact'); } catch { /* ignore */ }
+  return v === '1' || v === '0' ? v === '1' : window.matchMedia('(max-width: 700px)').matches;
+};
 const setCompact = (on) => { try { localStorage.setItem('tavern-ledger:compact', on ? '1' : '0'); } catch { /* ignore */ } };
+
+const ABBR = { str: 'STR', dex: 'DEX', con: 'CON', int: 'INT', wis: 'WIS', cha: 'CHA' };
+
+/** Senses and movement: derived speed and movement modes, senses, passive scores. Re-rendered with the derived stats. */
+function sensesHTML() {
+  const sp = derived?.speed;
+  const MOVE = { walk: 'Walking', climb: 'Climbing', swim: 'Swimming', fly: 'Flying', burrow: 'Burrowing' };
+  const rows = [];
+  const kv = (label, value, ic = '') => rows.push(`<div class="kv">${ic ? icon(ic, { size: 18 }) : ''}<span>${label}</span><strong>${value}</strong></div>`);
+  kv('Walking speed', `<span data-derive="speed">${esc(deriveValue('speed'))}</span> ft`, 'movement.walk');
+  Object.entries(sp?.movement || {}).filter(([k]) => k !== 'walk').forEach(([k, m]) =>
+    kv(`${MOVE[k] || esc(k)} speed`, `${esc(m.value)} ft${m.active ? '' : ' <span class="muted small">(not in this armor)</span>'}`, `movement.${k}`));
+  const senses = Object.entries(derived?.senses || {});
+  senses.forEach(([k, x]) => kv(esc(k[0].toUpperCase() + k.slice(1)), `${esc(x.value)} ft`, 'ui.senses'));
+  if (!senses.length) rows.push('<div class="kv"><span>Special senses</span><strong class="muted small">none</strong></div>');
+  kv('Passive Perception', `<span data-derive="passive:perception">${deriveValue('passive:perception')}</span>`);
+  kv('Passive Insight', `<span data-derive="passive:insight">${deriveValue('passive:insight')}</span>`);
+  kv('Passive Investigation', `<span data-derive="passive:investigation">${deriveValue('passive:investigation')}</span>`);
+  return `<div class="kv-list senses-list">${rows.join('')}</div>`;
+}
 
 function statsHTML() {
   const c = C();
-  // One block per ability, like the paper sheet: the score and modifier on the
-  // left, and the saving throw plus every skill that uses that ability beside it.
-  const blocks = ABILITIES.map((a) => {
-    const skills = SKILLS.filter((s) => s.ability === a.key).map((s) => `
-      <li>
-        <button type="button" class="prof-dot" data-action="cycle-skill" data-k="${s.key}" aria-label="${s.name} proficiency"></button>
-        <span class="bonus" data-derive="skill:${s.key}"></span>
-        <span class="li-name">${s.name}</span>
-      </li>`).join('');
-    return `
-    <section class="ab-block">
+  // The original character-sheet layout (v6): six ability cards in STR DEX CON INT WIS CHA order. Each card holds the ability
+  // (gold name, modifier, score) on the left and, right of a divider, its saving throw and the skills it governs. Constitution
+  // has only its saving throw. Values come from the authoritative derived data; marks granted by a source cannot be removed here.
+  const cards = ABILITIES.map((a) => `
+    <div class="ab-block" data-ability="${a.key}" role="group" aria-label="${a.name}">
       <div class="ab-left">
         <span class="ability-name">${a.name}</span>
         <span class="ability-mod" data-derive="mod:${a.key}"></span>
-        ${numInput('characters', c, a.col, 'ability-score', `min="1" max="30" aria-label="${a.name} score"`)}
+        ${numInput('characters', c, a.col, 'ability-score', `min="1" max="30" aria-label="${a.name} score (base)"`)}
+        <span class="ab-score-pill ab-form-score" data-derived="abform:${a.key}" aria-label="${a.name} score in this form"></span>
+        <small class="ab-src" data-derived="absrc:${a.key}"></small>
+        <small class="ab-note" data-derived="abnote:${a.key}"></small>
       </div>
-      <ul class="prof-list ab-list">
+      <ul class="prof-list ab-list" aria-label="${a.name} saving throw and skills">
         <li class="save-row">
           <button type="button" class="prof-dot save-dot" data-action="toggle-save" data-k="${a.key}" aria-label="${a.name} saving throw proficiency"></button>
           <span class="bonus" data-derive="save:${a.key}"></span>
-          <span class="li-name">Saving Throw</span>
+          <span class="li-name save-label">Saving Throw</span>
+          <span class="dis-badge" data-dis="save:${a.key}" hidden>disadvantage</span>
         </li>
-        ${skills}
+        ${SKILLS.filter((sk) => sk.ability === a.key).map((sk) => `
+        <li class="skill-row" data-skill="${sk.key}">
+          <button type="button" class="prof-dot" data-action="cycle-skill" data-k="${sk.key}" aria-label="${sk.name} proficiency (${a.name})"></button>
+          <span class="bonus" data-derive="skill:${sk.key}"></span>
+          <span class="li-name">${sk.name}</span>
+          <span class="dis-badge" data-dis="skill:${sk.key}" hidden>disadvantage</span>
+        </li>`).join('')}
       </ul>
-    </section>`;
-  }).join('');
+    </div>`).join('');
 
   return `
-  <div class="stats-summary">
-    <div class="sum-tile"><span class="stat-label">Proficiency</span><strong data-derive="pb"></strong></div>
-    <div class="sum-tile"><span class="stat-label">Passive Perception</span><strong data-derive="passive:perception"></strong></div>
-    <div class="sum-tile"><span class="stat-label">Passive Insight</span><strong data-derive="passive:insight"></strong></div>
-    <div class="sum-tile"><span class="stat-label">Inspiration</span><button type="button" class="toggle" data-action="toggle-inspiration" aria-label="Inspiration"></button></div>
-  </div>
-  <p class="legend">
-    <span><i class="prof-dot"></i> not proficient</span>
-    <span><i class="prof-dot on"></i> proficient (+ proficiency bonus)</span>
-    <span><i class="prof-dot" data-level="2"></i> expertise (double)</span>
-    <span class="muted">Tap a circle to change it.</span>
-  </p>
-  <div class="ab-grid">${blocks}</div>
+  ${sectionHTML({ id: 'abilities-scores', cls: 'ab-section', icon: 'section.ability-scores', title: 'Ability scores and skills',
+    body: `<div class="sum-row" role="group" aria-label="Proficiency bonus, passive scores and Inspiration">
+        <div class="sum-tile"><span class="stat-label" id="sum-pb">Proficiency</span><strong data-derive="pb"></strong></div>
+        <div class="sum-tile"><span class="stat-label" id="sum-pp">Passive Perception</span><strong data-derive="passive:perception"></strong></div>
+        <div class="sum-tile"><span class="stat-label" id="sum-pi">Passive Insight</span><strong data-derive="passive:insight"></strong></div>
+        <div class="sum-tile sum-insp"><span class="stat-label" id="sum-insp">Inspiration</span>
+          <button type="button" class="toggle" data-action="toggle-inspiration" aria-labelledby="sum-insp"></button></div>
+      </div>
+      <p class="legend ab-legend" id="ab-legend">
+        <span><i class="prof-dot"></i> not proficient</span>
+        <span><i class="prof-dot on"></i> proficient (+ proficiency bonus)</span>
+        <span><i class="prof-dot" data-level="2"></i> expertise (double)</span>
+        <span><i class="prof-dot save-dot on"></i> saving-throw proficiency</span>
+        <span class="muted">Tap a mark to change it. Marks granted by your class, lineage, background or a feat are applied for you; tapping one shows where it comes from.</span>
+      </p>
+      <div class="ab-grid" id="ability-cards">${cards}</div>` })}
 
-  <div class="stats-cols mt">
-    <div class="col">
-      <section class="card">
-        <h3>Hit Dice</h3>
-        <div class="hd-row">
-          ${numInput('characters', c, 'hit_dice_current', 'small-num', 'min="0" aria-label="Hit dice remaining"')}
-          <span class="muted">of <span data-derive="level"></span></span>
-          <select ${cbind('hit_die')} aria-label="Hit die">
-            ${HIT_DICE.map((d) => `<option ${c.hit_die === d ? 'selected' : ''}>${d}</option>`).join('')}
-          </select>
-        </div>
-        <h3 class="mt">Death Saves</h3>
-        ${deathSavesHTML()}
-      </section>
-      <section class="card">
-        <h3>Other</h3>
-        <div class="kv-list">
-          <div class="kv"><span>Passive Investigation</span><strong data-derive="passive:investigation"></strong></div>
-          <div class="kv"><span>Initiative misc. bonus</span>${numInput('characters', c, 'initiative_bonus', 'small-num', 'aria-label="Initiative bonus"')}</div>
-        </div>
-      </section>
+  <div class="tl-section-row ab-lower">
+    <div class="ab-lower-col">
+      ${sectionHTML({ id: 'abilities-hitdice', icon: 'section.hit-dice', title: 'Hit Dice',
+        body: `<div class="hd-row">
+            ${numInput('characters', c, 'hit_dice_current', 'small-num', 'min="0" aria-label="Hit dice remaining"')}
+            <span class="muted">of <span data-derive="level"></span></span>
+            <select ${cbind('hit_die')} aria-label="Hit die">
+              ${HIT_DICE.map((d) => `<option ${c.hit_die === d ? 'selected' : ''}>${d}</option>`).join('')}
+            </select>
+          </div>
+          <h3 class="fantasy-sub-title" id="death-saves-title">Death Saves</h3>
+          ${deathSavesHTML()}` })}
+      ${sectionHTML({ id: 'abilities-senses', icon: 'section.senses', title: 'Senses and movement',
+        body: `<div id="senses-list">${sensesHTML()}</div>
+          <h3 class="tl-sub-title">Size, languages, resistances and other traits</h3>
+          <div id="lineage-stats">${lineageStatsHTML(derived)}</div>
+          <details class="quiet-details tl-detail">
+            <summary>Adjust by hand</summary>
+            <div class="kv-list">
+              <div class="kv"><span>Base walking speed <small class="muted">(before lineage, armor and features)</small></span>${numInput('characters', c, 'speed', 'small-num', 'min="0" aria-label="Base walking speed in feet"')}</div>
+              <div class="kv"><span>Initiative misc. bonus</span>${numInput('characters', c, 'initiative_bonus', 'small-num', 'aria-label="Initiative bonus"')}</div>
+            </div>
+          </details>` })}
     </div>
-    <div class="col">
-      <section class="card">
-        <h3>Proficiencies <span class="hint">tap to toggle</span></h3>
-        <div class="chip-grid">
-          ${EQUIPMENT_PROFICIENCIES.map((p) => `<button type="button" class="chip-toggle" data-action="toggle-equip" data-k="${p.key}">${p.label}</button>`).join('')}
-        </div>
-        <label class="field mt"><span>Tools, languages & other</span>
+    ${sectionHTML({ id: 'abilities-profs', icon: 'section.proficiencies', title: 'Proficiencies',
+      desc: 'Armor, weapons, tools and languages you are trained in.',
+      body: `<h3 class="tl-sub-title">Armor and weapons</h3>
+        <div class="chip-grid" role="group" aria-label="Weapon and armor proficiencies" id="prof-chips">${profChipsHTML()}</div>
+        <div id="specific-profs" class="mt">${proficiencyDetailsHTML(profState, { editable: !ctx?.readOnly })}</div>
+        <button type="button" class="btn btn-sm mt" data-action="manage-profs" data-focus-key="manage-profs">Add a specific weapon, armor or tool…</button>
+        <h3 class="tl-sub-title">Tools and languages</h3>
+        <div id="tool-profs">${toolsHTML(derived)}</div>
+        <label class="field mt"><span>Tools, languages and other (your notes)</span>
           ${textArea('characters', c, 'proficiencies', 'notes-area', 'placeholder="Tools: Thieves\' tools&#10;Languages: Common, Elvish"')}
         </label>
-      </section>
-    </div>
+        <details class="quiet-details tl-detail"><summary>Where do these come from?</summary><p class="muted small prof-legend"><span class="src-badge src-class">Class</span> <span class="src-badge src-lineage">Lineage</span>
+          <span class="src-badge src-background">Background</span> grants are automatic; tap one to see why. Tap an inactive one to mark it by hand
+          (<span class="src-badge src-manual">Manual</span>).</p></details>` })}
   </div>`;
 }
 
@@ -586,7 +1447,7 @@ function entryHTML(table, row, viewHTML, editHTML) {
 }
 
 const editButton = (key) =>
-  `<button type="button" class="icon-btn edit-btn" data-action="toggle-edit" data-key="${key}" aria-label="Edit">✎</button>`;
+  `<button type="button" class="icon-btn edit-btn" data-action="toggle-edit" data-key="${key}" aria-label="Edit">Edit</button>`;
 
 // ---- Attacks -------------------------------------------------------------
 
@@ -594,7 +1455,7 @@ function attackViewHTML(a) {
   const meta = [a.attack_kind === 'ranged' ? 'Ranged' : 'Melee', a.range, a.properties].filter(Boolean).map(esc).join(' · ');
   return `
     <div class="entry-head">
-      <h4 class="entry-name">${esc(a.name || 'Unnamed attack')}</h4>
+      <h3 class="entry-name">${esc(a.name || 'Unnamed attack')}</h3>
       ${editButton(`attacks:${a.id}`)}
     </div>
     <div class="roll-row">
@@ -642,22 +1503,40 @@ const attackHTML = (a) => entryHTML('attacks', a, attackViewHTML(a), attackEditH
 function attacksListHTML() {
   return B.attacks.length
     ? B.attacks.map(attackHTML).join('')
-    : '<p class="empty">No attacks yet. Add a weapon below.</p>';
+    : '';   // weapons equipped in the Inventory are listed above; hand-made attacks are optional
 }
 
-// ---- Combat tab: everything grouped by how you use it ----------------------
+// ---- Play tab: everything grouped by how you use it ----------------------
 
 const GROUP_HINTS = {
-  action: 'One per turn. Anyone can also: Attack · Cast a Spell · Dash · Disengage · Dodge · Help · Hide · Ready · Use an Object.',
-  bonus_action: 'One per turn, only if a feature or spell gives you one.',
-  reaction: 'One per round, and it can happen on other creatures’ turns. Everyone can make an opportunity attack when an enemy leaves their reach.',
-  special: 'Uses no action: these trigger on something else, e.g. when you hit with an attack.',
+  action: 'One per turn. Anyone can also Attack, Cast a Spell, Dash, Disengage, Dodge, Help, Hide, Ready or Use an Object.',
+  bonus_action: 'One per turn, only when a feature or spell gives you one.',
+  reaction: 'One per round, also on other creatures’ turns. Anyone can make an opportunity attack when an enemy leaves their reach.',
+  special: 'Uses no action: these trigger on something else, for example when you hit with an attack.',
 };
-const GROUP_EMPTY = {
-  action: 'No special actions yet.',
-  bonus_action: 'No bonus actions yet. Set a feature’s type to “Bonus Action” on the Features tab, or give a spell a “1 bonus action” casting time.',
-  reaction: 'No reactions yet. Set a feature’s type to “Reaction”, or give a spell a “1 reaction” casting time.',
-};
+const GROUP_TITLES = { action: 'Actions', bonus_action: 'Bonus actions', reaction: 'Reactions', special: 'Free and special' };
+
+/** Active class features with a structured timing (get_character_class_features → activation). Passive ones stay in Build. */
+function classActions(key) {
+  const out = [];
+  for (const cls of classFeatures?.classes || []) {
+    for (const f of cls.features || []) {
+      if (f.status === 'active' && f.activation === key) out.push({ f, cls });
+    }
+  }
+  return out;
+}
+
+function classActionHTML({ f, cls }) {
+  const res = (classFeatures?.resources || []).filter((r) => r.unlock_id === f.unlock_id && r.character_class_id === cls.id && r.active);
+  const uses = res.map((r) => (r.max == null ? '' : `<span class="chip chip-quiet" data-action-uses="${esc(r.key)}">${esc(r.name)}: ${r.remaining} / ${r.max} left</span>`)).join('');
+  return `<article class="entry action-card" data-class-action="${esc(f.unlock_id)}">
+    <div class="entry-head"><div class="entry-title"><h3 class="entry-name">${esc(f.name)}</h3>
+      <div class="entry-sub">${esc(cls.class_name)}${f.origin === 'subclass' && cls.subclass?.selected ? ` · ${esc(cls.subclass.selected.name)}` : ''}</div></div></div>
+    ${f.summary ? `<p class="entry-notes">${esc(f.summary)}</p>` : ''}
+    ${uses ? `<div class="chip-row">${uses}</div>` : ''}
+  </article>`;
+}
 
 function groupItems(key) {
   const feats = B.features.filter((f) => (f.activation || 'passive') === key);
@@ -679,10 +1558,10 @@ function featureViewHTML(f) {
   return `
     <div class="entry-head">
       <div class="entry-title">
-        <h4 class="entry-name">${esc(f.name || 'Unnamed feature')}</h4>
+        <h3 class="entry-name">${esc(f.name || 'Unnamed feature')}</h3>
         ${source ? `<div class="entry-sub">${esc(source)}</div>` : ''}
       </div>
-      <button type="button" class="icon-btn edit-btn" data-action="goto-feature" data-id="${f.id}" aria-label="Edit on the Features tab">✎</button>
+      <button type="button" class="icon-btn edit-btn" data-action="goto-feature" data-id="${f.id}" aria-label="Edit on the Build tab">Edit</button>
     </div>
     ${f.description ? `<p class="entry-notes">${esc(f.description)}</p>` : ''}`;
 }
@@ -694,29 +1573,64 @@ const spellCard = (s) =>
 
 function combatGroupsHTML() {
   lastCombatSignature = combatSignature();
+  const empty = [];
   const groups = ['action', 'bonus_action', 'reaction', 'special'].map((key) => {
     const { feats, spells } = groupItems(key);
-    const items = [...feats.map(featureCard), ...spells.map(spellCard)].join('');
-    if (key === 'special' && !items) return ''; // only shown when the character has something special
+    const items = [...classActions(key).map(classActionHTML), ...feats.map(featureCard), ...spells.map(spellCard)].join('');
+    if (!items) { if (key !== 'special') empty.push(GROUP_TITLES[key].toLowerCase()); return key === 'action' ? actionBasicsHTML() : ''; }
     return `
-      <section class="combat-group group-${key}">
-        <h3 class="section-title">${ACTIVATION_BY_KEY[key].plural}</h3>
+      <section class="combat-group group-${key}" aria-labelledby="cg-${key}">
+        <h2 class="section-title" id="cg-${key}">${icon(TIMING_ICONS[key], { size: 22 })}${GROUP_TITLES[key]}</h2>
         <p class="group-hint">${GROUP_HINTS[key]}</p>
-        <div class="entry-list">${items || `<p class="empty">${GROUP_EMPTY[key]}</p>`}</div>
+        <div class="entry-list">${items}</div>
       </section>`;
   }).join('');
   const passive = groupItems('passive').feats;
   return `${groups}
+    ${empty.length > 1 || (empty.length === 1 && empty[0] !== 'actions') ? `<p class="calm-note">No special ${empty.filter((x) => x !== 'actions').join(' or ')} from your features yet.
+      Features and spells that use them appear here automatically.</p>` : ''}
     <details class="combat-group passive-group" ${passive.length ? '' : 'hidden'}>
-      <summary><span class="section-title">Passive Features</span> <span class="count">${passive.length}</span>
+      <summary><span class="section-title">Your passive notes</span> <span class="count">${passive.length}</span>
         <span class="hint">always on, nothing to activate</span></summary>
       <div class="entry-list">${passive.map(featureCard).join('')}</div>
     </details>`;
 }
 
+/** The Actions group when no feature adds one: the basic actions anyone can take, as a calm reminder. */
+function actionBasicsHTML() {
+  return `<section class="combat-group group-action" aria-labelledby="cg-action">
+    <h2 class="section-title" id="cg-action">${icon(TIMING_ICONS.action, { size: 22 })}Actions</h2>
+    <p class="group-hint">${GROUP_HINTS.action}</p></section>`;
+}
+
 function refreshCombat() {
   if (combatSignature() !== lastCombatSignature) rerender('#combat-groups', combatGroupsHTML());
 }
+
+// Attacks granted by class features, attacks per Attack action and the critical range (all from the derived stats).
+function featureAttacksHTML() {
+  const list = derived?.feature_attacks || [];
+  const apa = derived?.attacks_per_action?.value || 1;
+  const crit = derived?.critical_range?.value || 20;
+  const riders = derived?.attack_riders || [];
+  if (!list.length && apa === 1 && crit === 20 && !riders.length) return '';
+  return `<h3 class="sub-title">From your class features</h3>
+    ${apa > 1 || crit < 20 ? `<p class="small" data-attack-rules>${apa > 1 ? `Attack action: <strong>${apa} attacks</strong>. ` : ''}${crit < 20
+      ? `Critical hit on <strong>${crit}–20</strong>.` : ''}</p>` : ''}
+    <div class="entry-list">${list.map((a) => `<article class="entry card feature-attack" data-feature-attack="${esc(a.name)}">
+      <div class="entry-head"><strong>${esc(a.name)}</strong> <span class="muted small">${esc(a.source_name)}</span></div>
+      <p>To hit <strong>${fmt(a.attack_bonus)}</strong> · Damage <strong>${esc(a.damage)}</strong> ${esc(a.damage_type || '')}${a.range ? ` · ${esc(a.range)}` : ''}</p>
+      ${a.notes ? `<p class="muted small">${esc(a.notes)}</p>` : ''}</article>`).join('')}</div>
+    ${riders.length ? `<div class="entry-list" data-attack-riders>${riders.map((r) => `<article class="entry card feature-rider" data-attack-rider="${esc(r.name)}">
+      <div class="entry-head"><strong>${esc(r.name)} ${esc(r.dice || riderDiceRange(r))}</strong> <span class="muted small">${esc(r.source_name)}</span></div>
+      <p class="small">Extra damage${r.damage_type ? ` (${esc(r.damage_type)})` : ''}${r.once_per_turn ? ', once per turn' : ''}${r.uses_slot
+        ? `: spend a ${r.slot_pool === 'pact' ? 'Pact Magic' : 'spell'} slot; the dice depend on its level` : ': add it yourself when the conditions are met'}.</p>
+      ${riderSlotButton(r, { editable: !ctx?.readOnly })}
+      ${r.condition ? `<p class="muted small">${esc(r.condition)}</p>` : ''}</article>`).join('')}</div>` : ''}`;
+}
+
+/** Play's "Ready to use": active states, feature DCs and quick resource buttons (classResources has the uses). */
+const playGlanceHTML = () => glanceHTML(classFeatures, derived, !ctx?.readOnly, classStates, { attackFacts: false });
 
 function combatTabHTML() {
   const group = (cat, kind, label) => `
@@ -724,7 +1638,59 @@ function combatTabHTML() {
       ${WEAPONS.map((w, i) => (w.cat === cat && w.kind === kind ? `<option value="${i}">${w.name} (${w.dice} ${w.type})</option>` : '')).join('')}
     </optgroup>`;
   return `
-  <details class="card turn-guide">
+  <section class="play-section play-ready" aria-labelledby="play-ready" ${playGlanceHTML() ? '' : 'hidden'} data-play-ready>
+    <h2 class="play-title" id="play-ready">${icon('actions/resources', { size: 24 })}Ready to use <span class="hint">uses come back on a rest</span></h2>
+    <div id="combat-states">${playGlanceHTML()}</div>
+  </section>
+  <div id="combat-transform">${wildShapePanelHTML(transformState, { editable: !ctx?.readOnly, place: 'combat' })}</div>
+
+  <section class="play-section" aria-labelledby="play-attacks">
+    <h2 class="play-title" id="play-attacks">${icon('ui/attack', { size: 24 })}Attacks</h2>
+    <div id="equipped-weapons" class="entry-list">${equippedWeaponsHTML(derived)}</div>
+    <div id="feature-attacks">${featureAttacksHTML()}</div>
+    <div id="attacks-list" class="entry-list">${attacksListHTML()}</div>
+    <details class="quiet-details add-weapon">
+      <summary>Add a weapon or attack by hand</summary>
+      <div class="add-tracker mt">
+        <select id="weapon-preset" aria-label="Weapon">
+          <option value="custom">Custom attack…</option>
+          <option value="unarmed">Unarmed strike (1 bludgeoning)</option>
+          ${group('simple', 'melee', 'Simple melee')}
+          ${group('simple', 'ranged', 'Simple ranged')}
+          ${group('martial', 'melee', 'Martial melee')}
+          ${group('martial', 'ranged', 'Martial ranged')}
+        </select>
+        <button type="button" class="btn" data-action="add-attack">Add</button>
+      </div>
+      <p class="muted small">Weapons you equip in your Inventory appear above automatically. “To hit” and “Damage” of a hand-made attack follow
+        your ability scores and proficiency.</p>
+    </details>
+  </section>
+
+  <div id="combat-groups">${combatGroupsHTML()}</div>
+
+  <section class="play-section" aria-labelledby="play-trackers">
+    <div id="trackers-list" class="tracker-list">${trackersListHTML()}</div>
+    <details class="quiet-details add-resource">
+      <summary>Track a resource by hand</summary>
+      <div class="add-tracker mt">
+        <select id="tracker-preset" aria-label="Resource type">
+          ${RESOURCE_PRESETS.map((p, i) => `<option value="${i}">${p.name}</option>`).join('')}
+          <option value="custom">Custom…</option>
+        </select>
+        <input type="text" id="tracker-custom" placeholder="Custom name" aria-label="Custom resource name" hidden>
+        <button type="button" class="btn" data-action="add-tracker">Add</button>
+      </div>
+      <p class="muted small" id="play-trackers">Class resources are tracked for you. Hand-tracked resources also show in the bar at the top and come back on rests.</p>
+    </details>
+  </section>
+
+  <section class="play-section" id="companions-card" aria-labelledby="play-companions">
+    <h2 class="play-title" id="play-companions">${icon('ui/companion', { size: 24 })}Companions <span class="hint">familiars, steeds and other creatures with you</span></h2>
+    <div id="companions-body">${companionsHTML(companions, { editable: !ctx?.readOnly })}</div>
+  </section>
+
+  <details class="quiet-details turn-guide">
     <summary>New to combat? How your turn works</summary>
     <ul>
       <li><strong>Move</strong> up to your speed (<span data-derive="speed"></span> ft). You can split it before and after your action.</li>
@@ -737,29 +1703,9 @@ function combatTabHTML() {
     </ul>
   </details>
 
-  <h3 class="section-title">Attacks <span class="hint">use your Action</span></h3>
-  <div id="attacks-list" class="entry-list">${attacksListHTML()}</div>
-  <details class="card add-weapon">
-    <summary>+ Add a weapon or attack</summary>
-    <div class="add-tracker mt">
-      <select id="weapon-preset" aria-label="Weapon">
-        <option value="custom">Custom attack…</option>
-        <option value="unarmed">Unarmed strike (1 bludgeoning)</option>
-        ${group('simple', 'melee', 'Simple melee')}
-        ${group('simple', 'ranged', 'Simple ranged')}
-        ${group('martial', 'melee', 'Martial melee')}
-        ${group('martial', 'ranged', 'Martial ranged')}
-      </select>
-      <button type="button" class="btn btn-gold" data-action="add-attack">+ Add</button>
-    </div>
-    <p class="muted small">“To hit” and “Damage” are worked out from your ability scores and proficiency, so they stay correct when you level up. Tap ✎ on a card to change anything.</p>
-  </details>
-
-  <div id="combat-groups">${combatGroupsHTML()}</div>
-
-  <section class="card mt">
-    <h3>Other combat notes</h3>
-    ${textArea('notes', note('attacks'), 'content', 'notes-area', 'placeholder="Tactics, reminders, anything else…"')}
+  <section class="tl-section" aria-labelledby="combat-notes-title">
+    ${sectionHead({ id: 'combat-notes-title', icon: 'section.notes', title: 'Combat notes', variant: 'interface' })}
+    ${textArea('notes', note('attacks'), 'content', 'notes-area', 'placeholder="Tactics, reminders, anything else…" aria-label="Combat notes"')}
   </section>`;
 }
 
@@ -796,7 +1742,7 @@ function spellViewHTML(s) {
   return `
     <div class="entry-head">
       <div class="entry-title">
-        <h4 class="entry-name">${esc(s.name || 'Unnamed spell')}</h4>
+        <h3 class="entry-name">${esc(s.name || 'Unnamed spell')}</h3>
         <div class="entry-sub">${sub}${from}
           ${s.concentration ? '<span class="tag tag-c" title="Concentration">Concentration</span>' : ''}
           ${s.ritual ? '<span class="tag tag-r" title="Can be cast as a ritual">Ritual</span>' : ''}
@@ -864,9 +1810,9 @@ function spellsListHTML() {
     groups.push(`
       <section class="spell-group">
         <div class="section-head">
-          <h3>${level === 0 ? 'Cantrips' : `Level ${level} spells`}
+          <h4 class="tl-sub-title">${level === 0 ? 'Cantrips' : `Level ${level} spells`}
             ${level === 0 ? '<span class="hint">at will, no slot needed</span>' : ''}
-          </h3>
+          </h4>
           <div class="row gap">
             ${slot && slot.total > 0 ? `<div class="group-slots" data-pips="slot:${slot.id}">${slotBoxes(slot)}</div>` : ''}
             <button type="button" class="btn btn-sm" data-action="add-spell" data-level="${level}">+ Add</button>
@@ -891,10 +1837,34 @@ function spellsHTML() {
       </div>
     </div>`).join('');
 
+  // the free-text list and the manual slot tracker are the old model: folded away unless they hold something
+  const legacyUsed = (B.spells || []).length > 0 || !!c.spellcasting_ability || (slotState && slotState.legacy_manual_active && B.slots.some((x) => x.total > 0));
   return `
-  <section class="card spellcasting-card">
+  <section class="tl-section" id="spellcasting-card" aria-labelledby="spellcasting-title">
+    ${sectionHead({ id: 'spellcasting-title', icon: 'section.spells', title: 'Spellcasting', desc: 'Save DC and spell attack of each source.',
+      action: '<button type="button" class="btn btn-sm btn-quiet" data-action="spell-source-add" data-focus-key="spell-source-add">Add a source</button>' })}
+    <div id="spellcasting-sources">${sourcesHTML(spellbook)}</div>
+  </section>
+  <section class="tl-section" id="slot-tracker-card" aria-labelledby="slot-tracker-title">
+    ${sectionHead({ id: 'slot-tracker-title', icon: 'section.spell-slots', title: 'Spell slots', desc: 'Tap Use when you cast a spell.' })}
+    <div id="slot-tracker">${slotTrackerHTML(slotState, { editable: !ctx?.readOnly, pending: slotBusy })}</div>
+    <p class="slot-status small" id="slot-status" role="status" aria-live="polite"></p>
+    <div id="slot-actions">${slotActionsHTML(classResources, slotState, { editable: !ctx?.readOnly })}</div>
+  </section>
+  <section class="tl-section" id="spellbook-card" aria-labelledby="spellbook-title">
+    ${sectionHead({ id: 'spellbook-title', icon: 'section.spellbook', title: 'Your spells',
+      action: '<button type="button" class="btn btn-sm btn-gold" data-action="spell-add" data-focus-key="spell-add">+ Add spell</button>' })}
+    <details class="sp-filter-box"><summary>Search and filters</summary><div id="spellbook-filters"></div></details>
+    <div id="spellbook-list">${spellbookListHTML(spellbook, spellFilters)}</div>
+  </section>
+  <section class="tl-section" data-lineage-spells-card ${derived?.lineage_actions?.length ? '' : 'hidden'} aria-labelledby="lineage-abilities-title">
+    ${sectionHead({ id: 'lineage-abilities-title', icon: 'build.lineage', title: 'Lineage abilities', desc: 'Lineage spells are in your spells.' })}
+    <div id="lineage-spells">${lineageSpellsHTML(derived, { spells: false })}</div>
+  </section>
+  <details class="tl-section tl-section-fold spellcasting-card legacy-spells" data-legacy-spells ${legacyUsed ? 'open' : ''}>
+    <summary>${sectionHead({ icon: 'ui.custom-content', title: 'Spells written by hand', desc: 'Your own list and manual slots.' })}</summary>
     <div class="spell-stats">
-      <label class="field"><span>Spellcasting ability</span>
+      <label class="field"><span>Ability for free-text spells and spell attacks</span>
         <select ${cbind('spellcasting_ability')}>
           <option value="">—</option>
           ${ABILITIES.map((a) => `<option value="${a.key}" ${c.spellcasting_ability === a.key ? 'selected' : ''}>${a.name}</option>`).join('')}
@@ -903,67 +1873,50 @@ function spellsHTML() {
       <div class="mini-tile"><span class="stat-label">Spell save DC</span><span class="big-num" data-derive="spelldc"></span></div>
       <div class="mini-tile"><span class="stat-label">Spell attack</span><span class="big-num" data-derive="spellatk"></span></div>
     </div>
-    <details class="slot-manager">
-      <summary>Manage spell slots</summary>
+    <details class="slot-manager" data-legacy-slots ${slotState && !slotState.legacy_manual_active ? 'hidden' : ''}>
+      <summary>Manual spell slots (for characters without classes)</summary>
       <p class="muted small">Use − / + to set how many slots you have. Tap a box to mark it used.</p>
       <div class="slot-list">${slots}</div>
       <button type="button" class="btn btn-sm mt" data-action="reset-slots">Restore all slots</button>
     </details>
-  </section>
-  <div id="spells-list">${spellsListHTML()}</div>
+    <h3 class="tl-sub-title">Other spells (free text)</h3>
+    <div id="spells-list">${spellsListHTML()}</div>
+  </details>
   <datalist id="casting-times">${CASTING_TIMES.map((x) => `<option value="${x}">`).join("")}</datalist>
   <datalist id="spell-sources">${[C().class_name, 'Race', 'Feat', 'Patron', 'Subclass', 'Item', 'Background'].filter(Boolean).map((x) => `<option value="${esc(x)}">`).join("")}</datalist>
-  <section class="card mt">
-    <h3>Spell notes</h3>
-    ${textArea('notes', note('spells'), 'content', 'notes-area', 'placeholder="Anything else about your magic…"')}
+  <section class="tl-section" aria-labelledby="spell-notes-title">
+    ${sectionHead({ id: 'spell-notes-title', icon: 'section.notes', title: 'Spell notes', variant: 'interface' })}
+    ${textArea('notes', note('spells'), 'content', 'notes-area', 'placeholder="Anything else about your magic…" aria-label="Spell notes"')}
   </section>`;
 }
 
-function inventoryItemHTML(item) {
-  return `
-  <div class="item card" data-item="${item.id}">
-    <div class="item-row">
-      <label class="equip" title="Equipped">
-        <input type="checkbox" ${bind('inventory_items', item, 'equipped', 'bool')} ${item.equipped ? 'checked' : ''}>
-        <span></span>
-      </label>
-      ${textInput('inventory_items', item, 'name', 'item-name', 'aria-label="Item name" placeholder="Item name"')}
-      <label class="item-qty"><span>Qty</span>${numInput('inventory_items', item, 'quantity', '', 'min="0"')}</label>
-      <label class="item-wt"><span>lb</span><input type="number" inputmode="decimal" step="0.1" min="0" ${bind('inventory_items', item, 'weight', 'num')} value="${esc(item.weight)}"></label>
-      <button type="button" class="icon-btn danger" data-action="delete-item" data-id="${item.id}" aria-label="Delete item">🗑</button>
-    </div>
-    ${textArea('inventory_items', item, 'description', 'item-desc', 'rows="1" placeholder="Description, properties, charges…"')}
-  </div>`;
-}
-
+// Inventory: coins stay here (character columns); items, equipment and the catalog live in inventory-ui.js,
+// which reads the inventory views and changes items only through RPCs.
 function inventoryHTML() {
   const c = C();
   const coins = ['cp', 'sp', 'ep', 'gp', 'pp'].map((k) => `
     <label class="coin coin-${k}"><span>${k.toUpperCase()}</span>${numInput('characters', c, k, '', 'min="0"')}</label>`).join('');
   return `
-  <section class="card">
-    <h3>Coins</h3>
-    <div class="coins">${coins}</div>
-  </section>
-  <div class="section-head">
-    <h3>Items <span class="hint">total weight <span data-derive="weight"></span></span></h3>
-    <button type="button" class="btn btn-gold btn-sm" data-action="add-item">+ Add item</button>
+  <div id="inventory-app" class="inventory-app">
+    <div class="card inv-state"><div class="spinner"></div><p class="muted">Loading inventory…</p></div>
   </div>
-  <div id="inventory-list" class="item-list">${inventoryListHTML()}</div>`;
+  <section class="tl-section inv-coins" aria-labelledby="coins-title">
+    ${sectionHead({ id: 'coins-title', icon: 'section.coins', title: 'Coins' })}
+    <div class="coins">${coins}</div>
+  </section>`;
 }
 
-function inventoryListHTML() {
-  return B.inventory.length
-    ? B.inventory.map(inventoryItemHTML).join('')
-    : '<p class="empty">Your pack is empty.</p>';
-}
+/** Shape the inventory view rows like the legacy rows (export, cached bundle, list previews). */
+const legacyInventoryRow = (r) => ({
+  ...r, name: r.custom_name || r.name, weight: Number(r.unit_weight_lb ?? 0), description: r.description ?? '',
+});
 
 function featureHTML(f) {
   return `
   <div class="feature card" data-feature="${f.id}">
     <div class="feature-head">
       ${textInput('features', f, 'name', 'feature-name', 'aria-label="Feature name" placeholder="Feature name"')}
-      <button type="button" class="icon-btn danger" data-action="delete-feature" data-id="${f.id}" aria-label="Delete feature">🗑</button>
+      <button type="button" class="icon-btn danger" data-action="delete-feature" data-id="${f.id}" aria-label="Delete feature">Delete</button>
     </div>
     <div class="feature-meta">
       <label class="field-inline"><span>Type (how you use it)</span>
@@ -981,22 +1934,105 @@ function featureHTML(f) {
   </div>`;
 }
 
+/** "Next steps" at the top of Build: open choices, Level Up (or why not), requests. */
+function buildNextHTML() {
+  const items = [];
+  const open = openBuildChoices();
+  if (open) items.push(`<li>${icon('ui/incomplete', { size: 20 })}<span><strong>${open} class choice${open === 1 ? '' : 's'}</strong> to make</span>
+    <button type="button" class="btn btn-sm" data-action="build-goto" data-target="#class-features-card">Show</button></li>`);
+  const feat = (featState?.feats || []).reduce((n, f) => n + ((f.choices || []).filter((c) => c.open || c.status === 'incomplete').length), 0);
+  if (feat) items.push(`<li>${icon('ui/feat', { size: 20 })}<span><strong>${feat} feat choice${feat === 1 ? '' : 's'}</strong> open</span>
+    <button type="button" class="btn btn-sm" data-action="build-goto" data-target="#feats-card">Show</button></li>`);
+  if (lineage && !lineage.selected) items.push(`<li>${icon('ui/lineage', { size: 20 })}<span>No lineage chosen yet</span>
+    <button type="button" class="btn btn-sm" data-action="build-goto" data-target="#lineage-card">Choose</button></li>`);
+  if (background && !background.selected) items.push(`<li>${icon('ui/background', { size: 20 })}<span>No background chosen yet</span>
+    <button type="button" class="btn btn-sm" data-action="build-goto" data-target="#background-card">Choose</button></li>`);
+  const n = pendingChoices().length;
+  if (n) items.push(`<li>${icon('ui/notes', { size: 20 })}<span>${n} reminder${n === 1 ? '' : 's'} to decide</span>
+    <button type="button" class="btn btn-sm" data-action="build-goto" data-target="#choices-card">Show</button></li>`);
+  return items.length ? `<ul class="next-list">${items.join('')}</ul>`
+    : `<p class="calm-note">${icon('dm/approved', { size: 20 })}Everything is chosen. Your next decisions come with the next level.</p>`;
+}
+
+/** Next steps: a highlighted section only when something is open; otherwise one quiet row with the Level up button. */
+function buildNextSectionHTML() {
+  const open = buildNextHTML();
+  const has = open.startsWith('<ul');
+  return `<section class="tl-section build-next-card ${has ? 'tl-section-emph' : 'tl-section-quiet'}" aria-labelledby="build-next-title" data-has-steps="${has}">
+    ${sectionHead({ id: 'build-next-title', icon: 'build.next', title: has ? 'Next steps' : 'Up to date',
+      action: `<div class="level-up-slot" id="level-up-slot">${levelUpButtonHTML()}</div>` })}
+    <div id="build-next">${open}</div>
+  </section>`;
+}
+
 function featuresHTML() {
-  return `<div id="features-list">${featuresListHTML()}</div>`;
+  return `
+  <div id="build-next-wrap">${buildNextSectionHTML()}</div>
+  <section class="tl-section" id="class-card" aria-labelledby="class-card-title">
+    ${sectionHead({ id: 'class-card-title', icon: 'build.class', title: 'Classes' })}
+    <div id="class-card-body">${classCardHTML(classSummary, classCatalog, { editable: !ctx?.readOnly })}</div>
+    <div id="class-feature-summary">${featureSummaryHTML(classFeatures)}</div>
+    <div class="kv-list build-hp">
+      <div class="kv"><span>Maximum hit points <small class="muted">(base, before feats; Damage and Heal are in the vitals)</small></span>${
+        numInput('characters', C(), 'hp_max', 'small-num hp-max-base', 'min="1" aria-label="Maximum hit points (base)"')}</div>
+    </div>
+  </section>
+  <section class="tl-section" id="class-features-card" aria-labelledby="class-features-title">
+    ${sectionHead({ id: 'class-features-title', icon: 'build.class-features', title: 'Class features', desc: 'What your classes and subclasses give you.' })}
+    <div id="class-transform">${wildShapePanelHTML(transformState, { editable: !ctx?.readOnly, place: 'class' })}</div>
+    <div id="class-features">${featuresPanelHTML(classFeatures, { editable: !ctx?.readOnly, derived, states: classStates })}</div>
+    <details class="quiet-details tl-detail" id="class-resources-card">
+      <summary>Resources: limits, dice and recovery</summary>
+      <div id="class-resources">${resourceListHTML(classResources, { editable: !ctx?.readOnly })}</div>
+    </details>
+  </section>
+  <div id="infusions-slot">${infusionsHTML(infusionState, { editable: !ctx?.readOnly })}</div>
+  <div class="tl-section-row build-identity">
+    <section class="tl-section identity-section" id="lineage-card" aria-labelledby="lineage-card-title">${lineageSectionHTML()}</section>
+    <section class="tl-section identity-section" id="background-card" aria-labelledby="background-card-title">
+      ${sectionHead({ id: 'background-card-title', icon: 'build.background', title: 'Background', desc: 'Ability increases, proficiencies, feat and equipment.' })}
+      <div id="background-card-body">${backgroundCardHTML(background, { editable: !ctx?.readOnly, legacyText: C().background })}</div>
+    </section>
+  </div>
+  <section class="tl-section feats-card" id="feats-card" aria-labelledby="feats-card-title">${featsCardHTML(featState, { editable: !ctx?.readOnly })}</section>
+  <details class="tl-section tl-section-fold" id="choices-card" ${pendingChoices().length ? 'open' : ''}>
+    <summary>${sectionHead({ icon: 'build.reminders', variant: 'interface', title: 'Reminders', count: pendingChoices().length || '', desc: 'Choices you want to make later.' })}</summary>
+    <div id="choices-list" class="choice-list">${choicesListHTML()}</div>
+    <details class="add-choice mt">
+      <summary>Add a reminder</summary>
+      <form id="add-choice-form" class="form-grid mt">
+        <label class="field"><span>What to decide</span><input type="text" name="type" required placeholder="e.g. Fighting Style" list="choice-types"></label>
+        <label class="field"><span>Options (comma separated)</span><input type="text" name="options" placeholder="Defense, Dueling, Protection"></label>
+        <label class="field span-2"><span>Description</span><input type="text" name="description" placeholder="Choose a Paladin Fighting Style"></label>
+        <div class="span-2"><button type="submit" class="btn btn-sm">Add reminder</button></div>
+      </form>
+      <datalist id="choice-types">${['Fighting Style', 'Druid Circle', 'Warlock Invocation', 'Language Choice', 'Skill Choice', 'Spell Choice', 'Tool Choice', 'Feat Choice', 'Subclass'].map((x) => `<option value="${x}">`).join('')}</datalist>
+    </details>
+  </details>
+  <details class="tl-section tl-section-fold own-notes" ${B.features.length ? 'open' : ''}>
+    <summary>${sectionHead({ icon: 'build.own-features', variant: 'interface', title: 'Your own features', count: B.features.length || '', desc: 'Anything the app does not track, written by you.' })}</summary>
+    <div id="features-list">${featuresListHTML()}</div>
+  </details>`;
 }
 
 function featuresListHTML() {
-  return FEATURE_CATEGORIES.map((cat) => {
+  const used = FEATURE_CATEGORIES.filter((cat) => B.features.some((f) => f.category === cat.key));
+  const groups = used.map((cat) => {
     const list = B.features.filter((f) => f.category === cat.key);
     return `
     <section class="feature-group">
       <div class="section-head">
-        <h3>${cat.label} <span class="count">${list.length || ''}</span></h3>
-        <button type="button" class="btn btn-sm" data-action="add-feature" data-cat="${cat.key}">+ Add</button>
+        <h4>${cat.label} <span class="count">${list.length}</span></h4>
+        <button type="button" class="btn btn-sm btn-quiet" data-action="add-feature" data-cat="${cat.key}">Add</button>
       </div>
-      ${list.map(featureHTML).join('') || '<p class="empty">None yet.</p>'}
+      ${list.map(featureHTML).join('')}
     </section>`;
   }).join('');
+  return `${groups || '<p class="empty">Nothing written yet.</p>'}
+    <div class="add-feature-row" role="group" aria-label="Add your own feature">
+      <span class="muted small">Add:</span>
+      ${FEATURE_CATEGORIES.map((cat) => `<button type="button" class="btn btn-sm btn-quiet" data-action="add-feature" data-cat="${cat.key}">${esc(cat.label.replace(/ Features| Abilities/, ''))}</button>`).join('')}
+    </div>`;
 }
 
 function trackerRowHTML(t) {
@@ -1011,44 +2047,29 @@ function trackerRowHTML(t) {
         ${Object.entries(RESET_LABELS).map(([k, l]) => `<option value="${k}" ${t.reset_on === k ? 'selected' : ''}>${l}</option>`).join('')}
       </select>
     </label>
-    <button type="button" class="icon-btn danger" data-action="delete-tracker" data-id="${t.id}" aria-label="Delete resource">🗑</button>
+    <button type="button" class="icon-btn danger" data-action="delete-tracker" data-id="${t.id}" aria-label="Delete resource">Delete</button>
   </div>`;
 }
 
-function resourcesHTML() {
-  return `
-  <section class="card">
-    <h3>Add a resource</h3>
-    <div class="add-tracker">
-      <select id="tracker-preset" aria-label="Resource type">
-        ${RESOURCE_PRESETS.map((p, i) => `<option value="${i}">${p.name}</option>`).join('')}
-        <option value="custom">Custom…</option>
-      </select>
-      <input type="text" id="tracker-custom" placeholder="Custom name" hidden>
-      <button type="button" class="btn btn-gold" data-action="add-tracker">+ Add</button>
-    </div>
-    <p class="muted small">Resources appear in the combat bar at the top. Short and long rests restore them automatically.</p>
-  </section>
-  <div id="trackers-list" class="tracker-list">${trackersListHTML()}</div>`;
-}
-
 function trackersListHTML() {
-  return B.trackers.length ? B.trackers.map(trackerRowHTML).join('') : '<p class="empty">No resources yet.</p>';
+  return B.trackers.map(trackerRowHTML).join('');
 }
 
 function notesHTML() {
   const block = (kind, title, placeholder) => `
-    <section class="card">
-      <h3>${title}</h3>
-      ${textArea('notes', note(kind), 'content', 'notes-area tall', `placeholder="${placeholder}"`)}
-    </section>`;
+    <div class="card notes-card">
+      <h3 class="tl-sub-title">${title}</h3>
+      ${textArea('notes', note(kind), 'content', 'notes-area tall', `placeholder="${placeholder}" aria-label="${title}"`)}
+    </div>`;
   return `
-  <div class="notes-grid">
-    ${block('character', 'Character Notes', 'Personality, ideals, bonds, flaws, backstory…')}
-    ${block('session', 'Session Notes', 'What happened this session, loot, leads, things to remember next time…')}
-    ${block('campaign', 'Campaign Notes', 'NPCs, places, factions, quests, the bigger picture…')}
-  </div>
-  <p class="muted small center">Notes save automatically as you type.</p>`;
+  <section class="tl-section" id="notes-section" aria-labelledby="notes-title">
+    ${sectionHead({ id: 'notes-title', icon: 'section.notes', variant: 'interface', title: 'Notes', desc: 'Notes save automatically as you type.' })}
+    <div class="notes-grid">
+      ${block('character', 'Character notes', 'Personality, ideals, bonds, flaws, backstory…')}
+      ${block('session', 'Session notes', 'What happened this session, loot, leads, things to remember next time…')}
+      ${block('campaign', 'Campaign notes', 'NPCs, places, factions, quests, the bigger picture…')}
+    </div>
+  </section>`;
 }
 
 function bioHTML() {
@@ -1074,63 +2095,58 @@ function bioHTML() {
         <option value="" ${!c.campaign_id ? 'selected' : ''}>— No campaign —</option>
       </select>
     </label>`;
+  // the free-text class / subclass / background fields predate the class and background catalogs: folded once those exist
+  const legacy = `
+      <label class="field"><span>Class (free text)</span>${textInput('characters', c, 'class_name', '', 'list="class-list"')}</label>
+      <label class="field"><span>Subclass (free text)</span>${textInput('characters', c, 'subclass')}</label>
+      <label class="field"><span>Background (free text)</span>${textInput('characters', c, 'background', '', 'aria-describedby="bg-free-hint"')}
+        <small class="muted" id="bg-free-hint">Used only without a background from the catalog (Build tab)</small></label>`;
   return `
-  <section class="card">
-    <h3>Identity</h3>
-    <div class="form-grid">
-      <label class="field span-2"><span>Name</span>${textInput('characters', c, 'name')}</label>
-      <label class="field"><span>Race</span>${textInput('characters', c, 'race')}</label>
-      <label class="field"><span>Class</span>${textInput('characters', c, 'class_name', '', 'list="class-list"')}</label>
-      <label class="field"><span>Subclass</span>${textInput('characters', c, 'subclass')}</label>
-      <label class="field"><span>Background</span>${textInput('characters', c, 'background')}</label>
-      <label class="field"><span>Alignment</span>${textInput('characters', c, 'alignment', '', 'list="alignment-list"')}</label>
-      <label class="field"><span>Level</span>${numInput('characters', c, 'level', '', 'min="1" max="20"')}</label>
-      <label class="field"><span>Experience</span>${numInput('characters', c, 'experience', '', 'min="0"')}<small class="muted" data-derive="xpnext"></small></label>
-      ${campaignSelect}
-      ${ownerSelect}
-    </div>
-    <datalist id="class-list">${CLASSES.map((x) => `<option value="${x}">`).join('')}</datalist>
-    <datalist id="alignment-list">${ALIGNMENTS.map((x) => `<option value="${x}">`).join('')}</datalist>
-  </section>
-  <section class="card" id="choices-card">
-    <h3>Pending choices <span class="hint">things still to decide: fighting style, circle, spells, languages…</span></h3>
-    <div id="choices-list" class="choice-list">${choicesListHTML()}</div>
-    <details class="add-choice mt">
-      <summary>+ Add a choice</summary>
-      <form id="add-choice-form" class="form-grid mt">
-        <label class="field"><span>Type</span><input type="text" name="type" required placeholder="e.g. Fighting Style" list="choice-types"></label>
-        <label class="field"><span>Options (comma separated)</span><input type="text" name="options" placeholder="Defense, Dueling, Protection"></label>
-        <label class="field span-2"><span>Description</span><input type="text" name="description" placeholder="Choose a Paladin Fighting Style"></label>
-        <div class="span-2"><button type="submit" class="btn btn-sm btn-gold">Add</button></div>
-      </form>
-      <datalist id="choice-types">${['Fighting Style', 'Druid Circle', 'Warlock Invocation', 'Language Choice', 'Skill Choice', 'Spell Choice', 'Tool Choice', 'Feat Choice', 'Subclass'].map((x) => `<option value="${x}">`).join('')}</datalist>
-    </details>
-  </section>
-  <section class="card">
-    <h3>Portrait</h3>
+  <section class="tl-section bio-identity" aria-labelledby="bio-identity-title">
+    ${sectionHead({ id: 'bio-identity-title', icon: 'identity.generic', title: 'Identity' })}
     <div class="portrait-editor">
       <div class="avatar avatar-lg" id="portrait-preview">${avatarHTML()}</div>
       <div class="stack grow">
+        <label class="field"><span>Name</span>${textInput('characters', c, 'name')}</label>
         <div class="row gap">
-          <label class="btn btn-gold btn-sm file-btn">Upload image
+          <label class="btn btn-sm file-btn">Upload portrait
             <input type="file" accept="image/*" id="portrait-file" hidden>
           </label>
-          <button type="button" class="btn btn-sm" data-action="remove-portrait">Remove</button>
+          <button type="button" class="btn btn-sm btn-quiet" data-action="remove-portrait">Remove portrait</button>
         </div>
-        <label class="field"><span>…or paste an image URL</span>${textInput('characters', c, 'portrait_url', '', 'placeholder="https://…" inputmode="url"')}</label>
+        <details class="quiet-details"><summary>Use an image link instead</summary>
+          <label class="field mt"><span>Image URL</span>${textInput('characters', c, 'portrait_url', '', 'placeholder="https://…" inputmode="url"')}</label></details>
       </div>
     </div>
+    <div class="form-grid mt">
+      <label class="field"><span>Alignment</span>${textInput('characters', c, 'alignment', '', 'list="alignment-list"')}</label>
+      <label class="field"><span>Experience</span>${numInput('characters', c, 'experience', '', 'min="0"')}<small class="muted" data-derive="xpnext"></small></label>
+      <label class="field"><span>Level</span><span id="level-field" class="level-field">${levelFieldHTML()}</span></label>
+      ${campaignSelect}
+      ${ownerSelect}
+    </div>
+    ${hasClasses() ? `<details class="quiet-details mt" data-legacy-identity><summary>Free-text class and background</summary>
+      <div class="form-grid mt">${legacy}</div></details>` : `<div class="form-grid mt">${legacy}</div>`}
+    <datalist id="class-list">${CLASSES.map((x) => `<option value="${x}">`).join('')}</datalist>
+    <datalist id="alignment-list">${ALIGNMENTS.map((x) => `<option value="${x}">`).join('')}</datalist>
   </section>
-  <section class="card">
-    <h3>Backup & sharing</h3>
-    <p class="muted small">Download this character as a JSON file. You can import it again from the character list, e.g. to copy a character or move it to another campaign.</p>
-    <button type="button" class="btn btn-sm" data-action="export-json">⬇ Download JSON</button>
+  ${notesHTML()}
+  <section class="tl-section" aria-labelledby="bio-backup-title">
+    ${sectionHead({ id: 'bio-backup-title', icon: 'item.book', title: 'Backup and sharing', variant: 'interface' })}
+    <p class="muted small">Download this character as a file. You can import it again from the character list, for example to copy a character or move it to another campaign.</p>
+    <button type="button" class="btn btn-sm" data-action="export-json">Download character file (JSON)</button>
   </section>
-  <section class="card danger-zone">
-    <h3>Danger zone</h3>
+  <section class="tl-section danger-zone" aria-labelledby="bio-delete-title">
+    ${sectionHead({ id: 'bio-delete-title', title: 'Delete character', variant: 'interface' })}
     <p class="muted small">Deleting a character removes its inventory, notes, features and resources permanently.</p>
-    <button type="button" class="btn btn-bad" data-action="delete-character">Delete character</button>
+    <button type="button" class="btn btn-bad" data-action="delete-character">Delete character…</button>
   </section>`;
+}
+
+function tabsHTML(active) {
+  return TABS.map((t) => `<button type="button" role="tab" class="tab" id="tab-${t.key}" data-action="tab" data-tab="${t.key}"
+      aria-controls="panel-${t.key}" aria-selected="${t.key === active}" tabindex="${t.key === active ? 0 : -1}" title="${esc(t.hint)}">
+      ${icon(SECTION_ICONS[t.key], { size: 22, cls: 'tab-icon' })}<span class="tab-label">${t.label}</span><span class="tab-short">${t.short}</span></button>`).join('');
 }
 
 function render() {
@@ -1138,19 +2154,16 @@ function render() {
   root.innerHTML = `
   <div class="sheet">
     ${headerHTML()}
-    <section class="combat-bar ${getCompact() ? 'compact' : ''}" aria-label="Combat">${combatHTML()}</section>
-    <nav class="tabs" role="tablist">
-      ${TABS.map((t) => `<button type="button" role="tab" class="tab" data-action="tab" data-tab="${t.key}" aria-selected="${t.key === active}">${t.label}</button>`).join('')}
-    </nav>
+    <div class="gov-bar" id="gov-bar" hidden></div>
+    <section class="combat-bar ${getCompact() ? 'compact' : ''}" aria-label="Vitals">${combatHTML()}</section>
+    <nav class="tabs" role="tablist" aria-label="Character sections">${tabsHTML(active)}</nav>
     <div class="panels">
-      <section class="panel" data-panel="combat">${combatTabHTML()}</section>
-      <section class="panel" data-panel="stats">${statsHTML()}</section>
-      <section class="panel" data-panel="spells">${spellsHTML()}</section>
-      <section class="panel" data-panel="inventory">${inventoryHTML()}</section>
-      <section class="panel" data-panel="features">${featuresHTML()}</section>
-      <section class="panel" data-panel="resources">${resourcesHTML()}</section>
-      <section class="panel" data-panel="notes">${notesHTML()}</section>
-      <section class="panel" data-panel="bio">${bioHTML()}</section>
+      <section class="panel" id="panel-combat" role="tabpanel" aria-labelledby="tab-combat" data-panel="combat">${combatTabHTML()}</section>
+      <section class="panel" id="panel-stats" role="tabpanel" aria-labelledby="tab-stats" data-panel="stats">${statsHTML()}</section>
+      <section class="panel" id="panel-spells" role="tabpanel" aria-labelledby="tab-spells" data-panel="spells">${spellsHTML()}</section>
+      <section class="panel" id="panel-inventory" role="tabpanel" aria-labelledby="tab-inventory" data-panel="inventory">${inventoryHTML()}</section>
+      <section class="panel" id="panel-features" role="tabpanel" aria-labelledby="tab-features" data-panel="features">${featuresHTML()}</section>
+      <section class="panel" id="panel-bio" role="tabpanel" aria-labelledby="tab-bio" data-panel="bio">${bioHTML()}</section>
     </div>
   </div>`;
   showTab(active, false);
@@ -1160,16 +2173,61 @@ function render() {
 }
 
 function showTab(key, scroll = true) {
+  key = TAB_ALIAS[key] || key;
   setTab(key);
-  $$('.tab', root).forEach((t) => t.setAttribute('aria-selected', t.dataset.tab === key));
+  $$('.tab', root).forEach((t) => {
+    const on = t.dataset.tab === key;
+    t.setAttribute('aria-selected', on);
+    t.tabIndex = on ? 0 : -1;
+  });
   $$('.panel', root).forEach((p) => { p.hidden = p.dataset.panel !== key; });
   $$(`.panel[data-panel="${key}"] textarea.autosize`, root).forEach(autoResize);
   if (scroll) {
-    const tabs = $('.tabs', root);
-    const top = tabs.getBoundingClientRect().top + window.scrollY - 70;
-    if (window.scrollY > top) window.scrollTo({ top, behavior: 'smooth' });
+    // land at the top of the section (below the vitals), never further down than where the player already is
+    const panel = $(`.panel[data-panel="${key}"]`, root);
+    const top = panel.getBoundingClientRect().top + window.scrollY - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')) || 56) - 8;
+    if (window.scrollY > top) window.scrollTo({ top, behavior: reducedMotion() ? 'auto' : 'smooth' });
     $(`.tab[data-tab="${key}"]`, root)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
+}
+
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/** Arrow keys move between section tabs (WAI-ARIA tabs pattern); Home / End jump to the first / last. */
+function onTabKey(e) {
+  const tab = e.target.closest?.('.tab');
+  if (!tab || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+  const tabs = $$('.tab', root);
+  const i = tabs.indexOf(tab);
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+  e.preventDefault();
+  tabs[next].focus();
+  showTab(tabs[next].dataset.tab);
+}
+
+/** The compact HP / AC readout in the top bar, shown once the vitals bar has scrolled out of view. */
+let vitalsObserver = null;
+function topbarVitalsHTML() {
+  const c = C();
+  const ws = transformState?.active?.sheet;
+  const hp = ws ? `${ws.hp.current}/${ws.hp.max}` : `${c.hp_current}/${hpMax(c)}`;
+  return `<span class="tv-name">${esc(c.name || '')}</span>
+    <span class="tv-stat">${icon('actions/heal', { size: 16 })}<span class="sr-only">${ws ? `${esc(ws.creature.name)} hit points` : 'Hit points'} </span>${hp}</span>
+    <span class="tv-stat">${icon('equipment-slots/shield', { size: 16 })}<span class="sr-only">Armor Class </span>${derived?.armor_class?.value ?? '—'}</span>`;
+}
+function refreshTopbarVitals() {
+  const el = document.getElementById('topbar-vitals');
+  if (el && B) el.innerHTML = topbarVitalsHTML();
+}
+function watchVitals() {
+  const el = document.getElementById('topbar-vitals');
+  const bar = $('.combat-bar', root);
+  if (!el || !bar || !('IntersectionObserver' in window)) return;
+  vitalsObserver?.disconnect();
+  vitalsObserver = new IntersectionObserver(([en]) => { el.hidden = en.isIntersecting || !B; if (!el.hidden) refreshTopbarVitals(); },
+    { rootMargin: `-${(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')) || 56)}px 0px 0px 0px` });
+  vitalsObserver.observe(bar);
+  el.onclick = () => window.scrollTo({ top: 0, behavior: reducedMotion() ? 'auto' : 'smooth' });
 }
 
 /** Re-render a container while keeping the focused field (if any) focused. */
@@ -1192,7 +2250,7 @@ function rerender(selector, html) {
 }
 
 function rerenderList(table) {
-  if (table === 'inventory_items') rerender('#inventory-list', inventoryListHTML());
+  if (table === 'inventory_items') inventory?.scheduleRefresh();
   if (table === 'features') rerender('#features-list', featuresListHTML());
   if (table === 'feature_trackers') { rerender('#trackers-list', trackersListHTML()); renderStrip(); }
   if (table === 'attacks') rerender('#attacks-list', attacksListHTML());
@@ -1214,6 +2272,11 @@ function applyHp(sign) {
     toast('Enter an amount first');
     return;
   }
+  if (transformState?.active?.sheet) {         // in Wild Shape the form takes the damage / healing (normal HP is protected)
+    input.value = '';
+    formHp(sign, amt, 'hp');
+    return;
+  }
   const c = C();
   if (sign < 0) {
     const absorbed = Math.min(c.hp_temp, amt);
@@ -1221,40 +2284,55 @@ function applyHp(sign) {
       hp_temp: c.hp_temp - absorbed,
       hp_current: Math.max(0, c.hp_current - (amt - absorbed)),
     });
+    toast(`Took ${amt} damage${absorbed ? ` (${absorbed} from temporary HP)` : ''}: ${c.hp_current} / ${hpMax(c)}.`);
   } else {
-    const patch = { hp_current: Math.min(c.hp_max, c.hp_current + amt) };
+    const patch = { hp_current: Math.min(hpMax(c), c.hp_current + amt) };
     if (c.hp_current <= 0) Object.assign(patch, { death_successes: 0, death_failures: 0 });
     setRow('characters', c, patch);
+    toast(`Healed ${amt}: ${c.hp_current} / ${hpMax(c)}.`, 'good');
   }
   input.value = '';
 }
 
+// Slots, Pact Magic, trackers, manual slots and resources are restored by the server in one transaction (short_rest_character /
+// long_rest_character). HP, temp HP, death saves and hit dice keep the app's existing long-rest step, applied afterwards.
 async function rest(kind) {
   const long = kind === 'long';
-  const ok = await confirmDialog(
-    long
-      ? 'Restore HP, spell slots, half your hit dice and all short/long-rest resources?'
-      : 'Restore all short-rest resources? (Spend hit dice by editing them on the Stats tab.)',
-    { title: long ? 'Long Rest' : 'Short Rest', okLabel: long ? 'Take long rest' : 'Take short rest' },
-  );
+  const ok = await confirmDialog([restDescription(kind, slotState), ...restResourceLines(kind, classResources)].join('\n'),
+    { title: long ? 'Long Rest' : 'Short Rest', okLabel: long ? 'Take long rest' : 'Take short rest' });
   if (!ok) return;
-
-  for (const t of B.trackers) {
-    const resets = long ? t.reset_on !== 'none' : t.reset_on === 'short';
-    if (resets && t.current !== t.max) setRow('feature_trackers', t, { current: t.max });
+  await saver.flush();
+  const res = long ? await longRest(C().id) : await shortRest(C().id);
+  for (const name of res.restored.trackers || []) {          // mirror the server's tracker reset locally right away
+    const t = B.trackers.find((x) => x.name === name);
+    if (t) t.current = t.max;
   }
+  const extra = [];
   if (long) {
     const c = C();
+    const dice = Math.min(c.level, c.hit_dice_current + Math.max(1, Math.floor(c.level / 2))) - c.hit_dice_current;
+    if (c.hp_current < hpMax(c)) extra.push(`Hit points: back to ${hpMax(c)}`);
+    if (dice > 0) extra.push(`Hit dice: ${dice} regained`);
     setRow('characters', c, {
-      hp_current: c.hp_max,
+      hp_current: hpMax(c),
       hp_temp: 0,
       death_successes: 0,
       death_failures: 0,
       hit_dice_current: Math.min(c.level, c.hit_dice_current + Math.max(1, Math.floor(c.level / 2))),
     });
-    for (const s of B.slots) if (s.used) setRow('spell_slots', s, { used: 0 });
+    for (const s of B.slots) s.used = 0;
   }
-  toast(long ? 'Long rest taken. You feel refreshed.' : 'Short rest taken.', 'good');
+  rerenderList('feature_trackers');
+  rerenderList('spell_slots');
+  renderStrip();
+  slotEpoch += 1;
+  await loadClasses();
+  const title = long ? 'Long Rest completed' : 'Short Rest completed';
+  const st = root && $('#slot-status', root);
+  if (st) { st.textContent = `${title}. ${restResultText(res)}`; st.dataset.kind = 'good'; }
+  const m = openModal({ title, body: restSummaryHTML(res, { extra }),
+    footer: '<button type="button" class="btn btn-gold" data-close data-rest-ok>OK</button>' });
+  setTimeout(() => { if (m.isTop()) $('[data-rest-ok]', m.el)?.focus(); }, 60);
 }
 
 async function addTracker() {
@@ -1277,17 +2355,6 @@ async function addTracker() {
   maxInput?.focus();
   maxInput?.select();
   toast(`${name} added — set its maximum.`, 'good');
-}
-
-async function addItem() {
-  const row = await insertRow('inventory_items', {
-    character_id: C().id, name: 'New item', sort_order: B.inventory.length,
-  });
-  if (!B.inventory.some((i) => i.id === row.id)) B.inventory.push(row);
-  rerenderList('inventory_items');
-  const input = $(`[data-t="inventory_items"][data-id="${row.id}"][data-f="name"]`, root);
-  input?.focus();
-  input?.select();
 }
 
 async function addFeature(category) {
@@ -1411,9 +2478,21 @@ async function removeRow(table, id, label) {
 
 const actions = {
   tab: (el) => showTab(el.dataset.tab),
-  'toggle-compact': () => {
+  'toggle-compact': (el) => {
     const bar = $('.combat-bar', root);
-    setCompact(bar.classList.toggle('compact'));
+    const on = bar.classList.toggle('compact');
+    setCompact(on);
+    el.setAttribute('aria-expanded', String(!on));
+    el.setAttribute('aria-label', on ? 'Expand vitals' : 'Collapse vitals');
+    $('.ct-text', el).textContent = on ? 'More' : 'Less';
+  },
+  'open-requests': () => governance?.openRequests?.(),
+  'build-goto': (el) => {
+    showTab('features', false);
+    const target = $(el.dataset.target, root);
+    if (target?.tagName === 'DETAILS') target.open = true;
+    target?.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' });
+    target?.querySelector('[data-cf-goto], button:not([disabled]), summary, select')?.focus({ preventScroll: true });
   },
   'hp-damage': () => applyHp(-1),
   'hp-heal': () => applyHp(1),
@@ -1440,7 +2519,7 @@ const actions = {
   'reset-slots': () => { for (const s of B.slots) if (s.used) setRow('spell_slots', s, { used: 0 }); },
   'toggle-save': (el) => {
     const k = el.dataset.k;
-    setRow('characters', C(), { save_proficiencies: { ...C().save_proficiencies, [k]: !saveProf(k) } });
+    setRow('characters', C(), { save_proficiencies: { ...C().save_proficiencies, [k]: !saveManual(k) } });
   },
   'cycle-skill': (el) => {
     const k = el.dataset.k;
@@ -1455,8 +2534,9 @@ const actions = {
     $(`[data-t="features"][data-id="${el.dataset.id}"][data-f="description"]`, root)?.focus({ preventScroll: true });
   },
   'goto-choices': () => {
-    showTab('bio', false);
-    $('#choices-card', root)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    showTab('features', false);
+    $('.build-next-card', root)?.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' });
+    $('#build-next button', root)?.focus({ preventScroll: true });
   },
   'resolve-choice': (el) => {
     const choice = pendingChoices().find((p) => p.id === el.dataset.id);
@@ -1471,9 +2551,12 @@ const actions = {
     setRow('characters', C(), { portrait_url: '' });
     await removePortraitFile(url);
   },
-  'export-json': () => {
+  'export-json': async () => {
     const slug = (C().name || 'character').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    downloadJson(exportCharacter(B), `${slug || 'character'}.json`);
+    if (!classSummary) await loadClasses();   // exported right after opening: never drop the classes and companions silently
+    const classFeatureState = classSummary?.classes?.length ? await exportClassFeatures(C().id).catch(() => null) : null;
+    const feats = await exportFeats(C().id).catch(() => null);
+    downloadJson(exportCharacter(B, { lineage, spellbook, classSummary, slotState, classFeatureState, companions, background, wildShape: transformState, feats }), `${slug || 'character'}.json`);
   },
   'toggle-inspiration': () => setRow('characters', C(), { inspiration: !C().inspiration }),
   death: (el) => {
@@ -1483,8 +2566,6 @@ const actions = {
   },
   'short-rest': () => rest('short'),
   'long-rest': () => rest('long'),
-  'add-item': addItem,
-  'delete-item': (el) => removeRow('inventory_items', el.dataset.id, 'item'),
   'add-feature': (el) => addFeature(el.dataset.cat),
   'delete-feature': (el) => removeRow('features', el.dataset.id, 'feature'),
   'add-tracker': addTracker,
@@ -1512,14 +2593,116 @@ const actions = {
     const s = findRow('spells', el.dataset.id);
     setRow('spells', s, { prepared: !s.prepared });
   },
-  'toggle-equip': (el) => {
+  // a granted chip explains its source (never deletes the grant); a manual or inactive chip toggles the manual mark
+  'toggle-equip': async (el) => {
     const k = el.dataset.k;
-    const cur = C().equipment_proficiencies || {};
-    setRow('characters', C(), { equipment_proficiencies: { ...cur, [k]: !cur[k] } });
+    const group = PROF_GROUP_BY_FLAG[k];
+    const e = profEntry('groups', group);
+    const name = EQUIPMENT_PROFICIENCIES.find((p) => p.key === k)?.label || group;
+    if (e && derivedSources(e).length) {
+      openProficiencySource(e, name, { onGoto: gotoSource, onManual: (enabled) => setManualProficiency({ group, enabled, flag: k }) });
+      return;
+    }
+    const manual = k in profPending ? profPending[k] : (e ? e.manual : !!C().equipment_proficiencies?.[k]);
+    await setManualProficiency({ group, enabled: !manual, flag: k });
   },
+  'prof-remove': (el) => setManualProficiency({ item: el.dataset.item, enabled: false }),
+  'bg-choose': () => openBackgroundPicker({ characterId: C().id, current: background, onSaved: backgroundChanged }),
+  'bg-equipment': () => background?.selected && openBackgroundEquipment({ characterId: C().id, bg: background,
+    onApplied: () => { inventory?.refresh?.(); loadBackground(); } }),
+  'bg-remove': () => background?.selected && removeBackground({ characterId: C().id, bg: background, onSaved: backgroundChanged }),
+  'bg-replace': () => background?.selected && openReplaceDuplicate({ characterId: C().id, bg: background, onSaved: backgroundChanged }),
+  'bg-roll': (el) => background?.selected && rollCharacteristic(el.closest('form'), background, el.dataset.key, el.dataset.die),
+  'ac-breakdown': () => {
+    if (!derived) { toast('Still calculating…'); return; }
+    openAcBreakdown(derived, {
+      onOverride: (v) => { derivedDirty = true; setRow('characters', C(), { ac_override: v }); },
+      onGotoItem: gotoInventoryItem,
+    });
+  },
+  'manage-profs': () => openProficiencyManager(C().id, () => derived, loadDerived),
+  'lineage-choose': (el) => {
+    if (!lineage) { toast('Still loading…'); return; }
+    openLineagePicker({ characterId: C().id, current: lineage, level: C().level, onSaved: lineageChanged, open: el?.dataset.lineageOpen || null,
+      campaignId: C().campaign_id || null });
+  },
+  'lineage-remove': () => removeLineage(C().id, lineageChanged),
+  'spell-source-add': () => openSourceEditor({ characterId: C().id, onSaved: loadSpellbook }),
+  'spell-source-edit': (el) => openSourceEditor({ characterId: C().id, source: spellbook?.sources.find((x) => x.id === el.dataset.source),
+    classInfo: classSummary?.classes?.find((k) => k.spellcasting?.source_id === el.dataset.source), onSaved: async () => { await loadSpellbook(); loadClasses(); } }),
+  'spell-add': () => {
+    if (!spellbook) { toast('Still loading…'); return; }
+    openAddSpell({
+      characterId: C().id, book: spellbook, classes: classSummary?.classes || [], onSaved: async () => { await loadSpellbook(); loadClasses(); },
+      onNewSource: (done) => openSourceEditor({ characterId: C().id, onSaved: async () => { await loadSpellbook(); await done(spellbook); } }),
+    });
+  },
+  'spell-detail': (el) => {
+    const sp = spellbook?.spells.find((x) => x.id === el.dataset.spell);
+    if (sp) openSpellDetail(sp, { editable: !ctx?.readOnly, onChanged: async () => { await loadSpellbook(); loadClasses(); } });
+  },
+  'spell-prepare': async (el) => {
+    try { await setSpellPrepared(el.dataset.cs, el.checked); await loadSpellbook(); loadClasses(); } catch (err) { el.checked = !el.checked; throw err; }
+  },
+
   'level-up': async () => {
     await saver.flush();
-    openLevelUp(B, { onApplied: () => ctx.reload() });
+    openLevelUp(B, { classes: classSummary?.classes || [], onApplied: () => ctx.reload() });
+  },
+  'class-add': () => openClassEditor({ characterId: C().id, summary: classSummary, onSaved: classesChanged }),
+  'class-edit': (el) => openClassEditor({ characterId: C().id, summary: classSummary, row: el.dataset.row, onSaved: classesChanged }),
+  'class-remove': (el) => removeClass({ summary: classSummary, row: el.dataset.row, onSaved: classesChanged }),
+  'tf-pick': () => transformState && openFormPicker({ characterId: C().id, tf: transformState, editable: !ctx?.readOnly,
+    onTransform: (id, st) => openTransformReview({ characterId: C().id, tf: st || transformState, creatureId: id, onDone: tfApplied }),
+    onChanged: (st) => { if (st) tfApplied(st, { quiet: true }); else scheduleTransform(); } }),
+  'tf-quick': (el) => transformState && openTransformReview({ characterId: C().id, tf: transformState, creatureId: el.dataset.creature, onDone: tfApplied }),
+  'tf-damage': (el) => formHp(-1, Number($('[data-tf-amount]', el.closest('[data-transform]'))?.value), 'tf-damage'),
+  'tf-heal': (el) => formHp(1, Number($('[data-tf-amount]', el.closest('[data-transform]'))?.value), 'tf-heal'),
+  'tf-adjust': () => transformState?.active && openAdjust({ characterId: C().id, sheet: transformState.active.sheet, onDone: tfApplied }),
+  'tf-end': async () => {
+    if (!transformState?.active || !(await confirmRevert(transformState))) return;
+    await tfMutation('revert', (id) => endTransformation(id), () => 'You return to your normal form.');
+  },
+  'tf-combat-heal': () => transformState?.active && openCombatHeal({ characterId: C().id, sheet: transformState.active.sheet, slots: slotState,
+    onDone: async (r) => { await tfApplied(r, { quiet: true }); slotsChangedElsewhere(); } }),
+  'tf-ability': (el) => tfMutation(`ability:${el.dataset.ability}`, (id) => useFormAbility(id, el.dataset.ability, el.dataset.op),
+    (r) => `${el.dataset.ability}: ${r.result.available ? 'available' : 'used'}${r.result.roll ? ` (rolled ${r.result.roll}, needs ${r.result.min})` : ''}.`),
+  'tf-equip': (el) => tfMutation(`equip:${el.dataset.item}`, (id) => setFormEquipment(id, el.dataset.item, el.dataset.mode),
+    () => (el.dataset.mode === 'wear' ? 'The item is worn by the form (its effects apply).' : 'The item merges into the form (no effect).')),
+  'tf-end-concentration': () => setConditions(activeConditions().filter((x) => !/^concentrat/i.test(typeof x === 'string' ? x : x?.name || ''))),
+  'tf-open-combat': () => { showTab('combat', false); $('#combat-transform', root)?.scrollIntoView({ block: 'start' }); },
+  'inf-add': () => { if (infusionState) openInfuse({ characterId: C().id, state: infusionState, onDone: async () => { await classesChanged(); } }); },
+  'inf-remove': async (el) => { if (await endInfusion(C().id, infusionState, el.dataset.id)) await classesChanged(); },
+  'inf-refresh': async () => { await refreshInfusions(C().id); await classesChanged(); },
+  'comp-add': () => openAddCompanion({ characterId: C().id, onDone: loadClasses }),
+  'comp-hp': async (el) => { await changeCompanionHp(el, companions); await loadClasses(); },
+  'comp-remove': async (el) => { if (await removeCompanionConfirm(el, companions)) await loadClasses(); },
+  'class-start-eq': async (el) => {
+    const equipment = await getStartingEquipment(el.dataset.version);
+    openStartingEquipment({ characterId: C().id, equipment, className: startEqState?.class_name, onDone: async () => { await loadClasses(); inventory?.refresh?.(); } });
+  },
+  'class-primary': async (el) => {
+    const k = classSummary.classes.find((x) => x.id === el.dataset.row);
+    await setCharacterClass(C().id, { version: k.class_version_id, level: k.level, subclass: k.subclass_version_id, primary: true, row: k.id });
+    await loadClasses();
+  },
+  'slot-use': (el) => slotMutation(`standard:${el.dataset.level}`, 'used', (id) => expendStandardSlot(id, Number(el.dataset.level))),
+  'slot-restore': (el) => slotMutation(`standard:${el.dataset.level}`, 'restored', (id) => restoreStandardSlot(id, Number(el.dataset.level))),
+  'pact-use': () => slotMutation('pact', 'used', (id) => expendPactSlot(id)),
+  'pact-restore': () => slotMutation('pact', 'restored', (id) => restorePactSlot(id)),
+  'temp-use': (el) => slotMutation(`temporary:${el.dataset.id}`, 'used', (id) => useTemporarySlot(id, el.dataset.id)),
+  'temp-restore': (el) => slotMutation(`temporary:${el.dataset.id}`, 'restored', (id) => restoreTemporarySlot(id, el.dataset.id)),
+  'slot-recover': (el) => {
+    const r = classResources?.resources.find((x) => x.key === el.dataset.key);
+    if (r && slotState) openRecoverSlots({ characterId: C().id, resource: r, slots: slotState, onDone: slotsChangedElsewhere });
+  },
+  'rider-slot': (el) => {
+    const r = (derived?.attack_riders || []).find((x) => x.name === el.dataset.rider);
+    if (r && slotState) openSlotRider({ characterId: C().id, rider: r, slots: slotState, onDone: slotsChangedElsewhere });
+  },
+  'slot-convert': (el) => {
+    const r = classResources?.resources.find((x) => x.key === el.dataset.key);
+    if (r && slotState) openFlexibleCasting({ characterId: C().id, resource: r, slots: slotState, onDone: slotsChangedElsewhere });
   },
   'delete-character': async () => {
     const ok = await confirmDialog(`Permanently delete ${C().name}? This cannot be undone.`, {
@@ -1538,6 +2721,7 @@ const actions = {
 
 function onInput(e) {
   const el = e.target;
+  if (el.dataset.sf === 'q' && readFilter(el, spellFilters)) { renderSpellbook(); return; }
   if (el.tagName === 'TEXTAREA' && el.classList.contains('autosize')) autoResize(el);
   if (!el.dataset.f || el.type === 'checkbox' || el.tagName === 'SELECT') return;
   commitField(el);
@@ -1559,6 +2743,13 @@ async function changePortrait(file) {
 
 function onChange(e) {
   const el = e.target;
+  if (el.dataset.sf && readFilter(el, spellFilters)) { renderSpellbook(); return; }
+  if (el.dataset.classLevel) {
+    changeClassLevel({ characterId: C().id, summary: classSummary, row: el.dataset.classLevel, level: Number(el.value), onSaved: classesChanged })
+      .then((done) => { if (done === false) { $('#class-card-body', root).__html = null; renderClasses(); } })
+      .catch((err) => { toast(err.message, 'bad'); $('#class-card-body', root).__html = null; loadClasses(); });
+    return;
+  }
   if (el.id === 'tracker-preset') {
     $('#tracker-custom', root).hidden = el.value !== 'custom';
     if (el.value === 'custom') $('#tracker-custom', root).focus();
@@ -1582,11 +2773,15 @@ function onChange(e) {
   if (row && (el.dataset.type === 'int' || el.dataset.type === 'num')) el.value = row[el.dataset.f];
 }
 
+const SLOT_ACTIONS = new Set(['slot-use', 'slot-restore', 'pact-use', 'pact-restore', 'temp-use', 'temp-restore']);
 async function onClick(e) {
   const el = e.target.closest('[data-action]');
   if (!el || !root.contains(el)) return;
   const fn = actions[el.dataset.action];
   if (!fn) return;
+  // the 2nd / 3rd click of a double / triple click on a slot button is not a new use (the server may already have answered
+  // the first one; separate clicks have detail 1). Keyboard activation has detail 0.
+  if (e.detail > 1 && SLOT_ACTIONS.has(el.dataset.action)) return;
   try {
     await fn(el);
   } catch (err) {
@@ -1595,7 +2790,24 @@ async function onClick(e) {
   }
 }
 
+async function adjustSlots(form) {
+  const [pool, level] = form.elements.pool.value.split(':');
+  try {
+    slotState = await setSlotState(C().id, pool, pool === 'pact' ? null : Number(level), Number(form.elements.expended.value),
+      form.elements.reason.value.trim());
+    slotEpoch += 1;
+    toast('Slots corrected.', 'good');
+    renderClasses();
+  } catch (err) { toast(err.message, 'bad'); }
+}
+
 function onSubmit(e) {
+  if (e.target.matches('[data-slot-adjust]')) { e.preventDefault(); adjustSlots(e.target); return; }
+  if (e.target.matches('[data-bg-chars]')) {
+    e.preventDefault();
+    if (background?.selected) saveCharacteristics({ characterId: C().id, bg: background, form: e.target, onSaved: backgroundChanged }).catch((err) => toast(err.message, 'bad'));
+    return;
+  }
   if (e.target.id !== 'add-choice-form') return;
   e.preventDefault();
   const f = e.target.elements;
@@ -1613,6 +2825,7 @@ function onSubmit(e) {
 }
 
 function onKeyDown(e) {
+  if (e.target.classList?.contains('tab')) { onTabKey(e); return; }
   if (e.target.id === 'hp-amount' && e.key === 'Enter') {
     e.preventDefault();
     applyHp(e.shiftKey ? 1 : -1);
@@ -1642,11 +2855,52 @@ function applyRemote(table, row, incoming) {
 
 function onRemote(table, event, nw, old) {
   if (!B) return;
+  if (table === 'character_proficiencies') { scheduleDerived(); return; }
+  if (table === 'character_spells' || table === 'character_spellcasting_sources') {
+    const rec = event === 'DELETE' ? old : nw;
+    if (!rec?.character_id || rec.character_id === C().id) scheduleSpellbook();
+    return;
+  }
+  if (['character_classes', 'character_spell_slot_state', 'character_temporary_spell_slots', 'character_resources',
+    'character_feature_choices', 'character_optional_features'].includes(table)) {
+    const rec = event === 'DELETE' ? old : nw;
+    if (!rec?.character_id || rec.character_id === C().id) {
+      if (table === 'character_spell_slot_state' || table === 'character_temporary_spell_slots') scheduleSlots();
+      else scheduleClasses();
+      if (table !== 'character_spell_slot_state' && table !== 'character_temporary_spell_slots' && table !== 'character_resources') {
+        scheduleDerived(); scheduleLineage(); scheduleSpellbook();
+      }
+    }
+    return;
+  }
+  if (table === 'character_transformations') {
+    const rec = event === 'DELETE' ? old : nw;
+    if (!rec?.character_id || rec.character_id === C().id) scheduleTransform();
+    return;
+  }
+  if (table === 'character_backgrounds') {
+    const rec = event === 'DELETE' ? old : nw;
+    if (!rec?.character_id || rec.character_id === C().id) { scheduleBackground(); scheduleDerived(); }
+    return;
+  }
+  if (table === 'character_lineages' || table === 'character_lineage_choices') {
+    const rec = event === 'DELETE' ? old : nw;
+    if (!rec?.character_id || rec.character_id === C().id) { scheduleLineage(); scheduleDerived(); }
+    return;
+  }
   if (table === 'characters') {
+    scheduleDerived();   // ability scores, level, speed, override or the proficiency mirror may have changed
     if (applyRemote('characters', C(), nw)) {
       syncInputs('characters', C().id);
       afterChange('characters');
     }
+    return;
+  }
+
+  // Inventory and equipment: the inventory UI re-reads the authoritative state (no row patching, no duplicates).
+  if (table === 'inventory_items' || table === 'character_equipment') {
+    const rec = event === 'DELETE' ? old : nw;
+    if (!rec?.character_id || rec.character_id === C().id) inventory?.scheduleRefresh();   // its onRows re-reads derived stats
     return;
   }
 
@@ -1694,6 +2948,18 @@ export function mountSheet(container, bundle, options = {}) {
   B.character.conditions ||= [];
   B.character.pending_choices ||= [];
   B.character.portrait_url ??= '';
+  derived = null;
+  profState = null;
+  profPending = {};
+  lineage = null;
+  background = null;
+  spellbook = null;
+  classSummary = null;
+  slotState = null;
+  slotBusy = new Set();
+  tfBusy = new Set();
+  classFeatures = null;
+  classResources = null;
   ctx = options;
   root = document.createElement('div');
   root.className = 'sheet-root';
@@ -1708,11 +2974,76 @@ export function mountSheet(container, bundle, options = {}) {
   root.addEventListener('click', onClick);
   root.addEventListener('keydown', onKeyDown);
   root.addEventListener('submit', onSubmit);
-  unsubscribe = subscribeCharacter(C().id, onRemote);
+  attachFeatureHandlers(root, { getCharacterId: () => C().id, onChanged: classesChanged, onResources: loadClasses });
+  attachFeatHandlers(root, { getCharacterId: () => C().id, getState: () => featState, onChanged: featsChanged });
+  rememberSpellSections(root);
+  unsubscribe = subscribeCharacter(C().id, onRemote, () => {
+    toast('Connection restored — showing the latest values.', 'info');
+    saver.flush().finally(() => ctx.reload?.());   // own unsaved edits are saved first, then the stored state is shown
+  });
+  let invLoaded = false;
+  inventory = mountInventory($('#inventory-app', root), {
+    characterId: C().id,
+    getCharacter: C,
+    userId: state.profile?.id,
+    getCampaigns: myCampaigns,
+    onRows: (rows) => {
+      B.inventory = rows.map(legacyInventoryRow);
+      cacheLater();
+      if (invLoaded) scheduleDerived();   // the first load is not a change: the derived read started on mount covers it
+      invLoaded = true;
+    },
+    getEquipmentNotes: (inventoryItemId) => equipmentNotes(derived, inventoryItemId),
+  });
+  // a change the campaign refuses is never saved: reload the sheet so it shows the stored values again
+  governance = mountGovernance($('#gov-bar', root), { characterId: C().id, reload: () => ctx.reload?.(), onRefused: () => ctx.reload?.(),
+    onState: (st) => { govState = st; renderSheetChips(); } });
+  watchVitals();
+  trackWeaponDetails(root);
+  unsubSaver = saver.onStatus((st) => { if (st === 'saved' && derivedDirty) { derivedDirty = false; scheduleDerived(); } });
+  loadDerived();
+  loadLineage();
+  loadBackground();
+  loadSpellbook();
+  loadClasses();
+  loadFeats();
   cacheSet(`bundle:${C().id}`, B);
 }
 
 export function unmountSheet() {
+  vitalsObserver?.disconnect();
+  vitalsObserver = null;
+  const tv = document.getElementById('topbar-vitals');
+  if (tv) { tv.hidden = true; tv.innerHTML = ''; }
+  govState = null;
+  unsubSaver?.();
+  unsubSaver = null;
+  derived = null;
+  profState = null;
+  profPending = {};
+  derivedSeq += 1;
+  lineage = null;
+  lineageSeq += 1;
+  background = null;
+  backgroundSeq += 1;
+  spellbook = null;
+  spellbookSeq += 1;
+  classSummary = null;
+  slotState = null;
+  slotBusy = new Set();
+  slotsSeq += 1;
+  tfBusy = new Set();
+  tfSeq += 1;
+  transformState = null;
+  classFeatures = null;
+  classResources = null;
+  classSeq += 1;
+  featState = null;
+  featSeq += 1;
+  inventory?.destroy();
+  inventory = null;
+  governance?.destroy();
+  governance = null;
   unsubscribe?.();
   unsubscribe = null;
   B = null;

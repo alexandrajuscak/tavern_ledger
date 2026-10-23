@@ -1,21 +1,29 @@
 // Level Up Wizard: a guided editor, not a rules engine. It proposes sensible
 // defaults (average HP, next level) and lets the player/DM change anything.
 
-import { supabase } from './supabase.js?v=7';
+import { supabase } from './supabase.js?v=10';
 import {
   ABILITY_BY_KEY, FEATURE_CATEGORIES, ACTIVATIONS, HIT_DICE, RESOURCE_PRESETS, RESET_LABELS,
   mod, fmt, hitDieAverage, dieSize, profBonus,
-} from './dnd.js?v=7';
-import { $, $$, esc, toast, openModal } from './utils.js?v=7';
+} from './dnd.js?v=10';
+import { $, $$, esc, toast, openModal } from './utils.js?v=10';
+import { setCharacterClass } from './class-api.js?v=10';
 
-const STEPS = ['Level & HP', 'Subclass & Features', 'Resources', 'Spell Slots', 'Review'];
+const ALL_STEPS = ['Level & HP', 'Subclass & Features', 'Resources', 'Spell Slots', 'Review'];
 
-export function openLevelUp(bundle, { onApplied }) {
+/**
+ * `classes`: the character's class rows (get_character_class_summary). With classes, one class gains the level through
+ * set_character_class (the total level, proficiency bonus and spell slots follow from it) and the manual slot step is skipped.
+ */
+export function openLevelUp(bundle, { onApplied, classes = [] }) {
   const c = bundle.character;
+  const classMode = classes.length > 0;
+  const STEPS = classMode ? ALL_STEPS.filter((x) => x !== 'Spell Slots') : ALL_STEPS;
   if (c.level >= 20) {
     toast('This character is already level 20.');
     return;
   }
+  const advanceable = classes.filter((k) => k.level < 20);
 
   const conMod = mod(c[ABILITY_BY_KEY.con.col]);
   const st = {
@@ -26,11 +34,13 @@ export function openLevelUp(bundle, { onApplied }) {
     hpRoll: '',
     hpManual: '',
     subclass: c.subclass || '',
+    classRow: (classes.find((k) => k.is_primary && k.level < 20) || advanceable[0])?.id || null,
     features: [], // { category, name, description }
     trackerMax: Object.fromEntries(bundle.trackers.map((t) => [t.id, t.max])),
     newTrackers: [], // { name, max, reset }
     slotTotals: Object.fromEntries(bundle.slots.map((s) => [s.level, s.total])),
   };
+  if (classMode) st.hitDie = classes.find((k) => k.id === st.classRow)?.hit_die || st.hitDie;   // HP use the advancing class's die
 
   function hpGain() {
     let base;
@@ -45,11 +55,17 @@ export function openLevelUp(bundle, { onApplied }) {
   function stepLevel() {
     const pbOld = profBonus(c.level);
     const pbNew = profBonus(st.level);
+    const levelField = classMode
+      ? `<label class="field"><span>Class that gains the level</span>
+          <select id="lu-class">${advanceable.map((k) => `<option value="${esc(k.id)}" ${k.id === st.classRow ? 'selected' : ''}>
+            ${esc(k.class_name)} ${k.level} → ${k.level + 1}</option>`).join('')}</select>
+          <small class="muted">Total level ${c.level} → ${c.level + 1}. Add a new class on the Build tab.</small></label>`
+      : `<label class="field"><span>New level</span>
+          <input type="number" id="lu-level" min="${c.level}" max="20" value="${st.level}">
+        </label>`;
     return `
       <div class="wiz-grid">
-        <label class="field"><span>New level</span>
-          <input type="number" id="lu-level" min="${c.level}" max="20" value="${st.level}">
-        </label>
+        ${levelField}
         <label class="field"><span>Hit die</span>
           <select id="lu-die">${HIT_DICE.map((d) => `<option ${d === st.hitDie ? 'selected' : ''}>${d}</option>`).join('')}</select>
         </label>
@@ -127,7 +143,9 @@ export function openLevelUp(bundle, { onApplied }) {
 
   function stepReview() {
     const items = [];
-    items.push(`Level <strong>${c.level} → ${st.level}</strong>`);
+    const k = classMode ? classes.find((x) => x.id === st.classRow) : null;
+    items.push(k ? `${esc(k.class_name)} <strong>${k.level} → ${k.level + 1}</strong> (total level ${c.level} → ${st.level}; slots follow automatically)`
+      : `Level <strong>${c.level} → ${st.level}</strong>`);
     items.push(`Max HP <strong>${c.hp_max} → ${c.hp_max + hpGain()}</strong> (current HP +${hpGain()})`);
     if (st.hitDie !== c.hit_die) items.push(`Hit die → <strong>${st.hitDie}</strong>`);
     if (st.subclass !== (c.subclass || '')) items.push(`Subclass → <strong>${esc(st.subclass || '—')}</strong>`);
@@ -136,14 +154,14 @@ export function openLevelUp(bundle, { onApplied }) {
       if (st.trackerMax[t.id] !== t.max) items.push(`${esc(t.name)} max <strong>${t.max} → ${st.trackerMax[t.id]}</strong>`);
     });
     st.newTrackers.filter((t) => t.name.trim()).forEach((t) => items.push(`New resource: <strong>${esc(t.name)}</strong> (${t.max})`));
-    bundle.slots.forEach((s) => {
+    if (!classMode) bundle.slots.forEach((s) => {
       if ((st.slotTotals[s.level] ?? 0) !== s.total) items.push(`Level ${s.level} slots <strong>${s.total} → ${st.slotTotals[s.level]}</strong>`);
     });
     return `<ul class="review-list">${items.map((i) => `<li>${i}</li>`).join('')}</ul>
       <p class="muted small">Nothing is saved until you press <strong>Apply level up</strong>.</p>`;
   }
 
-  const RENDER = [stepLevel, stepFeatures, stepResources, stepSlots, stepReview];
+  const RENDER = classMode ? [stepLevel, stepFeatures, stepResources, stepReview] : [stepLevel, stepFeatures, stepResources, stepSlots, stepReview];
 
   // ---- Collect form values into state ----------------------------------------
 
@@ -151,7 +169,10 @@ export function openLevelUp(bundle, { onApplied }) {
     const body = m.body;
     switch (st.step) {
       case 0: {
-        st.level = Math.min(20, Math.max(c.level, parseInt($('#lu-level', body).value, 10) || st.level));
+        if (classMode) {
+          st.classRow = $('#lu-class', body)?.value || st.classRow;
+          st.level = c.level + 1;
+        } else st.level = Math.min(20, Math.max(c.level, parseInt($('#lu-level', body).value, 10) || st.level));
         st.hitDie = $('#lu-die', body).value;
         st.hpMethod = $('input[name="lu-hp"]:checked', body)?.value || 'average';
         st.hpRoll = $('#lu-roll', body).value;
@@ -206,6 +227,11 @@ export function openLevelUp(bundle, { onApplied }) {
   m.body.addEventListener('change', (e) => {
     // Live-refresh the HP preview / visible inputs on step 1.
     if (st.step === 0 && (e.target.name === 'lu-hp' || e.target.id === 'lu-die')) { collect(); paint(); }
+    if (st.step === 0 && e.target.id === 'lu-class') {
+      collect();
+      st.hitDie = classes.find((k) => k.id === st.classRow)?.hit_die || st.hitDie;   // the hit die of the class that levels up
+      paint();
+    }
   });
   m.body.addEventListener('input', (e) => {
     if (st.step === 0 && ['lu-roll', 'lu-manual', 'lu-level'].includes(e.target.id)) {
@@ -272,8 +298,13 @@ export function openLevelUp(bundle, { onApplied }) {
   async function apply() {
     const gain = hpGain();
     const ops = [];
+    if (classMode) {
+      const k = classes.find((x) => x.id === st.classRow);
+      if (!k) throw new Error('Choose the class that gains the level');
+      await setCharacterClass(c.id, { version: k.class_version_id, level: k.level + 1, subclass: k.subclass_version_id, row: k.id });
+    }
     ops.push(supabase.from('characters').update({
-      level: st.level,
+      ...(classMode ? {} : { level: st.level }),   // with classes the level is mirrored from them
       hit_die: st.hitDie,
       subclass: st.subclass.trim(),
       hp_max: c.hp_max + gain,
@@ -304,7 +335,7 @@ export function openLevelUp(bundle, { onApplied }) {
         ops.push(supabase.from('feature_trackers').update({ max, current }).eq('id', t.id));
       }
     }
-    for (const s of bundle.slots) {
+    for (const s of classMode ? [] : bundle.slots) {
       const total = st.slotTotals[s.level] ?? 0;
       if (total !== s.total) {
         ops.push(supabase.from('spell_slots').update({ total, used: Math.min(s.used, total) }).eq('id', s.id));

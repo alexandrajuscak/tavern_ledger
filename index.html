@@ -6,29 +6,34 @@
   <meta name="theme-color" content="#121216">
   <meta name="description" content="Lightweight D&D 5e character sheets for a private campaign.">
   <title>Tavern Ledger</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=7">
-  <script type="module" src="js/app.js?v=7"></script>
+  <link rel="icon" type="image/webp" href="assets/icons/classes/fighter.webp">
+  <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/cinzel-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/fonts.css?v=11">
+  <link rel="stylesheet" href="css/styles.css?v=11">
+  <!-- supabase-js 2.117.2, self-hosted (MIT, vendor/supabase-js/LICENSE): a deferred classic script: it runs before the module scripts (document order) and does not block parsing -->
+  <script defer src="vendor/supabase-js/supabase-2.117.2.umd.js"></script>
+  <script type="module" src="js/app.js?v=10"></script>
 </head>
 <body>
+  <a class="skip-link" href="#app">Skip to content</a>
   <header class="topbar" id="topbar" hidden>
-    <a class="brand" href="#/"><span aria-hidden="true">⚔</span> Tavern Ledger</a>
+    <a class="brand" href="#/"><img class="brand-mark" src="assets/icons/classes/fighter.webp" alt="" width="26" height="26"><span class="brand-text">Tavern Ledger</span></a>
+    <button type="button" class="topbar-vitals" id="topbar-vitals" hidden aria-label="Back to the top of the character sheet"></button>
     <div class="topbar-right">
       <span id="save-status" class="save-status" role="status" aria-live="polite"></span>
+      <a id="dm-link" class="btn btn-sm btn-dm" href="#/dm" hidden aria-label="DM Space"><img class="tl-icon" src="assets/icons/dm/campaign.webp" alt="" width="20" height="20"><span class="dm-link-text">DM Space</span></a>
       <span id="dm-badge" class="badge badge-dm" hidden>DM</span>
       <span id="user-name" class="user-name"></span>
       <button type="button" id="btn-signout" class="btn btn-ghost btn-sm">Sign out</button>
     </div>
   </header>
 
-  <main id="app">
-    <div class="center-wrap"><div class="spinner"></div></div>
+  <main id="app" tabindex="-1">
+    <div class="center-wrap"><div class="spinner" role="status" aria-label="Loading"></div></div>
   </main>
 
-  <div id="toasts" class="toasts"></div>
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 
   <noscript>Tavern Ledger needs JavaScript enabled.</noscript>
 </body>

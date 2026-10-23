@@ -5,3 +5,42 @@ Thumbs.db
 # Real campaign characters: keep them local, never publish
 examples/
 *.character.json
+
+# Dataset pipeline: reports derived from real characters
+data/reports/private/
+
+# Local development runtime (scripts/start-local.ps1): PID file, logs, generated local-only config
+.local/
+js/config.local.js
+js/config.staging.js
+*.log
+
+# Screenshots / Playwright artifacts from local browser tests
+/desktop.png
+/legacy.png
+/mobile.png
+screenshots/
+supabase/tests/browser/*.png
+test-results/
+playwright-report/
+
+# Never commit secrets, dumps or tool downloads
+.env
+.env.*
+*.dump
+*.backup
+dumps/
+.tools/
+__pycache__/
+
+# Spell source snapshots (copyrighted page text; local research cache, regenerate with spells_fetch.py)
+data/raw/spells_html/
+data/raw/classes_html/
+# all page caches and source snapshots of the data pipeline (licensing; docs/DEPLOYMENT_FILE_MANIFEST.md)
+data/raw/
+
+# Rules catalog: imported once into a new database from the private catalog package; never published
+# (docs/DEPLOYMENT_PACKAGE.md, docs/DEPLOYMENT_PRODUCTION_SEEDS.md)
+supabase/seed/
+data/
+scripts/data-migration/

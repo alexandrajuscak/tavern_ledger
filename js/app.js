@@ -1,13 +1,19 @@
-import { supabase, isConfigured, redirectUrl } from './supabase.js?v=7';
+import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=10';
 import {
   state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
   loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
-  updateProfile, listCharacters, createCharacter, loadBundle, saver,
-} from './store.js?v=7';
-import { CLASSES } from './dnd.js?v=7';
-import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear } from './utils.js?v=7';
-import { mountSheet, unmountSheet } from './sheet.js?v=7';
-import { importCharacter, parseCharacterJson } from './transfer.js?v=7';
+  updateProfile, listCharacters, listCharacterBadges, createCharacter, loadBundle, saver,
+} from './store.js?v=10';
+import { getDerivedStats, getProficiencies } from './inventory-api.js?v=10';
+import { icon, classIcon, iconSrc } from './icons.js?v=10';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, friendlyError } from './utils.js?v=10';
+import { mountSheet, unmountSheet } from './sheet.js?v=10';
+import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=10';
+import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=10';
+import { openLineagePicker } from './lineage-ui.js?v=10';
+import { getCharacterLineage } from './lineage-api.js?v=10';
+import { openAddClass } from './class-setup.js?v=10';
+import { getClassSummary } from './class-api.js?v=10';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders
@@ -17,6 +23,11 @@ let routeToken = 0; // guards against out-of-order async renders
 // -----------------------------------------------------------------------------
 
 async function init() {
+  // a staging page says so on every screen, so it is never mistaken for the real table (docs/DEPLOYMENT_FRONTEND_CONFIGURATION.md)
+  if (environment === 'staging') {
+    document.title = `STAGING · ${document.title}`;
+    document.body.insertAdjacentHTML('afterbegin', '<div class="env-banner" role="status">STAGING: test project, not the real table</div>');
+  }
   if (!isConfigured) {
     renderSetupNeeded();
     return;
@@ -104,9 +115,15 @@ function route() {
   window.scrollTo(0, 0);
 
   const charMatch = hash.match(/^#\/c\/([0-9a-f-]{36})$/i);
+  unmountDmSpace();
   if (charMatch) return openCharacter(charMatch[1], token);
 
   unmountSheet();
+  const dmMatch = hash.match(/^#\/dm(?:\/([a-z]+))?(?:\/([0-9a-f-]{36}))?$/i);
+  if (dmMatch) {
+    if (!isAnyDM()) { window.location.hash = '#/'; return undefined; }
+    return mountDmSpace(app, { section: dmMatch[1] || 'overview', id: dmMatch[2] || null });
+  }
   if ((hash === '#/campaigns' || hash === '#/players') && isAdmin()) return renderCampaigns(token);
   return renderList(token);
 }
@@ -116,6 +133,40 @@ function route() {
 // -----------------------------------------------------------------------------
 
 function renderSetupNeeded() {
+  if (environment === 'staging') {
+    app.innerHTML = `
+    <div class="center-wrap">
+      <div class="card narrow">
+        <h1 class="title">Staging is not configured</h1>
+        <p>Create the git-ignored <code>js/config.staging.js</code> with the staging project URL and its publishable key, then reload.</p>
+        <p class="muted small">See docs/DEPLOYMENT_FRONTEND_CONFIGURATION.md.</p>
+      </div>
+    </div>`;
+    return;
+  }
+  if (environment === 'unknown-host') {
+    app.innerHTML = `
+    <div class="center-wrap">
+      <div class="card narrow">
+        <h1 class="title">Unknown address</h1>
+        <p>This copy of Tavern Ledger is not served from an approved address, so it does not connect to any database.</p>
+        <p class="muted small">Approved hosts are listed in <code>js/config.js</code> (PRODUCTION_HOSTS).</p>
+      </div>
+    </div>`;
+    return;
+  }
+  if (isLocalOrigin) {
+    app.innerHTML = `
+    <div class="center-wrap">
+      <div class="card narrow">
+        <h1 class="title">Local Supabase is not configured</h1>
+        <p>On localhost the app only talks to the local Supabase stack. Start it with <code>start-local.bat</code>
+          (or <code>.\\scripts\\start-local.ps1</code>), then reload this page.</p>
+        <p class="muted small">See docs/LOCAL_DEVELOPMENT.md.</p>
+      </div>
+    </div>`;
+    return;
+  }
   app.innerHTML = `
   <div class="center-wrap">
     <div class="card narrow">
@@ -127,13 +178,15 @@ function renderSetupNeeded() {
 }
 
 function renderError(message, err) {
+  if (err) console.error('[load]', err);
   app.innerHTML = `
   <div class="center-wrap">
     <div class="card narrow">
       <h1 class="title">Something went wrong</h1>
       <p>${esc(message)}</p>
-      ${err ? `<pre class="error-detail">${esc(err.message || String(err))}</pre>` : ''}
-      <button class="btn btn-gold" onclick="location.reload()">Reload</button>
+      ${err ? `<p class="muted small error-detail">${esc(friendlyError(err, 'The server did not answer as expected.'))}</p>` : ''}
+      <div class="error-actions"><button class="btn btn-gold" onclick="location.reload()">Reload</button>
+        <a class="btn" href="#/">Back to your characters</a></div>
     </div>
   </div>`;
 }
@@ -142,9 +195,9 @@ function renderAuth() {
   app.innerHTML = `
   <div class="center-wrap">
     <div class="card auth-card">
-      <div class="auth-logo" aria-hidden="true">⚔</div>
+      <img class="auth-logo" src="${iconSrc('classes/fighter')}" alt="" width="72" height="72">
       <h1 class="title">Tavern Ledger</h1>
-      <p class="muted center">Character sheets for our table.</p>
+      <p class="muted center">Your characters, ready for the table.</p>
 
       <button type="button" class="btn btn-google btn-block" id="btn-google">
         <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3 0 5.8 1.1 7.9 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
@@ -172,7 +225,7 @@ function renderAuth() {
       provider: 'google',
       options: { redirectTo: redirectUrl() },
     });
-    if (error) toast(error.message, 'bad');
+    if (error) toast(friendlyError(error, 'Sign-in failed. Please try again.'), 'bad');
   });
 
   const form = $('#auth-form');
@@ -198,7 +251,7 @@ function renderAuth() {
         if (error) throw error;
       }
     } catch (err) {
-      toast(err.message, 'bad', 5000);
+      toast(friendlyError(err, 'Sign-in failed. Please try again.'), 'bad', 5000);
     } finally {
       busy(false);
     }
@@ -213,13 +266,60 @@ function renderAuth() {
     busy(true);
     const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectUrl() } });
     busy(false);
-    if (error) toast(error.message, 'bad', 5000);
+    if (error) toast(friendlyError(error, 'Sign-in failed. Please try again.'), 'bad', 5000);
     else toast('Magic link sent — check your inbox.', 'good', 6000);
   });
 }
 
-function hpPct(c) {
-  return Math.max(0, Math.min(100, (c.hp_current / Math.max(1, c.hp_max)) * 100));
+function hpPct(c, max = c.hp_max) {
+  return Math.max(0, Math.min(100, (c.hp_current / Math.max(1, max)) * 100));
+}
+
+// Character list extras: classes / Wild Shape / lock / requests (batched reads) and the derived max HP and AC (one read per
+// character, few at a time, cached per character version so the list does not flicker on the next visit).
+let listBadges = {};
+const titleCase = (id) => String(id || '').split(/[-_]/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+const statsKey = (c) => `cardstats:${c.id}:${c.updated_at}`;
+
+async function loadCardStats(chars, token) {
+  const queue = chars.filter((c) => !cacheGet(statsKey(c)));
+  const worker = async () => {
+    while (queue.length && token === routeToken) {
+      const c = queue.shift();
+      try {
+        const d = await getDerivedStats(c.id);
+        const st = { max: d?.hit_points?.max ?? null, ac: d?.armor_class?.value ?? null, lineage: d?.lineage?.name || null };
+        cacheSet(statsKey(c), st);
+        if (token === routeToken) updateCard(c, st);
+      } catch {   // the card never keeps a loading mark: base maximum, unknown AC, and a hint
+        if (token === routeToken) updateCard(c, { max: null, ac: null, failed: true });
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker));   // six reads at a time: 35 local cards complete in ~1.6 s instead of ~2.7 s
+}
+
+function updateCard(c, st) {
+  const el = document.querySelector(`.char-card[data-char="${CSS.escape(c.id)}"]`);
+  if (!el) return;
+  const max = st.max ?? c.hp_max;
+  const hp = el.querySelector('[data-cc-hp]');
+  if (hp) hp.textContent = `${c.hp_current} / ${max}`;   // replaces the loading mark
+  const ac = el.querySelector('[data-cc-ac]');
+  if (ac) ac.textContent = st.ac != null ? String(st.ac) : '—';
+  if (st.failed) el.title = 'Current values could not be loaded; open the character to see them.';
+  const fill = el.querySelector('.hp-fill');
+  if (fill) fill.style.width = `${hpPct(c, max)}%`;
+  const sub = el.querySelector('[data-cc-sub]');
+  if (sub && st.lineage) sub.textContent = cardSubtitle(c, st);
+}
+
+function cardSubtitle(c, st) {
+  const b = listBadges[c.id];
+  const cls = b?.classes?.length
+    ? [...b.classes].sort((x, y) => (y.is_primary ? 1 : 0) - (x.is_primary ? 1 : 0)).map((k) => `${titleCase(k.class_id)} ${k.level}`).join(' / ')
+    : [c.class_name && `${c.class_name} ${c.level}`, c.subclass && `(${c.subclass})`].filter(Boolean).join(' ');
+  return [cls || `Level ${c.level}`, st?.lineage || c.race].filter(Boolean).join(' · ');
 }
 
 const initials = (name) =>
@@ -310,7 +410,11 @@ function importDialog() {
     try {
       const id = await importCharacter(parsed, formOwner(form), formCampaign(form));
       m.close();
-      toast('Character imported.', 'good');
+      const rep = getLastImportReport();
+      const notes = rep ? [...(rep.warnings || []).map((w) => w.message), ...(rep.unresolved || []).length
+        ? [`${rep.unresolved.length} class feature entr${rep.unresolved.length === 1 ? 'y' : 'ies'} kept under Pending choices for review`] : [],
+        rep.error ? `Class features not restored: ${rep.error}` : ''].filter(Boolean) : [];
+      toast(`Character imported.${notes.length ? ` ${notes.join(' · ')}` : ''}`, notes.length ? 'info' : 'good', notes.length ? 8000 : 3200);
       window.location.hash = `#/c/${id}`;
     } catch (err) {
       console.error(err);
@@ -320,25 +424,39 @@ function importDialog() {
   });
 }
 
+// Until the authoritative maximum HP and AC of a card arrive, the card says so instead of showing the stored legacy values
+// (the old `ac` column and the base maximum would flash wrong numbers, e.g. AC 10 for an armoured Paladin).
+const WAIT = '<span class="cc-wait" aria-label="loading">…</span>';
+
 function characterCard(c) {
-  const cls = [c.class_name, c.subclass && `(${c.subclass})`].filter(Boolean).join(' ');
+  const st = cacheGet(statsKey(c)) || {};
+  const b = listBadges[c.id] || {};
+  const max = st.max ?? c.hp_max;
+  const primary = b.classes?.find((k) => k.is_primary)?.class_id || b.classes?.[0]?.class_id || c.class_name;
+  const chips = [];
+  if (b.form) chips.push(`<span class="chip chip-nature">${icon('actions/wild-shape', { size: 16 })}Wild Shape: ${esc(titleCase(b.form.creature_id))}</span>`);
+  if (b.lock && b.lock !== 'unlocked') chips.push(`<span class="chip chip-locked">${icon('ui/locked', { size: 16 })}${b.lock === 'archived' ? 'Archived' : 'Locked'}</span>`);
+  const own = c.owner_id === state.profile.id;
+  if (b.returned) chips.push(`<span class="chip chip-pending">${icon('ui/pending', { size: 16 })}${b.returned} returned ${own ? 'to you' : 'to the player'}</span>`);
+  else if (b.waiting) chips.push(`<span class="chip chip-pending">${icon('ui/pending', { size: 16 })}${b.waiting} ${own ? 'waiting for the DM' : 'to review'}</span>`);
+  const choices = Array.isArray(c.pending_choices) ? c.pending_choices.length : 0;
+  if (choices) chips.push(`<span class="chip chip-warn choices-badge">${choices} reminder${choices === 1 ? '' : 's'}</span>`);
+  (Array.isArray(c.conditions) ? c.conditions : []).slice(0, 3).forEach((x) => chips.push(`<span class="chip">${esc(x)}</span>`));
   return `
-  <a class="char-card card" href="#/c/${c.id}">
+  <a class="char-card card" href="#/c/${c.id}" data-char="${c.id}">
     <div class="cc-top">
-      <div class="avatar avatar-sm">${c.portrait_url ? `<img src="${esc(c.portrait_url)}" alt="" loading="lazy">` : `<span>${esc(initials(c.name))}</span>`}</div>
+      <div class="avatar avatar-sm">${c.portrait_url ? `<img src="${esc(c.portrait_url)}" alt="" loading="lazy">` : classIcon(primary, { size: 34, cls: 'avatar-emblem' })}</div>
       <div class="cc-id">
         <div class="cc-name">${esc(c.name)}</div>
-        <div class="cc-sub">${esc([c.race, cls].filter(Boolean).join(' · ') || 'Adventurer')}</div>
+        <div class="cc-sub" data-cc-sub>${esc(cardSubtitle(c, st))}</div>
       </div>
-      <div class="cc-level" title="Level"><small>LVL</small>${c.level}</div>
     </div>
     <div class="cc-stats">
-      <span title="Hit points">❤ ${c.hp_current}/${c.hp_max}${c.hp_temp ? ` <small>+${c.hp_temp}</small>` : ''}</span>
-      <span title="Armor class">🛡 ${c.ac}</span>
+      <span class="cc-stat">${icon('actions/heal', { size: 18 })}<span class="sr-only">Hit points </span><span data-cc-hp>${c.hp_current} / ${st.max ?? WAIT}</span>${c.hp_temp ? ` <small>+${c.hp_temp} temp</small>` : ''}</span>
+      <span class="cc-stat">${icon('equipment-slots/shield', { size: 18 })}<span class="sr-only">Armor Class </span><span data-cc-ac>${st.ac ?? WAIT}</span></span>
     </div>
-    ${Array.isArray(c.conditions) && c.conditions.length ? `<div class="cc-conditions">${c.conditions.map((x) => `<span class="condition-chip small">${esc(x)}</span>`).join('')}</div>` : ''}
-    ${Array.isArray(c.pending_choices) && c.pending_choices.length ? `<span class="choices-badge small">⚠ ${c.pending_choices.length} choice${c.pending_choices.length === 1 ? "" : "s"} to make</span>` : ""}
-    <div class="hp-bar small"><div class="hp-fill" style="width:${hpPct(c)}%"></div></div>
+    <div class="hp-bar small" aria-hidden="true"><div class="hp-fill" style="width:${hpPct(c, max)}%"></div></div>
+    ${chips.length ? `<div class="cc-chips">${chips.join('')}</div>` : ''}
   </a>`;
 }
 
@@ -346,6 +464,8 @@ function updateBadges() {
   const badge = $('#dm-badge');
   badge.textContent = isAdmin() ? 'ADMIN' : 'DM';
   badge.hidden = !isAnyDM();
+  const dmLink = $('#dm-link');
+  if (dmLink) dmLink.hidden = !isAnyDM();
   $('#user-name').textContent = state.profile.display_name || state.profile.email;
 }
 
@@ -361,7 +481,7 @@ function ownerGroupsHTML(chars, showOwners) {
     .sort(([a], [b]) => (a === state.profile.id ? -1 : b === state.profile.id ? 1 : profileName(a).localeCompare(profileName(b))))
     .map(([owner, list]) => `
       <div class="owner-group">
-        <h3 class="owner-title">${esc(profileName(owner))}${owner === state.profile.id ? ' <span class="badge">you</span>' : ''}</h3>
+        <h3 class="owner-title">${esc(profileName(owner))}${owner === state.profile.id ? ' <span class="badge">you</span>' : ''} <span class="count">${list.length}</span></h3>
         <div class="char-grid">${list.map(characterCard).join('')}</div>
       </div>`).join('');
 }
@@ -383,59 +503,98 @@ function campaignHeaderHTML(camp) {
 
 async function renderList(token) {
   app.innerHTML = `
-  <div class="page">
+  <div class="page home">
     <div class="page-head">
-      <h1 class="title">${isAnyDM() ? 'Campaigns' : 'Your Characters'}</h1>
+      <div>
+        <h1 class="title">${isAnyDM() ? 'Characters and campaigns' : 'Your characters'}</h1>
+        <p class="muted page-sub">Open a character to play, or create a new one.</p>
+      </div>
       <div class="row gap">
-        ${isAdmin() ? '<a class="btn" href="#/campaigns">⚙ Manage</a>' : ''}
-        <button type="button" class="btn" id="btn-import">⬆ Import JSON</button>
-        <button type="button" class="btn btn-gold" id="btn-new">+ New Character</button>
+        ${isAdmin() ? '<a class="btn btn-quiet" href="#/campaigns">Manage campaigns</a>' : ''}
+        <button type="button" class="btn btn-quiet" id="btn-import">Import file</button>
+        <button type="button" class="btn btn-gold" id="btn-new">+ New character</button>
       </div>
     </div>
-    <div id="char-list"><div class="spinner"></div></div>
+    <div class="home-tools" id="home-tools" hidden>
+      <label class="search-field">${icon('ui/skills', { size: 18 })}<span class="sr-only">Find a character</span>
+        <input type="search" id="char-search" placeholder="Find a character by name, class or lineage" autocomplete="off"></label>
+      <span class="muted small" id="char-search-count" role="status" aria-live="polite"></span>
+    </div>
+    <div id="char-list">${[0, 1, 2].map(() => '<div class="skeleton skeleton-block" aria-hidden="true"></div>').join('')}<span class="sr-only" role="status">Loading characters…</span></div>
   </div>`;
   $('#btn-new').addEventListener('click', newCharacterDialog);
   $('#btn-import').addEventListener('click', importDialog);
 
+  const campaignBlock = (camp, list, showOwners) => `
+    <section class="campaign-group" aria-label="${esc(camp ? camp.name : 'Not in a campaign')}">
+      ${camp ? campaignHeaderHTML(camp) : `<div class="campaign-head"><h2 class="campaign-title">Not in a campaign</h2>
+        <div class="muted small">Choose a campaign on the character's Bio tab.</div></div>`}
+      ${list.length ? ownerGroupsHTML(list, showOwners) : '<p class="empty">No characters in this campaign yet.</p>'}
+    </section>`;
+
   const paint = (chars) => {
     if (token !== routeToken) return;
     const host = $('#char-list');
+    const archived = chars.filter((c) => listBadges[c.id]?.lock === 'archived');
+    const active = chars.filter((c) => listBadges[c.id]?.lock !== 'archived');
+    const mine = active.filter((c) => c.owner_id === state.profile.id);
+    const others = active.filter((c) => c.owner_id !== state.profile.id);
     const sections = [];
+    // My characters: grouped by campaign (a short campaign heading), never mixed with other players' sheets
+    const myGroups = [];
     for (const camp of state.campaigns) {
-      const list = chars.filter((c) => c.campaign_id === camp.id);
-      const dmHere = isAdmin() || isCampaignDM(camp.id);
-      const memberHere = campaignMembers(camp.id).some((m) => m.user_id === state.profile.id);
-      if (!list.length && !dmHere && !memberHere) continue;
-      sections.push(`
-        <section class="campaign-group">
-          ${campaignHeaderHTML(camp)}
-          ${list.length ? ownerGroupsHTML(list, dmHere) : '<p class="empty">No characters in this campaign yet.</p>'}
-        </section>`);
+      const list = mine.filter((c) => c.campaign_id === camp.id);
+      if (list.length) myGroups.push(campaignBlock(camp, list, false));
     }
-    const loose = chars.filter((c) => !c.campaign_id || !state.campaigns.some((k) => k.id === c.campaign_id));
-    if (loose.length) {
-      sections.push(`
-        <section class="campaign-group">
-          <div class="campaign-head">
-            <h2 class="campaign-title">Not in a campaign</h2>
-            <div class="muted small">Choose a campaign on the character's Bio tab.</div>
-          </div>
-          ${ownerGroupsHTML(loose, isAdmin())}
-        </section>`);
+    const loose = mine.filter((c) => !c.campaign_id || !state.campaigns.some((k) => k.id === c.campaign_id));
+    if (loose.length) myGroups.push(campaignBlock(null, loose, false));
+    if (myGroups.length) sections.push(`<h2 class="home-section">${icon('ui/bio', { size: 24 })}My characters <span class="count">${mine.length}</span></h2>${myGroups.join('')}`);
+    // Campaign characters: other players' sheets the user may open (DM, admin)
+    const theirGroups = [];
+    for (const camp of state.campaigns) {
+      const list = others.filter((c) => c.campaign_id === camp.id);
+      if (list.length) theirGroups.push(campaignBlock(camp, list, true));
     }
-    if (!sections.length) {
+    const looseOthers = others.filter((c) => !c.campaign_id || !state.campaigns.some((k) => k.id === c.campaign_id));
+    if (looseOthers.length) theirGroups.push(campaignBlock(null, looseOthers, true));
+    if (theirGroups.length) sections.push(`<h2 class="home-section">${icon('dm/campaign', { size: 24 })}Campaign characters <span class="count">${others.length}</span></h2>${theirGroups.join('')}`);
+    // campaigns the user runs or plays in that have no characters yet
+    const emptyCamps = state.campaigns.filter((camp) => !chars.some((c) => c.campaign_id === camp.id)
+      && (isCampaignDM(camp.id) || campaignMembers(camp.id).some((m) => m.user_id === state.profile.id)));
+    if (emptyCamps.length) sections.push(`<details class="quiet-details home-empty-camps"><summary>Campaigns without characters (${emptyCamps.length})</summary>
+      ${emptyCamps.map((camp) => campaignBlock(camp, [], false)).join('')}</details>`);
+    if (archived.length) sections.push(`<details class="quiet-details home-archived"><summary>Archived characters (${archived.length})</summary>
+      <div class="char-grid">${archived.map(characterCard).join('')}</div></details>`);
+    if (!mine.length && !others.length && !archived.length) {
       host.innerHTML = `
         <div class="empty-state card">
-          <div class="big-icon">🎲</div>
-          <p>No characters yet.</p>
-          ${!myCampaigns().length && !isAdmin() ? '<p class="muted small">Ask your DM to add you to a campaign.</p>' : ''}
+          ${icon('portraits/explorer', { size: 96 })}
+          <h2>Start your first adventure</h2>
+          <p class="muted">Create a character and choose a class, lineage and background. The sheet helps you with each choice.</p>
+          ${!myCampaigns().length && !isAdmin() ? '<p class="muted small">Playing in a campaign? Ask your DM to add you, then your characters can join it.</p>' : ''}
           <button type="button" class="btn btn-gold" id="btn-new-empty">Create your first character</button>
-        </div>`;
+        </div>${sections.join('')}`;
       $('#btn-new-empty').addEventListener('click', newCharacterDialog);
       return;
     }
     host.innerHTML = sections.join('');
+    $('#home-tools').hidden = chars.length <= 6;
+    applySearch();
   };
+
+  const applySearch = () => {
+    const q = ($('#char-search')?.value || '').trim().toLowerCase();
+    let shown = 0;
+    $$('#char-list .char-card').forEach((card) => {
+      const hit = !q || card.textContent.toLowerCase().includes(q);
+      card.hidden = !hit;
+      if (hit) shown += 1;
+    });
+    $$('#char-list .campaign-group, #char-list .owner-group').forEach((g) => { g.hidden = !!q && !g.querySelector('.char-card:not([hidden])'); });
+    const count = $('#char-search-count');
+    if (count) count.textContent = q ? `${shown} found` : '';
+  };
+  $('#char-search').addEventListener('input', applySearch);
 
   const cached = cacheGet('list');
   if (cached && state.campaigns.length) paint(cached);
@@ -444,56 +603,173 @@ async function renderList(token) {
     const [chars] = await Promise.all([listCharacters(), loadCampaigns()]);
     cacheSet('list', chars);
     updateBadges();
+    listBadges = await listCharacterBadges(chars.map((c) => c.id)).catch(() => ({}));
     paint(chars);
+    loadCardStats(chars, token);
   } catch (err) {
     console.error(err);
-    toast('Could not load characters — showing cached data.', 'bad');
+    if (!cached) {
+      $('#char-list').innerHTML = `<div class="empty-state card"><h2>Characters could not be loaded</h2>
+        <p class="muted">Nothing was changed. Check that the local server is running, then try again.</p>
+        <button type="button" class="btn btn-gold" onclick="location.reload()">Try again</button></div>`;
+    } else toast('Could not refresh the characters: showing the last loaded list.', 'bad');
   }
 }
 
-function newCharacterDialog() {
-  const m = openModal({
-    title: 'New Character',
-    body: `
-      <form id="new-char" class="stack">
-        <label class="field"><span>Name</span><input name="name" required placeholder="Thorin Oakenshield"></label>
-        <div class="form-grid">
-          <label class="field"><span>Race</span><input name="race" placeholder="Dwarf"></label>
-          <label class="field"><span>Class</span><input name="class_name" list="new-class-list" placeholder="Fighter"></label>
-          <label class="field"><span>Level</span><input name="level" type="number" min="1" max="20" value="1"></label>
-          ${campaignOwnerFields()}
-        </div>
-        <datalist id="new-class-list">${CLASSES.map((c) => `<option value="${c}">`).join('')}</datalist>
-      </form>`,
-    footer: `
-      <button type="button" class="btn" data-close>Cancel</button>
-      <button type="submit" form="new-char" class="btn btn-gold">Create</button>`,
-  });
-  const form = $('#new-char', m.el);
-  wireOwnerField(form);
+// ---- New character (docs/CHARACTER_CREATION_AUDIT.md) ------------------------------------------------------------------
+// Identity -> Lineage (canonical catalog) -> Lineage choices -> Class -> Review. The character is created after the identity
+// step; every later step uses the same pickers and RPCs as the Build section, so campaign governance and the content policy
+// apply exactly as there. There is no free-text Race field: the lineage comes from the versioned catalog.
+const NC_STEPS = ['Identity', 'Lineage', 'Lineage choices', 'Class', 'Review'];
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const f = e.target;
-    const submit = $('button[type="submit"]', m.el);
-    submit.disabled = true;
-    try {
-      const c = await createCharacter({
-        name: f.elements.name.value.trim(),
-        race: f.elements.race.value.trim(),
-        class_name: f.elements.class_name.value.trim(),
-        level: f.elements.level.value,
-        owner_id: formOwner(f),
-        campaign_id: formCampaign(f),
-      });
-      m.close();
-      window.location.hash = `#/c/${c.id}`;
-    } catch (err) {
-      console.error(err);
-      toast(err.message, 'bad');
-      submit.disabled = false;
-    }
+function newCharacterDialog() {
+  let step = 0;
+  let created = null;   // { id, campaign_id, name, level }
+  let finished = false;
+  const m = openModal({
+    title: 'New character',
+    wide: true,
+    body: `<ol class="nc-steps" aria-label="Steps">${NC_STEPS.map((t, i) => `<li data-nc-step="${i}">${t}</li>`).join('')}</ol>
+      <div data-nc-body></div>`,
+    footer: '<div class="nc-footer row gap wrap" data-nc-footer></div>',
+    onClose: () => {
+      // the character exists from step 2 on: open it, so nothing is left half-made without the player seeing it
+      if (created && !finished) {
+        toast('Character saved. Finish the remaining choices on Build.', 'info', 5000);
+        window.location.hash = `#/c/${created.id}`;
+      }
+    },
   });
+  const bodyEl = $('[data-nc-body]', m.el);
+  const footEl = $('[data-nc-footer]', m.el);
+
+  const setStep = (i) => {
+    step = i;
+    $$('[data-nc-step]', m.el).forEach((li) => {
+      const n = Number(li.dataset.ncStep);
+      if (n === i) li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
+      li.classList.toggle('is-done', n < i);
+    });
+  };
+  const footer = (html) => { footEl.innerHTML = html; };
+  const focusFirst = () => setTimeout(() => $('input:not([type=hidden]), select, button', bodyEl)?.focus(), 30);
+
+  // ---- 1. identity ----
+  function identity() {
+    setStep(0);
+    bodyEl.innerHTML = `<form id="new-char" class="stack" novalidate>
+        <h3 class="nc-step-title">Who is it?</h3>
+        <p class="nc-step-help">Lineage and class come next, from the rules catalog. Everything can be finished later on Build.</p>
+        <label class="field"><span>Name</span><input name="name" required placeholder="Thorin Oakenshield" autocomplete="off"></label>
+        <div class="form-grid">
+          <label class="field"><span>Starting level</span><input name="level" type="number" min="1" max="20" value="1"></label>
+          ${campaignOwnerFields()}
+          <label class="field span-2"><span>Portrait image link (optional; you can upload one on Bio)</span>
+            <input name="portrait_url" type="url" inputmode="url" placeholder="https://…"></label>
+        </div>
+      </form>`;
+    footer(`<button type="button" class="btn" data-close>Cancel</button>
+      <button type="submit" form="new-char" class="btn btn-gold" data-nc-next>Create and choose lineage</button>`);
+    const form = $('#new-char', bodyEl);
+    wireOwnerField(form);
+    focusFirst();
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = form.elements.name.value.trim();
+      if (!name) { toast('Give the character a name first.', 'bad'); form.elements.name.focus(); return; }
+      const btn = $('[data-nc-next]', footEl);
+      btn.disabled = true;
+      try {
+        const c = await createCharacter({
+          name, race: '', class_name: '', level: form.elements.level.value, owner_id: formOwner(form), campaign_id: formCampaign(form),
+          portrait_url: form.elements.portrait_url.value.trim(),
+        });
+        created = { id: c.id, campaign_id: c.campaign_id, name: c.name, level: c.level };
+        await lineageStep();
+      } catch (err) {
+        console.error(err);
+        toast(err.message, 'bad');
+        btn.disabled = false;
+      }
+    });
+  }
+
+  // ---- 2 + 3. lineage (the Build picker, embedded) ----
+  async function lineageStep() {
+    setStep(1);
+    bodyEl.innerHTML = '<div data-nc-lineage></div>';
+    footer(`<button type="button" class="btn btn-quiet" data-nc-skip>Skip lineage for now</button>
+      <button type="button" class="btn btn-gold" data-nc-save hidden>Save lineage and continue</button>`);
+    $('[data-nc-skip]', footEl).addEventListener('click', () => classStep());
+    await openLineagePicker({
+      characterId: created.id, current: null, level: created.level, campaignId: created.campaign_id || null,
+      host: $('[data-nc-lineage]', bodyEl), saveButton: $('[data-nc-save]', footEl),
+      onStep: (s) => setStep(s === 'configure' ? 2 : 1),
+      onSaved: () => classStep(),
+    });
+    focusFirst();
+  }
+
+  // ---- 4. class (the Build "Choose your class" form, embedded) ----
+  async function classStep() {
+    setStep(3);
+    bodyEl.innerHTML = '<h3 class="nc-step-title">Class</h3><div data-nc-class><p class="muted">Loading classes…</p></div>';
+    footer(`<button type="button" class="btn btn-quiet" data-nc-skip>Skip class for now</button>
+      <button type="button" class="btn btn-gold" data-nc-save disabled>Save class and continue</button>`);
+    $('[data-nc-skip]', footEl).addEventListener('click', () => review());
+    try {
+      const summary = await getClassSummary(created.id);
+      if ((summary.classes || []).length) { review(); return; }
+      await openAddClass({ characterId: created.id, summary, host: $('[data-nc-class]', bodyEl), saveButton: $('[data-nc-save]', footEl),
+        onSaved: (res, extra) => review(extra) });
+      focusFirst();
+    } catch (err) {
+      $('[data-nc-class]', bodyEl).innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+    }
+  }
+
+  // ---- 5. review ----
+  async function review(extra = {}) {
+    setStep(4);
+    bodyEl.innerHTML = '<h3 class="nc-step-title">Review</h3><p class="muted">Loading…</p>';
+    footer('<button type="button" class="btn btn-gold" data-nc-open>Open the character</button>');
+    $('[data-nc-open]', footEl).addEventListener('click', () => { finished = true; m.close(); window.location.hash = `#/c/${created.id}`; });
+    const [lin, cls, d, prof] = await Promise.all([
+      getCharacterLineage(created.id).catch(() => null), getClassSummary(created.id).catch(() => null), getDerivedStats(created.id).catch(() => null),
+      getProficiencies(created.id).catch(() => null)]);
+    const warn = [];
+    if (!lin?.selected) warn.push('No lineage yet: choose one on Build → Lineage.');
+    const open = (lin?.choices || []).filter((c) => c.status === 'missing');
+    if (open.length) warn.push(`Lineage choices still open: ${open.map((c) => esc(c.label)).join(', ')}.`);
+    if (!(cls?.classes || []).length) warn.push('No class yet: choose one on Build → Classes.');
+    if (extra.equipment) warn.push(`Starting equipment of the ${esc(extra.className)} is waiting: choose it on Build → Classes.`);
+    const row = (k, v) => `<div class="kv"><span>${k}</span><strong>${v || '<span class="muted small">none</span>'}</strong></div>`;
+    const sp = d?.speed;
+    const moves = sp ? [`Walk ${sp.value} ft`, ...Object.entries(sp.movement || {}).filter(([k, x]) => k !== 'walk' && x.active).map(([k, x]) => `${k} ${x.value} ft`)].join(', ') : '';
+    const senses = Object.entries(d?.senses || {}).map(([k, x]) => `${k} ${x.value} ft`).join(', ');
+    const label = (id) => String(id).replace(/-/g, ' ').replace(/^\w/, (x) => x.toUpperCase());
+    const profs = (prof?.groups || []).filter((g) => (g.sources || []).length || g.manual).map((g) => label(g.id)).join(', ');
+    const abil = (lin?.choices || []).filter((c) => c.kind === 'ability_scores' && c.values.length)
+      .flatMap((c) => c.values.map((v) => `+${v.split(':')[1]} ${v.split(':')[0].toUpperCase()}`)).join(', ');
+    bodyEl.innerHTML = `<h3 class="nc-step-title">Review</h3>
+      <div class="nc-review" data-nc-review>
+        <div class="kv-list">
+          ${row('Name', esc(created.name))}
+          ${row('Lineage', lin?.selected ? `${esc(lin.lineage.name)} <span class="muted small">${esc(lin.version.name)} · ${esc(lin.version.source_label)}</span>` : '')}
+          ${row('Sub-lineage', lin?.subversion ? esc(lin.subversion.name) : '')}
+          ${row('Class', (cls?.classes || []).map((k) => `${esc(k.class_name)} ${k.level}`).join(' / '))}
+          ${row('Speed', esc(moves))}
+          ${row('Senses', esc(senses))}
+          ${row('Ability increases from the lineage', esc(abil))}
+          ${row('Armor and weapon training', esc(profs))}
+        </div>
+        ${warn.length ? `<ul class="nc-warn" data-nc-warnings>${warn.map((w) => `<li>${w}</li>`).join('')}</ul>`
+          : '<p class="calm-note">Everything needed to play is chosen.</p>'}
+      </div>`;
+    $('[data-nc-open]', footEl).focus();
+  }
+
+  identity();
 }
 
 async function openCharacter(id, token) {
@@ -516,6 +792,7 @@ async function openCharacter(id, token) {
     if (cached) {
       toast('Offline — showing a read-only cached copy.', 'bad', 5000);
     } else {
+      unmountSheet();   // the previous character's top bar, subscriptions and state must not stay above the error (V6.2)
       renderError('This character could not be loaded. It may have been deleted, or you may not have access.', err);
     }
   }

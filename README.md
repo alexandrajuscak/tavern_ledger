@@ -1,184 +1,188 @@
 # ⚔ Tavern Ledger
 
-A lightweight, mobile-first **D&D 5e character sheet** for a small private campaign.
-It's plain HTML, CSS and JavaScript, uses Supabase for login and storage, and is hosted on GitHub Pages. There is no build step.
+A mobile-first **D&D 5e character sheet and campaign tool** for a small private table. The frontend is plain HTML, CSS
+and JavaScript (no build step) and is served by GitHub Pages. Supabase provides PostgreSQL, Auth, the REST API and Realtime.
 
-- Google and email login, with one account per player
-- Every edit saves automatically to Supabase and syncs live to your other devices
-- A sticky combat bar keeps HP, AC, initiative, speed, conditions and resources on screen
-- **Source-of-truth data only**: skill, save, passive, initiative and attack bonuses are always calculated, never stored (see `docs/DATA_MODEL.md`)
-- Abilities, saves, skills (with expertise), hit dice and death saves
-- Custom resource trackers: Ki, Rage, Sorcery Points, Bardic Inspiration, Wild Shape and any others you add
-- **Combat tab** (the default screen): a "how your turn works" guide, weapon cards with big “To hit” and “Damage” numbers, then everything you can do grouped as **Actions, Bonus Actions and Reactions** (features and spells together), with Passive Features folded away
-- **Spells**: grouped as Cantrips / Level 1–9, each card shows casting time, range, duration, components, concentration/ritual, spell attack or save DC, and damage or healing
-- Spell slots for levels 1–9 as tick boxes
-- Inventory with quantity, weight and description, plus coins
-- Features tab: each feature has a **type** (Action, Bonus Action, Reaction, Passive) that decides where it appears in combat, and a source (racial, class, background, feat, custom, magic item)
-- **Conditions**: Prone, Grappled, Restrained, Poisoned, Blessed, Concentrating and the rest, plus custom ones; tap a condition to read what it does
-- Notes: character notes, session notes and campaign notes
-- **Portraits**: upload an image (resized automatically) or paste an image URL
-- **JSON import / export** of whole characters (`docs/character.schema.json`). Keep real character files in `examples/`, which git ignores so they stay off GitHub
-- **Level Up Wizard**: set the new level, HP gain, subclass, features, resource pools and spell slots in one flow
-- **Campaigns**: an admin creates campaigns and adds people as **DMs** or **players**. A campaign's DMs see and edit every character in it (level ups, owners); players see their own characters
-- Short and long rest buttons that restore the right resources
+- **Character sheet** in six sections: Play, Abilities, Spells, Inventory, Build, Bio. Every edit saves automatically and
+  syncs live to other devices.
+- **Rules engines in the database**:
+  - classes and subclasses with levels, features, choices, resources and spell slots (including Pact Magic);
+  - lineages, backgrounds, feats and spellcasting sources;
+  - an item catalog with equipment, attunement and containers;
+  - Wild Shape and companions.
 
----
-
-## Project structure
-
-```
-.
-├── index.html            App shell
-├── .nojekyll             Tells GitHub Pages to serve files as-is
-├── css/
-│   └── styles.css        Theme and responsive layout
-├── js/
-│   ├── config.js         ← your Supabase URL + publishable key go here
-│   ├── supabase.js       Supabase client (loaded from CDN, no npm)
-│   ├── app.js            Boot, auth, routing, character list, DM players page
-│   ├── store.js          Data access, auto-save queue, realtime subscriptions
-│   ├── sheet.js          Character sheet UI
-│   ├── levelup.js        Level Up Wizard
-│   ├── dnd.js            5e reference data (skills, XP table, presets…)
-│   ├── transfer.js       Character JSON import / export
-│   └── utils.js          DOM helpers, modals, toasts, cache
-└── supabase/
-    └── schema.sql        Tables, RLS policies, triggers, realtime setup
-```
-
-### Data model
-
-| Table              | Purpose                                                                    |
-|--------------------|----------------------------------------------------------------------------|
-| `profiles`         | One per auth user: display name and role (`player` / `dm`)                 |
-| `characters`       | Identity, combat stats, abilities, proficiencies, coins. Owned by a profile |
-| `inventory_items`  | Items per character                                                        |
-| `notes`            | One row per kind: `character`, `quest`, `campaign`, `spells`, `attacks`    |
-| `spell_slots`      | One row per spell level 1–9 (`total`, `used`)                              |
-| `feature_trackers` | Resource pools (`current`, `max`, `reset_on`)                              |
-| `features`         | Free-text features grouped by category                                     |
-| `attacks`          | Weapons & attacks: ability, proficiency, magic bonus, damage dice and type |
-| `spells`           | Spells by level with casting details, attack/save and damage              |
-
-New characters get their `notes` and `spell_slots` rows from a database trigger. Row Level Security limits each player to their own characters, and lets the DM see and edit all of them.
+  Derived values (HP maximum, AC, bonuses, save DCs) are always calculated, never typed in.
+- **Campaigns and DM Space**:
+  - governance presets (relaxed / standard / strict / custom) and approval requests;
+  - character locks and hidden DM data (unidentified items, curses, hidden conditions, DM notes);
+  - custom content (spells, items, feats, creatures, lineages, backgrounds) with versioning;
+  - an audit log.
+- **Import / export** of whole characters as JSON (Bio → Download; home → Import file). Imports are all-or-nothing for
+  the core sheet and never trust derived values.
+- **Security**: Row Level Security on every table, SECURITY DEFINER functions with a pinned `search_path`, and no
+  privileged key in the browser.
 
 ---
 
-## Setup
+## Architecture
 
-### 1. Create a Supabase project
-
-1. Sign up at <https://supabase.com> and create a new project. The free tier is plenty.
-2. Open **SQL Editor → New query**, paste the full contents of `supabase/schema.sql` and click **Run**.
-   The script is idempotent, so you can run it again later without breaking anything.
-
-### 2. Configure authentication
-
-In **Authentication → URL Configuration**:
-
-- **Site URL**: your GitHub Pages URL, e.g. `https://<user>.github.io/<repo>/`
-- **Redirect URLs**: add the same URL, plus `http://localhost:8000/` for local testing.
-
-**Email login** is on by default under **Authentication → Providers → Email**.
-For a private group you can turn off *Confirm email* so new accounts work straight away.
-
-**Google login**:
-
-1. In [Google Cloud Console](https://console.cloud.google.com/), go to **APIs & Services → Credentials → Create credentials → OAuth client ID** and choose *Web application*.
-2. Under **Authorized redirect URIs**, add the callback URL that Supabase shows in **Authentication → Providers → Google**. It looks like `https://<project-ref>.supabase.co/auth/v1/callback`.
-3. Copy the Client ID and Client Secret into Supabase's Google provider settings and enable it.
-4. If Google asks you to configure the OAuth consent screen, set it to *External* and add your players as test users, or publish it.
-
-### 3. Add your keys
-
-Open `js/config.js` and paste the Project URL and the **publishable** key from **Project Settings → API Keys**:
-
-```js
-export const SUPABASE_URL = 'https://abcdefghijkl.supabase.co';
-export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_...';
+```
+GitHub Pages (static files from the root of main)        Supabase project
+  index.html, css/, js/, assets/, fonts/, vendor/  ──►   PostgreSQL + RLS (41 migrations)
+  js/config.js: project URL + publishable key            Auth (email, optional Google)
+  supabase-js 2.117.2 self-hosted in vendor/             REST API / RPC, Realtime
+                                                         Storage bucket "portraits"
 ```
 
-The publishable key is meant to be public and safe to commit. Row Level Security is what protects the data. Never put the secret key (`sb_secret_...`) in this file.
+| Path | What |
+|---|---|
+| `index.html`, `css/`, `js/`, `assets/icons/`, `fonts/`, `vendor/supabase-js/` | the app (no external requests at runtime) |
+| `js/config.js` | **production** Supabase URL and **publishable** key, and the hosts allowed to use them |
+| `supabase/migrations/` | the complete database: schema, RLS, functions, Realtime publication, storage bucket |
+| `supabase/rollback/` | per-migration rollback scripts (local testing) |
+| `supabase/tests/` | SQL, API and browser test suites (local) |
+| `scripts/` | local development and deployment helpers |
+| `docs/` | design, data model, test and deployment documentation |
 
-### 4. Become the admin
+The official **rules catalog** (classes, spells, items, creatures, lineages, backgrounds and feats) is **not** part of
+this repository. It is imported **once** into a new database from a private catalog package. After that the database is
+the source of truth, and campaign-specific content is managed in the app's **DM Space**.
 
-Sign in to the app once so your profile exists. Then run this in the SQL Editor:
+---
+
+## Environments
+
+The frontend chooses its database by where it is served from (`js/supabase.js`). It never falls back silently:
+
+| Served from | Uses | Configuration |
+|---|---|---|
+| `localhost` / `127.0.0.1` | the local Supabase stack only | `js/config.local.js` (git-ignored, written by `scripts/start-local.ps1`) |
+| `localhost` with `?env=staging` | a staging project only (red STAGING banner) | `js/config.staging.js` (git-ignored) |
+| a host listed in `PRODUCTION_HOSTS` | the production project | `js/config.js` |
+| anything else | nothing ("Unknown address") | – |
+
+`js/config.js` may contain **only** the project URL and the **publishable** key (`sb_publishable_…`). Row Level Security
+protects the data. The app refuses to start with a secret (`sb_secret_…`) or `service_role` key in any configuration, and
+the test suite checks the committed file.
+
+---
+
+## Deploying a new production environment
+
+Production is always built as a **new, empty Supabase project**:
+1. migrations;
+2. a one-time catalog import;
+3. Auth settings;
+4. the frontend on GitHub Pages.
+
+The full step-by-step guide, including expected counts and verification queries, is in
+[docs/DEPLOYMENT_PACKAGE.md](docs/DEPLOYMENT_PACKAGE.md) and
+[docs/DEPLOYMENT_PRODUCTION_RUNBOOK.md](docs/DEPLOYMENT_PRODUCTION_RUNBOOK.md). In short:
+
+### 1. Create the Supabase project
+
+Create a new project in the Supabase Dashboard. Store the generated database password in a password manager.
+
+### 2. Apply the migrations (Supabase CLI)
+
+From the repository root, with the session-pooler connection string from Dashboard → Connect (enter the password at a
+prompt; do not save it in a file):
+
+```powershell
+supabase db push --db-url "<session-pooler connection string>" --dry-run
+supabase db push --db-url "<session-pooler connection string>"
+```
+
+This applies all 41 migrations in order and records them in the migration history. Use `--db-url` rather than
+`supabase link`.
+
+### 3. Import the catalog (once)
+
+Run the nine catalog SQL files from the private catalog package with `psql`, in this order: `reference_data`,
+`item_effects`, `spells`, `classes`, `class_features`, `creatures`, `lineages`, `feats`, `backgrounds`.
+
+Run them **exactly once, on the empty database, before any DM content exists**: a second run would remove parts of
+campaign custom content. Then run `supabase/tests/catalog_integrity_report.sql` (read only; every line must be `0`).
+
+### 4. Configure Auth (Dashboard → Authentication)
+
+- **Site URL** and **Redirect URLs**: the exact Pages URL, e.g. `https://<user>.github.io/<repo>/`.
+- **Email**: on, with "Confirm email" on. **Google**: optional (your OAuth client; callback
+  `https://<project-ref>.supabase.co/auth/v1/callback`).
+- **Sign-ups**: allow them while the table's accounts are created, then turn them **off** (invite new players instead).
+
+### 5. Create the admin / DM account
+
+Sign up in the app and confirm the e-mail. Then, once, in the SQL Editor:
 
 ```sql
 update public.profiles set role = 'admin' where email = 'you@example.com';
 ```
 
-Reload the app and you'll see a red **ADMIN** badge. Use **⚙ Manage** to create campaigns, add players and co-DMs to them, and rename people. New players appear on the Manage page after their first sign-in.
+### 6. Deploy the frontend (GitHub Pages)
 
-### 5. Run locally (optional)
+1. Put the new project's URL and **publishable** key into `js/config.js`, and the Pages host into `PRODUCTION_HOSTS`.
+2. Commit and push to `main`.
+3. Repository **Settings → Pages → Deploy from a branch → `main` / `(root)`**. Every push to `main` redeploys.
 
-ES modules don't load from `file://`, so serve the folder over HTTP:
+### 7. Smoke test, then the table
 
-```bash
-python -m http.server 8000
-# open http://localhost:8000/
-```
+Sign in as the DM and as a player. Create the campaign in DM Space, add the players, and import the characters
+(home → Import file), one at a time. Each imported character is completed on **Build** (lineage, class, background,
+spells). See [docs/DEPLOYMENT_CHARACTER_REIMPORT_PLAN.md](docs/DEPLOYMENT_CHARACTER_REIMPORT_PLAN.md).
+
+**Rollback:** revert the release commit on `main`. Pages serves the previous frontend again, and a previous project stays
+untouched ([docs/DEPLOYMENT_ROLLBACK_RUNBOOK.md](docs/DEPLOYMENT_ROLLBACK_RUNBOOK.md)).
 
 ---
 
-## Deploy to GitHub Pages
+## Updating an existing installation
 
-```bash
-git init
-git add .
-git commit -m "Tavern Ledger"
-git branch -M main
-git remote add origin https://github.com/<user>/<repo>.git
-git push -u origin main
-```
+> The current production project still runs the legacy single-file schema. Its one-time upgrade to the migration-based
+> schema (keeping accounts, Google sign-in, campaigns and characters) is described in
+> [docs/DEPLOYMENT_INPLACE_UPGRADE_RUNBOOK.md](docs/DEPLOYMENT_INPLACE_UPGRADE_RUNBOOK.md).
 
-1. On GitHub, open the repo's **Settings → Pages**.
-2. Under **Build and deployment**, choose **Source: Deploy from a branch**, **Branch: `main` / `(root)`**, then **Save**.
-3. Wait about a minute. The site goes live at `https://<user>.github.io/<repo>/`.
-4. Make sure that exact URL is in Supabase's **Site URL** and **Redirect URLs** (step 2 above).
+- **Database changes** are new files in `supabase/migrations/`. Test them locally (`bash supabase/tests/run_local.sh`
+  runs every migration, test suite, rollback and reapply in a throwaway container). Then apply them with
+  `supabase db push --db-url …` **before** pushing the frontend that needs them.
+- **Never** re-run the catalog import on a database that already holds campaign content.
+- **Browser caches**: every script and stylesheet link carries a version tag (`?v=10`). Bump it everywhere when the
+  code changes, so devices load the new files: `sed -i "s/?v=10/?v=11/g" index.html js/*.js`
 
-There's no build step: every push to `main` redeploys.
+---
+
+## Local development
+
+The whole stack (Supabase in Docker plus the app) runs on your computer: `start-local.bat` / `stop-local.bat`. See
+[docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) and [docs/LOCAL_MANUAL_TESTING.md](docs/LOCAL_MANUAL_TESTING.md).
+
+Tests (local only):
+
+| Command | What |
+|---|---|
+| `bash supabase/tests/run_local.sh` | all migrations, SQL suites, concurrency, rollback and reapply (throwaway PostgreSQL container) |
+| `PORT=5191 bash supabase/tests/run_browser_local.sh` | the browser suites against the local stack (use a free port if your own server uses 5173) |
+
+The test runners need the catalog SQL files in `supabase/seed/`, which is git-ignored and comes from the private catalog
+package.
 
 ---
 
 ## How it works
 
-**Auto-save.** Each edit updates the screen right away and goes into a save queue. Changes to the same row are merged and written about 0.6 s after you stop typing. If a write fails, it's retried with backoff. The top bar shows *Editing… / Saving… / Saved ✓ / Offline — will sync*. If you try to close the tab with unsaved changes, the browser warns you.
-
-**Sync between devices.** The sheet subscribes to Supabase Realtime for the open character. Changes made on another device or by the DM appear live. A field you are editing at that moment is never overwritten.
-
-**LocalStorage.** This is only a cache, used for the last character list, the last sheet (shown greyed out while fresh data loads), the selected tab and the combat-bar collapse state. Supabase is always the source of truth.
-
-**Level Up Wizard.** The wizard helps with editing. It doesn't enforce class rules. It suggests average HP (hit die average + CON modifier), and you can switch to a rolled value or a custom number. You can also set a subclass, add features, raise resource maximums, add new resource pools and adjust spell slots. Nothing is saved until you press **Apply level up** on the review step.
-
-**Rests.**
-- *Short rest* restores trackers set to "Short rest".
-- *Long rest* restores HP and all short- and long-rest trackers, clears spell slots, temp HP and death saves, and recovers half your hit dice.
-
-**Phone tips.** Tap the small ▴ tab under the combat bar to collapse it to a single line. In the damage box, Enter applies damage and Shift+Enter heals.
-
----
+- **Auto-save.** Each edit updates the screen at once and goes into a save queue. It is written about 0.6 s after you
+  stop typing and retried on failure. The top bar shows *Editing… / Saving… / Saved ✓ / Offline — will sync*.
+- **Sync between devices.** The open sheet subscribes to Supabase Realtime. After a lost connection it reloads the
+  stored values ("Connection restored").
+- **Local storage** is only a cache (last list, last sheet, selected tab). Supabase is always the source of truth. It is
+  cleared on sign-out.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
 | "Almost there" screen | `js/config.js` still has placeholder values. |
-| "Could not load your profile" | `supabase/schema.sql` hasn't been run, or it failed. Run it again. |
-| Google login returns to the wrong page | The GitHub Pages URL is missing from Supabase **Redirect URLs**. |
-| Changes don't show live on another device | Check **Database → Publications → supabase_realtime** includes the tables. The schema adds them. |
-| Player sees no characters after the DM created one | Check that the player is a member of the campaign (**⚙ Manage**) and is set as the owner in the sheet's **Bio** tab. |
-
----
-
-## Updating an existing installation
-
-When a new version changes the database, re-run `supabase/schema.sql` in the SQL Editor **before** pushing the new code. The script is idempotent: it adds new tables and columns and leaves your data alone.
-
-### Making sure players get the new version
-
-Browsers cache the app's files. Every script and stylesheet link carries a version tag (`?v=7`). When you change the code, bump the number everywhere so phones and tablets load the new files straight away:
-
-```bash
-sed -i "s/?v=7/?v=8/g" index.html js/*.js
-```
+| "Unknown address" screen | The page is served from a host that is not in `PRODUCTION_HOSTS` in `js/config.js`. |
+| "Could not load your profile or campaigns" | The migrations have not been applied to this project, or the frontend points at another project. |
+| Sign-in returns to the wrong page | The Pages URL is missing from Supabase **Redirect URLs**. |
+| Empty catalog (no items, spells or classes) | The one-time catalog import has not been run on this project. |

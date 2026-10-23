@@ -1,5 +1,6 @@
-import { supabase } from './supabase.js?v=7';
-import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=7';
+import { supabase, announceGovernance } from './supabase.js?v=10';
+import { toast, friendlyError } from './utils.js?v=10';
+import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=10';
 
 export const state = {
   session: null,
@@ -105,7 +106,28 @@ export async function listCharacters() {
   );
 }
 
-export async function createCharacter({ name, race, class_name, level, owner_id, campaign_id }) {
+/**
+ * At-a-glance state for the character list (one batched read per table, RLS decides what is visible): classes, an active
+ * Wild Shape, the lock and open requests. Any part that cannot be read is simply missing; the cards still render.
+ */
+export async function listCharacterBadges(ids) {
+  if (!ids.length) return {};
+  const safe = async (q) => { try { const { data, error } = await q; return error ? [] : data || []; } catch { return []; } };
+  const [classes, forms, gov, reqs] = await Promise.all([
+    safe(supabase.from('character_classes').select('character_id, class_id, level, is_primary').in('character_id', ids)),
+    safe(supabase.from('character_transformations').select('character_id, creature_id, hp_current, hp_max').in('character_id', ids)),
+    safe(supabase.from('character_governance').select('character_id, lock_mode').in('character_id', ids)),
+    safe(supabase.from('change_requests').select('character_id, status').in('character_id', ids).in('status', ['submitted', 'returned_for_changes'])),
+  ]);
+  const out = Object.fromEntries(ids.map((id) => [id, { classes: [], form: null, lock: null, waiting: 0, returned: 0 }]));
+  for (const k of classes) out[k.character_id]?.classes.push(k);
+  for (const f of forms) if (out[f.character_id]) out[f.character_id].form = f;
+  for (const g of gov) if (out[g.character_id]) out[g.character_id].lock = g.lock_mode;
+  for (const r of reqs) if (out[r.character_id]) out[r.character_id][r.status === 'submitted' ? 'waiting' : 'returned'] += 1;
+  return out;
+}
+
+export async function createCharacter({ name, race, class_name, level, owner_id, campaign_id, portrait_url = '' }) {
   const hit_die = CLASS_HIT_DIE[class_name] || 'd8';
   const lvl = Math.min(20, Math.max(1, Number(level) || 1));
   // First level: max die; later levels: average. CON is 10 by default, so no modifier yet.
@@ -120,6 +142,7 @@ export async function createCharacter({ name, race, class_name, level, owner_id,
     hp_max: hp,
     hp_current: hp,
   };
+  if (portrait_url) row.portrait_url = portrait_url;
   if (owner_id) row.owner_id = owner_id;
   if (campaign_id) row.campaign_id = campaign_id;
   return check(await supabase.from('characters').insert(row).select().single());
@@ -177,7 +200,21 @@ export async function insertRows(table, rows) {
 }
 
 export async function updateRow(table, id, patch) {
-  check(await supabase.from(table).update(patch).eq('id', id));
+  const res = await supabase.from(table).update(patch).eq('id', id);
+  if (res.error && GOVERNANCE_CODES.has(res.error.code)) refuseWrite(table, id, patch, res.error);
+  check(res);
+}
+
+// ---- governance refusals ------------------------------------------------------
+// A write the campaign does not allow (docs/DM_GOVERNANCE.md) is never retried: the sheet reloads the row and may offer
+// the change as an approval request (build fields go through update_character_build).
+const GOVERNANCE_CODES = new Set(['TLAPR', 'TLDMO', 'TLDIS', 'TLLCK']);
+const BUILD_FIELDS = new Set(['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma', 'hp_max', 'ac_override', 'speed',
+  'initiative_bonus', 'hit_die']);
+function refuseWrite(table, id, patch, error) {
+  const buildable = table === 'characters' && Object.keys(patch).every((k) => BUILD_FIELDS.has(k));
+  announceGovernance(buildable ? 'update_character_build' : null, { p_character: table === 'characters' ? id : null, p_patch: patch }, error);
+  window.dispatchEvent(new CustomEvent('tavern:save-refused', { detail: { table, id, patch, error } }));
 }
 
 export async function deleteRow(table, id) {
@@ -190,6 +227,8 @@ export async function deleteRow(table, id) {
 // are re-queued and retried with backoff; nothing is lost while the tab is open.
 
 const pending = new Map(); // "table:id" -> { table, id, patch }
+// SQLSTATE / PostgREST codes that retrying cannot fix (validation, constraint, permission, unknown column / row)
+const PERMANENT = /^(22\w{3}|23\w{3}|42501|42703|PGRST(1|2)\d\d)$/;
 const inflight = new Map(); // "table:id" -> patch currently being written
 const statusListeners = new Set();
 let timer = null;
@@ -234,7 +273,14 @@ async function flush() {
   inflight.clear();
   flushing = false;
 
-  const failed = results.filter((r) => r.error);
+  results.filter((r) => r.error && GOVERNANCE_CODES.has(r.error.code)).forEach(({ b, error }) => refuseWrite(b.table, b.id, b.patch, error));
+  // A write the server will never accept (validation, permission, constraint) is not retried forever: it is dropped, the
+  // player is told why, and the sheet reloads the stored values (the same path as a governance refusal).
+  results.filter((r) => r.error && !GOVERNANCE_CODES.has(r.error.code) && PERMANENT.test(r.error.code || '')).forEach(({ b, error }) => {
+    toast(`Not saved: ${friendlyError(error)}`, 'bad');
+    window.dispatchEvent(new CustomEvent('tavern:save-refused', { detail: { table: b.table, id: b.id, patch: b.patch, error } }));
+  });
+  const failed = results.filter((r) => r.error && !GOVERNANCE_CODES.has(r.error.code) && !PERMANENT.test(r.error.code || ''));
   failed.forEach(({ b }) => {
     const key = `${b.table}:${b.id}`;
     const newer = pending.get(key)?.patch;
@@ -295,13 +341,13 @@ window.addEventListener('beforeunload', (e) => {
 
 // ---- Realtime ---------------------------------------------------------------
 
-const CHILD_TABLES = ['inventory_items', 'notes', 'spell_slots', 'feature_trackers', 'features', 'attacks', 'spells'];
+const CHILD_TABLES = ['inventory_items', 'character_equipment', 'character_proficiencies', 'character_lineages', 'character_lineage_choices', 'character_backgrounds', 'character_transformations', 'character_spellcasting_sources', 'character_spells', 'character_classes', 'character_spell_slot_state', 'character_temporary_spell_slots', 'character_resources', 'character_feature_choices', 'character_optional_features', 'notes', 'spell_slots', 'feature_trackers', 'features', 'attacks', 'spells'];
 
 /**
  * Subscribe to every change affecting one character.
  * handler(table, eventType, newRow, oldRow)
  */
-export function subscribeCharacter(id, handler) {
+export function subscribeCharacter(id, handler, onResync) {
   let channel = supabase
     .channel(`character-${id}-${Math.random().toString(36).slice(2, 8)}`)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'characters', filter: `id=eq.${id}` },
@@ -318,7 +364,13 @@ export function subscribeCharacter(id, handler) {
         (p) => handler(table, p.eventType, p.new, p.old));
   }
 
-  channel.subscribe();
+  // after the connection dropped (laptop sleep, network loss) events of that time are lost: once the channel is back, the
+  // sheet reloads its stored values (V6.2). The first SUBSCRIBED is the normal start, not a resync.
+  let dropped = false;
+  channel.subscribe((status) => {
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') dropped = true;
+    else if (status === 'SUBSCRIBED' && dropped) { dropped = false; onResync?.(); }
+  });
   return () => supabase.removeChannel(channel);
 }
 
