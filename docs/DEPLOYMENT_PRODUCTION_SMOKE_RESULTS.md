@@ -41,3 +41,19 @@ Production upgraded **in place** to V6.2: release commit `9b810aa`, Supabase pro
 
 **Observation:** switching quickly between characters loads slowly. The cause analysis and options are in
 DEPLOYMENT_FINAL_HANDOVER.md (follow-up F-1). This is not a correctness problem.
+
+## Incident fix 2026-10-29 (`a568ab5`, migration `20261029000100`)
+
+Done by the agent: anonymous browser smoke (sign-in screen, 1 client, `?v=12` assets only, no error), served files = commit,
+read-only database checks (golden identical for all 7 characters, counts unchanged, RLS: 0 leaks over 36 non-owner pairs,
+anon denied). Details: docs/PRODUCTION_INCIDENT_REALTIME_TIMEOUTS.md §9.
+
+For the operator (needs real accounts; put back any value you change):
+
+- [ ] Player: sign in, Home, open three characters quickly one after the other: the last one is shown, never an earlier one.
+- [ ] Build → Choose background…: the dialog opens at once ("Loading backgrounds…"), then the list; search; pick (do not save); close; reopen (instant).
+- [ ] Lineage, Class (+ Add class) and Spell (+ Add spell) pickers open; Inventory opens.
+- [ ] Change HP by 1 and back: a second browser on the same character follows; the Network tab shows no `get_character_derived_stats` for the HP change.
+- [ ] Sign out.
+- [ ] DM: sign in, DM Space (Overview, Party, Campaign rules, Content), open a character, Background picker, sign out.
+- [ ] Supabase Logs since 2026-10-29 23:00 UTC: no `57014` cluster, no `IncreaseSubscriptionConnectionPool`.

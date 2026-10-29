@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Frontend | `https://alexandrajuscak.github.io/tavern_ledger/`, release commit `9b810aa` (previous: `849d7f1`) |
+| Frontend | `https://alexandrajuscak.github.io/tavern_ledger/`, release commit `9b810aa` (previous: `849d7f1`); incident fix `a568ab5` (2026-10-29) |
 | Database | the existing Supabase project `pfgz…wlsc` (PostgreSQL 17.11, Free plan), 41 migrations (baseline marked as applied + 40 applied) |
 | Window | 2026-10-23; phases 1–10 of docs/DEPLOYMENT_PRODUCTION_WINDOW_RUNBOOK.md, all GO |
 
@@ -52,7 +52,7 @@ Incidents: none. The CLI's confirmation menu printed two migration names twice; 
 
 | # | Item | Notes |
 |---|---|---|
-| F-1 | **Slow loading when switching characters quickly** (seen in the smoke test) | **Became the production incident of 2026-10-23 (57014 statement timeouts, Realtime `IncreaseSubscriptionConnectionPool`, Background picker not loading).** Diagnosed and fixed locally on 2026-10-29: docs/PRODUCTION_INCIDENT_REALTIME_TIMEOUTS.md (root cause, evidence, fix, production plan). Not deployed yet: deployment needs the explicit approval phrase in that document. |
+| F-1 | **Slow loading when switching characters quickly** (seen in the smoke test) | **Became the production incident of 2026-10-23 (57014 statement timeouts, Realtime `IncreaseSubscriptionConnectionPool`, Background picker not loading).** Diagnosed and fixed locally on 2026-10-29: docs/PRODUCTION_INCIDENT_REALTIME_TIMEOUTS.md (root cause, evidence, fix, production plan). **Fix deployed 2026-10-29 23:00 UTC** (frontend `a568ab5`, migration `20261029000100`, 42 migrations); monitoring until 2026-11-05. |
 | F-2 | Public sign-up is still **on** | Turn it off (Dashboard → Authentication) once all players have accounts, and invite new players instead. |
 | F-3 | The catalog seeds must never run again on production | DM custom content shares tables with them (docs/DEPLOYMENT_PRODUCTION_SEEDS.md, rule R1). A future catalog update first needs scoped deletes in the generators. |
 | F-4 | Licensing | Icon licences are unknown, and the official catalog is readable with the public key. Accepted for a private table; blockers for a promoted public release (docs/DEPLOYMENT_PRODUCTION_SECURITY_GATE.md). |

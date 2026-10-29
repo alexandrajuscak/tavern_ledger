@@ -2,6 +2,9 @@
 
 Project `pfgz…wlsc` (Free plan, PostgreSQL 17.11), frontend on GitHub Pages. No secrets in this file.
 
+Deployed: frontend `a568ab5`, migration `20261029000100` (42 migrations), 2026-10-29. Rollback: docs/PRODUCTION_INCIDENT_REALTIME_TIMEOUTS.md §7.
+Monitoring checkpoints: 2026-10-30 and 2026-11-05 (§9 there).
+
 ## Never
 
 - re-run the catalog seeds / importer on production (DM custom content shares the catalog tables; docs/DEPLOYMENT_PRODUCTION_SEEDS.md R1);

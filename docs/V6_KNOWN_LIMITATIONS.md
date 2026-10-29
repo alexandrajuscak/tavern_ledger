@@ -70,4 +70,5 @@ nothing about a hosted deployment.
   removes about 40 % of that work; the next step (R2: spell slots and resources without the full derived evaluation,
   docs/PERFORMANCE_AUDIT_2026-10-27.md) is a larger change and not part of this fix.
 - **Measured locally only** for request counts and the rapid-switch behaviour; production timings are from read-only
-  production statistics. No staging project exists.
+  production statistics. No staging project exists. Deployed 2026-10-29 (`a568ab5`); the signed-in production smoke is the
+  operator's checklist in docs/DEPLOYMENT_PRODUCTION_SMOKE_RESULTS.md.

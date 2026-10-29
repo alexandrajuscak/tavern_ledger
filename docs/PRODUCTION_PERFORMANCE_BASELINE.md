@@ -46,6 +46,18 @@ sheet's reads.
 - an idle sheet sends 0 requests in 5 s;
 - Background dialog < 1.5 s, results while Inventory and spellbook are held back, a final state within 15 s.
 
+## Production after the fix (2026-10-29 23:00 UTC, idle, one sample)
+
+| Character | derived before → after | spellbook before → after | 12 sheet RPCs before → after |
+|---|---|---|---|
+| 4 (heaviest) | 433 → 305 ms | 928 → 730 ms | 4,230 → 3,436 ms |
+| 7 | 222 → 124 ms | 656 → 450 ms | 2,543 → 1,789 ms |
+| 1 | 276 → 140 ms | 219 → 202 ms | 1,638 → 1,411 ms |
+| 2, 3, 5, 6 | 48-71 → 49-77 ms | 68-159 → 69-163 ms | 520-697 → 524-1,014 ms (noise right after the function replacement) |
+
+In the browser the spellbook is no longer read on open, obsolete reads are cancelled, and HP or foreign-delete events no
+longer cause derived reads, so the parallel load per open and per interaction drops more than these per-RPC numbers show.
+
 ## After deployment (to measure on production)
 
 Repeat `scripts/incident/readonly_evidence.sql` one week after the deployment and compare by snapshot difference: expect the

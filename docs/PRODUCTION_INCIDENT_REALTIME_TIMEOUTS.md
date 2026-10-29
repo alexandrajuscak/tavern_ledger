@@ -1,7 +1,6 @@
 # Production incident: database timeouts and Realtime connection pressure (2026-10-23)
 
-Status: **DIAGNOSED, FIX IMPLEMENTED AND TESTED LOCALLY. NOT DEPLOYED.** Production was only read (read-only sessions).
-Deployment waits for the exact approval phrase (section 8).
+Status: **FIX DEPLOYED 2026-10-29 23:00 UTC; MONITORING** (section 9). The diagnosis used read-only sessions only.
 Production project `pfgz…wlsc` (masked), frontend `https://alexandrajuscak.github.io/tavern_ledger/` at release `9b810aa`.
 No secrets in this file. Related: docs/PERFORMANCE_AUDIT_2026-10-27.md (earlier read-only audit; its R1 is the SQL fix here).
 
@@ -181,3 +180,35 @@ Rollback:
 No production change has been made. Deployment starts only after the exact phrase:
 
 **PROCEED WITH PRODUCTION INCIDENT FIX**
+
+## 9. Deployment record (approved 2026-10-29: "PROCEED WITH PRODUCTION INCIDENT FIX")
+
+| Step | Result |
+|---|---|
+| Safety check | repository `alexandrajuscak/tavern_ledger`, branch `main` = Pages source; config ref = target ref `pfgz…wlsc`; live frontend before `9b810aa`; 41 migrations; commit set 67 files, secret scan clean (no password, connection string, secret key, token, e-mail); `latency_probe.py` excluded |
+| Pre-fix backup | `%USERPROFILE%\tavern-ledger-production-exports\2026-10-29-before-timeout-fix\`: roles / schema / data, migration history, counts, golden, manifest; SHA-256 roles `168a95a9…`, schema `c79bc5df…`, data `fceff241…` (verified) |
+| Golden before | 7 characters, file hash `c7469cad…` |
+| Commit / push | `a568ab5` "fix: reduce character-load pressure and picker timeouts", pushed `9b810aa..a568ab5` to `main` at 22:59:41 UTC |
+| Migration | dry run listed exactly `20261029000100_derived_stats_items_lookup.sql` (no seeds, no roles); applied 23:00:01-23:00:03 UTC; 42 history rows |
+| Verification | function: primary-key lookups active, SECURITY INVOKER, STABLE, search_path pinned, EXECUTE for authenticated unchanged; counts identical except the migration count; **golden after identical** (`c7469cad…`); the post-fix data dump is byte-identical to the pre-fix one (only pg_dump's random restrict key differs) |
+| Frontend | Pages build `a568ab5` built; 44 served files identical to the commit; `index.html` loads `?v=12` only; no CDN, no placeholder in the config, no secret in served assets |
+| Anonymous browser smoke | sign-in screen, environment production, 1 Supabase client, no HTTP or console error, no overflow at 390 px |
+| Security smoke (read-only, RLS simulated per user) | 36 non-owner pairs refused, 0 derived-stats leaks; 13 non-owner views = campaign DM / admin by policy; anon denied on `characters`; no custom or hidden DM content exists in production yet (0 rows) |
+| Idle timings after (one sample per character) | the two heaviest characters: 4.23 → 3.44 s and 2.54 → 1.79 s for the 12 sheet RPCs together |
+| Post-fix backup | `…\2026-10-29-after-timeout-fix\`: SHA-256 roles `168a95a9…`, schema `d2aee694…`, data `7dacf4cd…` (verified) |
+| Credentials | the connection-string file was overwritten and deleted after the last database step |
+| Not changed | Realtime pool, max_connections, statement_timeout, compute, catalog, RLS |
+
+Not done by the agent (no production player or DM credentials, no Supabase access token): the signed-in player, DM and
+two-session Realtime smoke in the browser, and the Supabase log review. Operator checklist:
+docs/DEPLOYMENT_PRODUCTION_SMOKE_RESULTS.md.
+
+### Monitoring
+
+| When | Check | Close the incident if |
+|---|---|---|
+| 2026-10-30 (24 h) | Supabase Logs since 2026-10-29 23:00 UTC: new `57014`, `IncreaseSubscriptionConnectionPool`, API 5xx; a `scripts/incident/readonly_evidence.sql` snapshot; player reports | – |
+| 2026-11-05 (7 days) | the same; compare `pgss_top_by_max` with the 2026-10-29 snapshot by difference | no new timeout cluster |
+
+If clusters return: collect the exact statements (`pgss_over_5s`), then assess compute (docs/PRODUCTION_OPERATIONS.md);
+do not raise connection settings blindly. The next software step if needed is R2 (docs/PERFORMANCE_AUDIT_2026-10-27.md).
