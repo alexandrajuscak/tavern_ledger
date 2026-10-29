@@ -1,10 +1,11 @@
 // Classes card (Build tab) and Slot Tracker (Spells tab). Everything shown comes from get_character_class_summary and
 // get_character_spell_slots; nothing here calculates levels, slots or multiclass rules.
-import { $, esc, toast, openModal, confirmDialog } from './utils.js?v=10';
-import * as api from './class-api.js?v=10';
-import { icon } from './icons.js?v=10';
-import { reviewClassChange } from './feature-ui.js?v=10';
-import { openAddClass, startingEquipmentButtonHTML } from './class-setup.js?v=10';
+import { $, esc, toast, openModal, confirmDialog } from './utils.js?v=12';
+import * as api from './class-api.js?v=12';
+import { catalogOrExplain } from './catalog-load.js?v=12';
+import { icon } from './icons.js?v=12';
+import { reviewClassChange } from './feature-ui.js?v=12';
+import { openAddClass, startingEquipmentButtonHTML } from './class-setup.js?v=12';
 
 const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const ord = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`;
@@ -76,7 +77,8 @@ export function classCardHTML(summary, catalog, { editable = true, startEq = nul
 /** Add a class or change version / subclass of an existing class row. */
 export async function openClassEditor({ characterId, summary, row = null, onSaved }) {
   if (!row) return openAddClass({ characterId, summary, onSaved });
-  const catalog = await api.getClassCatalog();
+  const catalog = await catalogOrExplain(() => api.getClassCatalog(), 'classes');
+  if (!catalog) return null;
   const taken = new Set((summary.classes || []).map((k) => k.class_id));
   const current = row ? summary.classes.find((k) => k.id === row) : null;
   const free = 20 - summary.total_level + (current?.level || 0);

@@ -1,7 +1,8 @@
 // Background data access (migration 20261017001200): the catalog and the character RPCs. The rules live in the database
 // (set_character_background validates; get_character_background resolves); this module only moves data.
-import { supabase } from './supabase.js?v=10';
-import { friendlyError } from './utils.js?v=10';
+import { supabase } from './supabase.js?v=12';
+import { friendlyError } from './utils.js?v=12';
+import { PICKER_TIMEOUT_MS } from './catalog-load.js?v=12';
 
 /** Validation messages (SQLSTATE 22023 / 23505) are written for users; everything else is mapped. */
 function bgError(raw) {
@@ -16,9 +17,15 @@ async function rpc(fn, args) {
 }
 
 let catalogPromise = null;
-/** Every background version (2024 and legacy, with their grants, choices, feat, equipment and tables), cached per session. */
+/**
+ * Every background version (2024 and legacy, with their grants, choices, feat, equipment and tables), cached per session.
+ * The request has its own time limit: a read that never answers (stalled network) fails and is dropped from the cache, so
+ * the picker's Retry sends a new request instead of waiting on the old one.
+ */
 export function getBackgroundCatalog() {
-  catalogPromise ||= rpc('get_background_catalog', {}).catch((e) => { catalogPromise = null; throw e; });
+  catalogPromise ||= supabase.rpc('get_background_catalog', {}).abortSignal(AbortSignal.timeout(PICKER_TIMEOUT_MS))
+    .then(({ data, error }) => { if (error) throw bgError(error); return data; })
+    .catch((e) => { catalogPromise = null; throw e; });
   return catalogPromise;
 }
 

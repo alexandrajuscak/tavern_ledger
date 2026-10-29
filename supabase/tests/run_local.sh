@@ -45,6 +45,8 @@ echo "== tests"
 cat supabase/tests/01_expected_counts.sql supabase/tests/inventory_tests.sql | psqlx | tail -n +1 | grep -v "^1$"
 echo "== derived character stats tests"
 psqlx < supabase/tests/derived_stats_tests.sql | grep -v "^1$"
+echo "== derived stats item lookup (incident 2026-10-23, 20261029000100)"
+psqlx < supabase/tests/derived_stats_items_lookup_tests.sql | grep -v "^1$"
 echo "== character lineage tests"
 psqlx < supabase/tests/lineage_tests.sql | grep -v "^1$"
 echo "== spell tests"
@@ -94,7 +96,7 @@ if psqlx < supabase/rollback/rollback_class_engine_extensions.sql >/dev/null 2>&
 echo "PASSED  rollback_class_engine_extensions.sql refuses to run while official class content exists"
 psqlx < supabase/rollback/rollback_class_catalog.sql
 # the 20261017* migrations, newest first (one rollback each; same list as run_supabase_local.sh)
-for rb in rollback_v62_hardening rollback_feat_backfill rollback_derived_stats_performance rollback_dm_read_models rollback_hidden_dm_data rollback_dm_content rollback_feat_catalog rollback_change_requests rollback_campaign_governance rollback_wild_shape_engine rollback_backgrounds rollback_proficiency_resolver rollback_rest_report_fix rollback_infusions_and_attunement rollback_creatures_and_transformations rollback_martial_engine_extensions rollback_class_setup_flow rollback_hybrid_caster_extensions rollback_spells_ux rollback_spellcasting_class_extensions rollback_class_page_read_model rollback_class_engine_extensions; do
+for rb in rollback_derived_stats_items_lookup rollback_v62_hardening rollback_feat_backfill rollback_derived_stats_performance rollback_dm_read_models rollback_hidden_dm_data rollback_dm_content rollback_feat_catalog rollback_change_requests rollback_campaign_governance rollback_wild_shape_engine rollback_backgrounds rollback_proficiency_resolver rollback_rest_report_fix rollback_infusions_and_attunement rollback_creatures_and_transformations rollback_martial_engine_extensions rollback_class_setup_flow rollback_hybrid_caster_extensions rollback_spells_ux rollback_spellcasting_class_extensions rollback_class_page_read_model rollback_class_engine_extensions; do
   psqlx < "supabase/rollback/$rb.sql"
 done
 [ "$(q "select count(*) from public.class_features where content_scope = 'official'")" = 0 ] \

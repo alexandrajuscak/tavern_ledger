@@ -1,10 +1,11 @@
 // Spells tab: spellcasting sources (per-source Save DC / attack), the resolved spellbook, spell details, Add Spell and the
 // source editor. Data-driven: sources, grants, lists and stats come from get_character_spellbook; class levels, spell access
 // and limits of class sources come from get_character_class_summary. Nothing here calculates class rules.
-import { $, $$, esc, toast, openModal, confirmDialog, filtersOpenAttr } from './utils.js?v=10';
-import * as api from './spell-api.js?v=10';
-import { icon } from './icons.js?v=10';
-import { spellIconHTML, spellDamage } from './spell-icons.js?v=10';
+import { $, $$, esc, toast, openModal, confirmDialog, filtersOpenAttr } from './utils.js?v=12';
+import * as api from './spell-api.js?v=12';
+import { catalogOrExplain } from './catalog-load.js?v=12';
+import { icon } from './icons.js?v=12';
+import { spellIconHTML, spellDamage } from './spell-icons.js?v=12';
 
 const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const SOURCE_TYPE = { class: 'Class', subclass: 'Subclass', feat: 'Feat', item: 'Magic item', manual: 'Manual',
@@ -460,7 +461,9 @@ export async function openSpellDetail(spell, { editable = false, onChanged } = {
 
 // ---------------------------------------------------------------------------------------------------------- add spell
 export async function openAddSpell({ characterId, book, classes = [], onSaved, onNewSource }) {
-  const [catalog, ref] = await Promise.all([api.getSpellCatalog(), api.getSpellReference()]);
+  const loaded = await catalogOrExplain(() => Promise.all([api.getSpellCatalog(), api.getSpellReference()]), 'spells');
+  if (!loaded) return null;
+  const [catalog, ref] = loaded;
   const f = emptyFilters();
   f.status = 'official';
   let limit = 60;

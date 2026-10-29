@@ -2,10 +2,10 @@
 // type, the lifecycle actions (save draft, validate, preview, publish, new version, archive, restore, duplicate, delete) and a
 // preview of what players will see. The definition is validated and materialized by the database (_dm_try / _dm_materialize).
 
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=10';
-import * as dm from './dm-api.js?v=10';
-import { icon } from './icons.js?v=10';
-import { spellIconHTML } from './spell-icons.js?v=10';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=12';
+import * as dm from './dm-api.js?v=12';
+import { icon } from './icons.js?v=12';
+import { spellIconHTML } from './spell-icons.js?v=12';
 
 export const TYPE = {
   spell: { icon: icon('dm/spell'), label: 'Spell' }, item: { icon: icon('dm/item'), label: 'Item' }, feat: { icon: icon('dm/feat'), label: 'Feat' },

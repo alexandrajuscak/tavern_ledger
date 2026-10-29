@@ -4,52 +4,53 @@ import {
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   ACTIVATIONS, ACTIVATION_BY_KEY, CASTING_TIMES, CONDITIONS, CONDITION_BY_NAME,
   weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js?v=10';
+} from './dnd.js?v=12';
 import {
   saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
-} from './store.js?v=10';
-import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=10';
-import { mountInventory } from './inventory-ui.js?v=10';
-import { exportCharacter, downloadJson } from './transfer.js?v=10';
-import { getDerivedStats, getProficiencies, setCharacterProficiency } from './inventory-api.js?v=10';
+} from './store.js?v=12';
+import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=12';
+import { mountInventory } from './inventory-ui.js?v=12';
+import { exportCharacter, downloadJson } from './transfer.js?v=12';
+import { getDerivedStats, getProficiencies, setCharacterProficiency } from './inventory-api.js?v=12';
 import { backgroundCardHTML, openBackgroundPicker, openBackgroundEquipment, openReplaceDuplicate, saveCharacteristics, rollCharacteristic,
-  removeBackground } from './background-ui.js?v=10';
-import { getCharacterBackground } from './background-api.js?v=10';
-import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=10';
-import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=10';
+  removeBackground } from './background-ui.js?v=12';
+import { getCharacterBackground } from './background-api.js?v=12';
+import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=12';
+import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=12';
 import {
   acNote, openAcBreakdown, equippedWeaponsHTML, trackWeaponDetails, toolsHTML, specificProficienciesHTML,
   openProficiencyManager, equipmentNotes,
-} from './derived-ui.js?v=10';
-import { openLevelUp } from './levelup.js?v=10';
-import { mountGovernance } from './request-ui.js?v=10';
-import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=10';
-import { exportFeats } from './feat-api.js?v=10';
-import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=10';
-import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=10';
-import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=10';
+} from './derived-ui.js?v=12';
+import { openLevelUp } from './levelup.js?v=12';
+import { mountGovernance } from './request-ui.js?v=12';
+import { beginSheetReads, endSheetReads } from './read-control.js?v=12';
+import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=12';
+import { exportFeats } from './feat-api.js?v=12';
+import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=12';
+import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=12';
+import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=12';
 import {
   emptyFilters, filtersHTML, readFilter, sourcesHTML, spellbookListHTML, openSpellDetail, openAddSpell, openSourceEditor, rememberSpellSections,
-} from './spell-ui.js?v=10';
+} from './spell-ui.js?v=12';
 import {
   getClassSummary, getSpellSlots, getClassCatalog, expendStandardSlot, restoreStandardSlot, expendPactSlot, restorePactSlot,
   setSlotState, setCharacterClass, shortRest, longRest, getClassFeatures, getResources, exportClassFeatures, useTemporarySlot,
   restoreTemporarySlot, getStartingEquipmentState, getStartingEquipment, getStates,
-} from './class-api.js?v=10';
-import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=10';
-import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=10';
-import { openStartingEquipment } from './class-setup.js?v=10';
+} from './class-api.js?v=12';
+import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=12';
+import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=12';
+import { openStartingEquipment } from './class-setup.js?v=12';
 import {
   companionsHTML, openAddCompanion, changeCompanionHp, removeCompanionConfirm,
-} from './creature-ui.js?v=10';
-import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=10';
-import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=10';
+} from './creature-ui.js?v=12';
+import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=12';
+import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=12';
 import {
   featuresPanelHTML, featureSummaryHTML, restoreDrafts, resourceListHTML, attachFeatureHandlers, hydrateSpellChoices, restResourceLines, restResultText, restSummaryHTML,
   riderDiceRange, statesHTML, glanceHTML,
-} from './feature-ui.js?v=10';
-import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=10';
-import { sectionHTML, sectionHead } from './section.js?v=10';
+} from './feature-ui.js?v=12';
+import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=12';
+import { sectionHTML, sectionHead } from './section.js?v=12';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -59,6 +60,8 @@ let B = null; // bundle: { character, inventory, notes, slots, trackers, feature
 let root = null;
 let ctx = null; // { reload, onDeleted }
 let unsubscribe = null;
+let liveCharacterId = null;  // the character of the Realtime channel: kept when the same sheet is reloaded (no leave + join)
+let serverChar = null;       // the character row as last stored on the server (bundle, Realtime): what a remote UPDATE changed
 let inventory = null; // inventory-ui controller
 let governance = null; // request-ui controller: lock banner, pending changes, approval requests
 let featState = null;   // get_character_feats: every feat grant with its source, choices, effects, spells and resources
@@ -112,6 +115,12 @@ let companions = null;        // character_companions with their catalog creatur
 let infusionState = null;     // get_character_infusions: known infusions and infused items      // {class_version_id, applied, has_options} of the primary class (starting equipment review)
 const hasClasses = () => (classSummary?.classes?.length || 0) > 0;
 const DERIVED_FIELDS = new Set(['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma', 'level', 'speed', 'ac_override']);
+// characters columns the derived-stats SQL never reads (checked against _derived_stats_core/_full, _feat_layer, _wild_shape_layer
+// and their helpers, 2026-10-29): a remote UPDATE of only these (HP, coins, death saves …) does not re-read the derived stats.
+// The Wild Shape layer reads name, hp_current and hp_temp of the character, so those count while a form is active.
+const NON_DERIVED_FIELDS = new Set(['race', 'class_name', 'subclass', 'background', 'alignment', 'experience', 'hit_die', 'hit_dice_current',
+  'death_successes', 'death_failures', 'inspiration', 'cp', 'sp', 'ep', 'gp', 'pp', 'portrait_url', 'pending_choices', 'updated_at']);
+const FORM_FIELDS = new Set(['name', 'hp_current', 'hp_temp']);
 const PROF_GROUP_BY_FLAG = { simple: 'simple-weapons', martial: 'martial-weapons', firearms: 'firearms', light: 'light-armor',
   medium: 'medium-armor', heavy: 'heavy-armor', shields: 'shields' };
 
@@ -552,8 +561,15 @@ async function backgroundChanged(res, { changed = false } = {}) {
   }
 }
 
-async function loadSpellbook() {
+// The spellbook is the most expensive read of a sheet (production: up to ~0.9 s of database time) and only the Spells section
+// shows it: while that section is hidden a load only marks it stale, and opening the section (or exporting) loads it.
+let spellbookStale = false;
+const spellsVisible = () => !!root && $('.panel[data-panel="spells"]', root)?.hidden === false;
+
+async function loadSpellbook({ force = false } = {}) {
   if (!B) return;
+  if (!force && !spellsVisible()) { spellbookStale = true; return; }
+  spellbookStale = false;
   const my = ++spellbookSeq;
   spellbookStartedAt = ++reqClock;
   const id = C().id;
@@ -578,10 +594,13 @@ async function loadClasses() {
   try {
     const [summary, slots, cat, feats, res, sts] = await Promise.all([getClassSummary(id), getSpellSlots(id),
       classCatalog || getClassCatalog().catch(() => null), getClassFeatures(id), getResources(id), getStates(id).catch(() => null)]);
+    const stale = () => !B || my !== classSeq || C().id !== id;   // superseded: do not start the next group of reads
+    if (stale()) return;
     const [tf, comps, infs] = await Promise.all([getTransformation(id).catch(() => null), getCompanions(id).catch(() => null),
       getInfusions(id).catch(() => null)]);
+    if (stale()) return;
     const eq = ctx?.readOnly ? null : await getStartingEquipmentState(id, summary).catch(() => null);
-    if (!B || my !== classSeq || C().id !== id) return;
+    if (stale()) return;
     startEqState = eq;
     classStates = sts;
     if (tfAt === tfEpoch && !tfBusy.size) transformState = tf;   // a Wild Shape change overlapped this read: keep the newer state
@@ -2182,6 +2201,7 @@ function showTab(key, scroll = true) {
   });
   $$('.panel', root).forEach((p) => { p.hidden = p.dataset.panel !== key; });
   $$(`.panel[data-panel="${key}"] textarea.autosize`, root).forEach(autoResize);
+  if (key === 'spells' && spellbookStale) loadSpellbook();
   if (scroll) {
     // land at the top of the section (below the vitals), never further down than where the player already is
     const panel = $(`.panel[data-panel="${key}"]`, root);
@@ -2554,6 +2574,7 @@ const actions = {
   'export-json': async () => {
     const slug = (C().name || 'character').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     if (!classSummary) await loadClasses();   // exported right after opening: never drop the classes and companions silently
+    if (!spellbook || spellbookStale) await loadSpellbook({ force: true });   // loaded only with the Spells section
     const classFeatureState = classSummary?.classes?.length ? await exportClassFeatures(C().id).catch(() => null) : null;
     const feats = await exportFeats(C().id).catch(() => null);
     downloadJson(exportCharacter(B, { lineage, spellbook, classSummary, slotState, classFeatureState, companions, background, wildShape: transformState, feats }), `${slug || 'character'}.json`);
@@ -2853,8 +2874,16 @@ function applyRemote(table, row, incoming) {
   return changed;
 }
 
+/** Did a stored characters row change a column the derived stats read? Compared with the last stored row, not with local edits. */
+function derivedColumnChanged(nw) {
+  if (!serverChar || !nw) return true;
+  const form = !!transformState?.active;
+  return Object.keys(nw).some((k) => JSON.stringify(nw[k]) !== JSON.stringify(serverChar[k])
+    && (!NON_DERIVED_FIELDS.has(k) && (!FORM_FIELDS.has(k) || form)));
+}
+
 function onRemote(table, event, nw, old) {
-  if (!B) return;
+  if (!B || ctx?.readOnly) return;   // the cached copy shown while the same sheet reloads: the fresh read covers the change
   if (table === 'character_proficiencies') { scheduleDerived(); return; }
   if (table === 'character_spells' || table === 'character_spellcasting_sources') {
     const rec = event === 'DELETE' ? old : nw;
@@ -2889,7 +2918,10 @@ function onRemote(table, event, nw, old) {
     return;
   }
   if (table === 'characters') {
-    scheduleDerived();   // ability scores, level, speed, override or the proficiency mirror may have changed
+    // ability scores, level, speed, override or the proficiency mirror may have changed; HP, coins and other columns the
+    // derived stats never read do not cost a derived re-read (every HP tap did, in every open session: incident 2026-10-23)
+    if (derivedColumnChanged(nw)) scheduleDerived();
+    serverChar = { ...nw };
     if (applyRemote('characters', C(), nw)) {
       syncInputs('characters', C().id);
       afterChange('characters');
@@ -2939,8 +2971,9 @@ function onRemote(table, event, nw, old) {
  * readOnly: render a cached snapshot while fresh data loads.
  */
 export function mountSheet(container, bundle, options = {}) {
-  unmountSheet();
+  unmountSheet({ keepRealtimeFor: bundle.character.id });
   B = bundle;
+  spellbookStale = false;
   // Cached bundles from older versions may lack newer lists.
   B.attacks ||= [];
   B.spells ||= [];
@@ -2969,6 +3002,8 @@ export function mountSheet(container, bundle, options = {}) {
 
   if (options.readOnly) return;
 
+  beginSheetReads(C().id);   // every character read of this sheet is aborted when it closes (js/read-control.js)
+  serverChar = { ...B.character };
   root.addEventListener('input', onInput);
   root.addEventListener('change', onChange);
   root.addEventListener('click', onClick);
@@ -2977,10 +3012,11 @@ export function mountSheet(container, bundle, options = {}) {
   attachFeatureHandlers(root, { getCharacterId: () => C().id, onChanged: classesChanged, onResources: loadClasses });
   attachFeatHandlers(root, { getCharacterId: () => C().id, getState: () => featState, onChanged: featsChanged });
   rememberSpellSections(root);
-  unsubscribe = subscribeCharacter(C().id, onRemote, () => {
-    toast('Connection restored — showing the latest values.', 'info');
-    saver.flush().finally(() => ctx.reload?.());   // own unsaved edits are saved first, then the stored state is shown
-  });
+  // one channel per character: a reload of the same sheet (reconnect, refused change) keeps it instead of leave + join
+  if (liveCharacterId !== C().id) {
+    unsubscribe = subscribeCharacter(C().id, onRemote, resyncSoon);
+    liveCharacterId = C().id;
+  }
   let invLoaded = false;
   inventory = mountInventory($('#inventory-app', root), {
     characterId: C().id,
@@ -3010,7 +3046,17 @@ export function mountSheet(container, bundle, options = {}) {
   cacheSet(`bundle:${C().id}`, B);
 }
 
-export function unmountSheet() {
+// After a dropped connection: own unsaved edits are saved first, then the stored state is shown. A flaky network that drops
+// and returns several times in a few seconds causes one reload, not one per return.
+const resyncSoon = debounce(() => {
+  if (!B || liveCharacterId !== C().id) return;
+  toast('Connection restored — showing the latest values.', 'info');
+  saver.flush().finally(() => ctx?.reload?.());
+}, 1500);
+
+/** Close the sheet. keepRealtimeFor: the character about to be mounted again (its channel stays open). */
+export function unmountSheet({ keepRealtimeFor = null } = {}) {
+  endSheetReads();
   vitalsObserver?.disconnect();
   vitalsObserver = null;
   const tv = document.getElementById('topbar-vitals');
@@ -3044,8 +3090,13 @@ export function unmountSheet() {
   inventory = null;
   governance?.destroy();
   governance = null;
-  unsubscribe?.();
-  unsubscribe = null;
+  if (!keepRealtimeFor || keepRealtimeFor !== liveCharacterId) {
+    unsubscribe?.();
+    unsubscribe = null;
+    liveCharacterId = null;
+  }
+  serverChar = null;
+  spellbookStale = false;
   B = null;
   root = null;
 }

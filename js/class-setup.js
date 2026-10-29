@@ -2,8 +2,9 @@
 // prerequisites of every class, features, proficiencies, choices to make, spellcasting and slots) and the starting
 // equipment review (one option per group, a concrete item for "any martial weapon"-style entries, added to the inventory
 // once, first class only). Everything comes from preview_character_class_add / get_class_starting_equipment; no class names.
-import { $, $$, esc, toast, openModal } from './utils.js?v=10';
-import * as api from './class-api.js?v=10';
+import { $, $$, esc, toast, openModal } from './utils.js?v=12';
+import * as api from './class-api.js?v=12';
+import { catalogOrExplain } from './catalog-load.js?v=12';
 
 const ord = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`;
 const words = (id) => String(id || '').replace(/-/g, ' ');
@@ -57,7 +58,9 @@ function addPreviewHTML(p) {
 
 /** Add a class: class, level, optional subclass; live preview; prerequisites must be met or the DM's permission confirmed. */
 export async function openAddClass({ characterId, summary, onSaved, host = null, saveButton = null }) {
-  const catalog = await api.getClassCatalog();
+  // inside another dialog (host) the caller shows a failure in place; as its own dialog: a notice and a clear message
+  const catalog = host ? await api.getClassCatalog() : await catalogOrExplain(() => api.getClassCatalog(), 'classes');
+  if (!catalog) return null;
   const taken = new Set((summary.classes || []).map((k) => k.class_id));
   const choices = catalog.classes.filter((c) => !taken.has(c.id) && c.versions.length);
   if (!choices.length) { toast('Every class is already on this character.'); return null; }

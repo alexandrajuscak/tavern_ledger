@@ -326,3 +326,19 @@ Test data: the V6.2 suites run inside the isolation harness (docs/V62_TEST_ISOLA
 ```
 cd supabase/tests/browser && python -c "import isolation; print(isolation.residue())"   # expect {}
 ```
+
+## Production incident fix (2026-10-29): slow networks and quick switching
+
+Developer tools → Network → throttling "Fast 4G" (or a custom 150 ms latency profile).
+
+1. **Quick switching:** open character A, then B, then C within a second (Home cards or browser back/forward). C is shown,
+   never A or B; in the Network tab the earlier characters' requests show as *(canceled)*; no error toast.
+2. **HP without reloads:** change HP. The Network tab shows one `characters` PATCH and no `get_character_derived_stats`.
+   Change an ability score: the derived stats are read again.
+3. **Background picker:** Build → Choose background…. The dialog opens at once with "Loading backgrounds…", then the list.
+   With Network → Offline before clicking: a sentence and a **Retry** button (no endless spinner); go online, Retry.
+4. **Spells:** the spellbook loads when you open the Spells section (one `get_character_spellbook` request then).
+5. **Reconnect:** stop the Wi-Fi for a few seconds twice in a row, then reconnect: one "Connection restored" toast, one reload.
+
+Automated: `supabase/tests/browser/production_timeout_incident_test.py` (57 checks, 150 ms latency); diagnostic numbers:
+`LATENCY_MS=150 OUT=probe.json python supabase/tests/browser/incident_probe.py`.

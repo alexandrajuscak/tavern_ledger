@@ -75,4 +75,6 @@ echo "== V6.2 adversarial UI: injection payloads, malformed numbers, interrupted
 (cd supabase/tests/browser && "$PY" v62_adversarial_ui_test.py) || RC=1
 echo "== V6.2 import safety, multi-session, Realtime soak, long-session soak, performance"
 (cd supabase/tests/browser && "$PY" v62_import_session_soak_test.py) || RC=1
+echo "== production incident 2026-10-23: cancelled obsolete reads, Realtime attribution and reconnect, catalog pickers (150 ms latency)"
+(cd supabase/tests/browser && "$PY" production_timeout_incident_test.py) || RC=1
 exit $RC

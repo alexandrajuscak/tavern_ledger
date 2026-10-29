@@ -1,9 +1,10 @@
 // Background card on the Build tab and its dialogs (docs/BACKGROUNDS.md): choose a background version (2024 or legacy, never
 // mixed), allocate the 2024 ability increases, make the choices, review and apply the starting equipment once, replace a
 // duplicated proficiency, keep personal characteristics. The server validates everything (set_character_background).
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=10';
-import * as api from './background-api.js?v=10';
-import { SKILLS } from './dnd.js?v=10';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=12';
+import * as api from './background-api.js?v=12';
+import { loadIntoPicker } from './catalog-load.js?v=12';
+import { SKILLS } from './dnd.js?v=12';
 
 const AB = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const ABS = { str: 'STR', dex: 'DEX', con: 'CON', int: 'INT', wis: 'WIS', cha: 'CHA' };
@@ -153,9 +154,8 @@ function readEditor(form, v) {
 
 /** Choose or edit the background: list (search, ruleset filter, playtest only on request) then the editor. */
 export async function openBackgroundPicker({ characterId, current, onSaved }) {
-  let catalog;
-  try { catalog = await api.getBackgroundCatalog(); } catch (err) { toast(err.message, 'bad'); return; }
-  const versions = catalog.versions || [];
+  // the dialog opens at once; the catalog loads into the list and ends in results or a message with Retry (js/catalog-load.js)
+  let versions = null;
   const m = openModal({
     title: current?.selected ? 'Background' : 'Choose a background',
     wide: true,
@@ -174,8 +174,9 @@ export async function openBackgroundPicker({ characterId, current, onSaved }) {
   const list = $('[data-bg-list]', m.el);
   const edit = $('[data-bg-edit]', m.el);
   const save = $('[data-bg-save]', m.el);
-  let picked = current?.selected ? versions.find((v) => v.id === current.version.id) : null;
+  let picked = null;
   const render = () => {
+    if (!versions) return;   // still loading, or the load failed (the list shows the state)
     const q = $('[name=q]', m.el).value.trim().toLowerCase();
     const rules = $('[name=rules]', m.el).value;
     const pt = $('[name=playtest]', m.el).checked;
@@ -197,7 +198,7 @@ export async function openBackgroundPicker({ characterId, current, onSaved }) {
   m.el.addEventListener('change', (e) => { if (e.target.closest('.bg-filters') && e.target.type !== 'search') render(); });
   m.el.addEventListener('click', (e) => {
     const b = e.target.closest('[data-bg-pick]');
-    if (!b) return;
+    if (!b || !versions) return;
     picked = versions.find((v) => v.id === b.dataset.bgPick);
     render();
     showEditor();
@@ -224,9 +225,20 @@ export async function openBackgroundPicker({ characterId, current, onSaved }) {
       save.disabled = false;
     }
   });
-  render();
   showEditor();
   setTimeout(() => $('[name=q]', m.el)?.focus(), 60);
+  // search and filters typed while loading are kept: the first render uses them
+  loadIntoPicker(list, () => api.getBackgroundCatalog(), {
+    label: 'backgrounds',
+    isOpen: () => m.el.isConnected && !m.el.dataset.closing,
+    onReady: (catalog) => {
+      versions = catalog.versions || [];
+      picked = current?.selected ? versions.find((v) => v.id === current.version.id) : null;
+      list.__html = null;
+      render();
+      showEditor();
+    },
+  });
   return m;
 }
 

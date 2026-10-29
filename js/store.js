@@ -1,6 +1,6 @@
-import { supabase, announceGovernance } from './supabase.js?v=10';
-import { toast, friendlyError } from './utils.js?v=10';
-import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=10';
+import { supabase, announceGovernance } from './supabase.js?v=12';
+import { toast, friendlyError } from './utils.js?v=12';
+import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=12';
 
 export const state = {
   session: null,
@@ -152,17 +152,20 @@ export async function deleteCharacter(id) {
   check(await supabase.from('characters').delete().eq('id', id));
 }
 
-export async function loadBundle(id) {
+/** The stored rows of one character. `signal` cancels the reads when the user opens something else (never the self-heal writes). */
+export async function loadBundle(id, signal) {
+  const r = (q) => (signal ? q.abortSignal(signal) : q).then(check);
   const [character, inventory, notes, slots, trackers, features, attacks, spells] = await Promise.all([
-    supabase.from('characters').select('*').eq('id', id).single().then(check),
-    supabase.from('inventory_items').select('*').eq('character_id', id).order('sort_order').order('created_at').then(check),
-    supabase.from('notes').select('*').eq('character_id', id).then(check),
-    supabase.from('spell_slots').select('*').eq('character_id', id).order('level').then(check),
-    supabase.from('feature_trackers').select('*').eq('character_id', id).order('sort_order').order('created_at').then(check),
-    supabase.from('features').select('*').eq('character_id', id).order('sort_order').order('created_at').then(check),
-    supabase.from('attacks').select('*').eq('character_id', id).order('sort_order').order('created_at').then(check),
-    supabase.from('spells').select('*').eq('character_id', id).order('level').order('sort_order').order('created_at').then(check),
+    r(supabase.from('characters').select('*').eq('id', id).single()),
+    r(supabase.from('inventory_items').select('*').eq('character_id', id).order('sort_order').order('created_at')),
+    r(supabase.from('notes').select('*').eq('character_id', id)),
+    r(supabase.from('spell_slots').select('*').eq('character_id', id).order('level')),
+    r(supabase.from('feature_trackers').select('*').eq('character_id', id).order('sort_order').order('created_at')),
+    r(supabase.from('features').select('*').eq('character_id', id).order('sort_order').order('created_at')),
+    r(supabase.from('attacks').select('*').eq('character_id', id).order('sort_order').order('created_at')),
+    r(supabase.from('spells').select('*').eq('character_id', id).order('level').order('sort_order').order('created_at')),
   ]);
+  if (signal?.aborted) throw Object.assign(new Error('AbortError: superseded'), { name: 'AbortError' });
 
   // Self-heal characters that are missing seeded rows.
   const missingKinds = NOTE_KINDS.filter((k) => !notes.some((n) => n.kind === k));
@@ -229,6 +232,7 @@ export async function deleteRow(table, id) {
 const pending = new Map(); // "table:id" -> { table, id, patch }
 // SQLSTATE / PostgREST codes that retrying cannot fix (validation, constraint, permission, unknown column / row)
 const PERMANENT = /^(22\w{3}|23\w{3}|42501|42703|PGRST(1|2)\d\d)$/;
+const MAX_AUTO_RETRIES = 6;   // 2 + 4 + 8 + 16 + 30 s: about a minute of automatic retries, then only on the next trigger
 const inflight = new Map(); // "table:id" -> patch currently being written
 const statusListeners = new Set();
 let timer = null;
@@ -290,7 +294,11 @@ async function flush() {
   if (failed.length) {
     failures += 1;
     console.error('Auto-save failed:', failed[0].error);
-    setStatus(navigator.onLine ? 'error' : 'offline');
+    // bounded: after MAX_AUTO_RETRIES the edits stay queued (nothing is lost) and are sent again on the next edit, when the
+    // connection returns or when the tab is hidden or closed, but no timer keeps retrying (e.g. a server under load, 57014)
+    if (!navigator.onLine) setStatus('offline');
+    else if (failures >= MAX_AUTO_RETRIES) { setStatus('stalled'); return; }
+    else setStatus('error');
     schedule(Math.min(30000, 1000 * 2 ** failures));
   } else {
     failures = 0;
@@ -343,33 +351,77 @@ window.addEventListener('beforeunload', (e) => {
 
 const CHILD_TABLES = ['inventory_items', 'character_equipment', 'character_proficiencies', 'character_lineages', 'character_lineage_choices', 'character_backgrounds', 'character_transformations', 'character_spellcasting_sources', 'character_spells', 'character_classes', 'character_spell_slot_state', 'character_temporary_spell_slots', 'character_resources', 'character_feature_choices', 'character_optional_features', 'notes', 'spell_slots', 'feature_trackers', 'features', 'attacks', 'spells'];
 
+// A DELETE event carries only the primary key (RLS), and DELETE cannot be filtered server-side, so every open sheet receives
+// the deletes of every character. Where the key holds no character_id, the subscription learns which keys belong to its
+// character (one small read per table, on the first such delete) and drops the others: a delete on character X no longer
+// makes every sheet re-read its derived stats (incident 2026-10-23, docs/REALTIME_SUBSCRIPTION_ARCHITECTURE.md).
+const KEY_ONLY_DELETE = {
+  character_classes: ['id'], character_feature_choices: ['id'], character_proficiencies: ['id'], character_resources: ['id'],
+  character_spellcasting_sources: ['id'], character_spells: ['id'], character_temporary_spell_slots: ['id'], inventory_items: ['id'],
+  character_optional_features: ['character_class_id', 'unlock_id'],
+};
+const keyOf = (table, row) => KEY_ONLY_DELETE[table].map((k) => row?.[k]).join('|');
+
 /**
  * Subscribe to every change affecting one character.
- * handler(table, eventType, newRow, oldRow)
+ * handler(table, eventType, newRow, oldRow); onResync() once the connection is back after a drop.
+ * Returns a function that removes the channel.
  */
 export function subscribeCharacter(id, handler, onResync) {
+  const owned = new Map();      // table -> Set of keys of this character's rows (learned on the first key-only DELETE)
+  // table -> { inserted, deleted } keys seen while its read is in flight (the read's snapshot may predate them)
+  const learning = new Map();
+  let epoch = 0;                // a read started before a connection drop is discarded
+  async function learn(table) {
+    const mine = { inserted: new Set(), deleted: new Set() };
+    const at = epoch;
+    learning.set(table, mine);
+    const { data, error } = await supabase.from(table).select(KEY_ONLY_DELETE[table].join(',')).eq('character_id', id);
+    if (learning.get(table) === mine) learning.delete(table);
+    if (error || at !== epoch) return;
+    const keys = new Set((data || []).map((r) => keyOf(table, r)));
+    mine.inserted.forEach((k) => keys.add(k));
+    mine.deleted.forEach((k) => keys.delete(k));
+    owned.set(table, keys);
+  }
+  /** Is this DELETE one of this character's rows? Unknown is treated as yes (the sheet re-reads, as before). */
+  function ownsDeleted(table, old) {
+    if (old?.character_id) return old.character_id === id;
+    if (!KEY_ONLY_DELETE[table]) return true;
+    const known = owned.get(table);
+    if (known) return known.delete(keyOf(table, old));
+    if (learning.has(table)) learning.get(table).deleted.add(keyOf(table, old));
+    else learn(table);
+    return true;
+  }
+  const deliver = (table) => (p) => {
+    if (p.eventType === 'DELETE' && !ownsDeleted(table, p.old)) return;
+    if (p.eventType === 'INSERT' && KEY_ONLY_DELETE[table]) {
+      owned.get(table)?.add(keyOf(table, p.new));
+      learning.get(table)?.inserted.add(keyOf(table, p.new));
+    }
+    handler(table, p.eventType, p.new, p.old);
+  };
+
   let channel = supabase
     .channel(`character-${id}-${Math.random().toString(36).slice(2, 8)}`)
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'characters', filter: `id=eq.${id}` },
-      (p) => handler('characters', p.eventType, p.new, p.old));
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'characters', filter: `id=eq.${id}` }, deliver('characters'));
 
   for (const table of CHILD_TABLES) {
     channel = channel
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table, filter: `character_id=eq.${id}` },
-        (p) => handler(table, p.eventType, p.new, p.old))
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table, filter: `character_id=eq.${id}` },
-        (p) => handler(table, p.eventType, p.new, p.old))
-      // DELETE events cannot be filtered server-side; the handler ignores unknown ids.
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table },
-        (p) => handler(table, p.eventType, p.new, p.old));
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table, filter: `character_id=eq.${id}` }, deliver(table))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table, filter: `character_id=eq.${id}` }, deliver(table))
+      // DELETE events cannot be filtered server-side: ownsDeleted() drops other characters' rows, the handler ignores unknown ids.
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table }, deliver(table));
   }
 
   // after the connection dropped (laptop sleep, network loss) events of that time are lost: once the channel is back, the
-  // sheet reloads its stored values (V6.2). The first SUBSCRIBED is the normal start, not a resync.
+  // sheet reloads its stored values (V6.2). The first SUBSCRIBED is the normal start, not a resync. Learned keys may be
+  // stale after a drop, so they are learned again.
   let dropped = false;
   channel.subscribe((status) => {
     if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') dropped = true;
-    else if (status === 'SUBSCRIBED' && dropped) { dropped = false; onResync?.(); }
+    else if (status === 'SUBSCRIBED' && dropped) { dropped = false; epoch += 1; owned.clear(); learning.clear(); onResync?.(); }
   });
   return () => supabase.removeChannel(channel);
 }

@@ -1,6 +1,7 @@
 // supabase-js 2.117.2 is self-hosted (vendor/supabase-js, loaded by index.html as a classic script): no CDN request at runtime.
 const { createClient } = globalThis.supabase;
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PRODUCTION_HOSTS } from './config.js?v=10';
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PRODUCTION_HOSTS } from './config.js?v=12';
+import { readSignalFor } from './read-control.js?v=12';
 
 // Local development only. When the app is served from localhost / 127.0.0.1 it talks ONLY to the local Supabase
 // stack, never to the hosted project in js/config.js. The local URL and anon key come from js/config.local.js,
@@ -94,6 +95,8 @@ export const supabase = isConfigured
       },
     })
   : null;
+// one client (one Auth session, one Realtime socket) per page: counted so the tests can assert it (no credential involved)
+if (supabase) globalThis.__tavernLedgerClients = (globalThis.__tavernLedgerClients || 0) + 1;
 
 // Campaign governance (docs/DM_GOVERNANCE.md): a governed call the campaign refuses (approval required, DM only, disabled,
 // locked) is announced once as a 'tavern:governance' event with the exact call, so the sheet can offer an approval request.
@@ -107,6 +110,9 @@ if (supabase) {
   const rawRpc = supabase.rpc.bind(supabase);
   supabase.rpc = (fn, args, options) => {
     const builder = rawRpc(fn, args, options);
+    // character reads of the open sheet are cancelled when it closes (js/read-control.js); writes never are
+    const signal = readSignalFor(fn, args);
+    if (signal) builder.abortSignal(signal);
     const then = builder.then.bind(builder);
     builder.then = (onOk, onErr) => then((res) => {
       if (res?.error && GOVERNANCE_CODES.has(res.error.code)) announceGovernance(fn, args, res.error);

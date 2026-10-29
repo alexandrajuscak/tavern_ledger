@@ -53,3 +53,21 @@ nothing about a hosted deployment.
   docs/V62_AUTHORIZATION_MATRIX.md).
 - **Not tested in V6.2:** a hosted deployment, multiple real devices on a LAN, screen readers other than the automated
   checks, and very large campaigns beyond the local data (35 characters, 5 campaigns).
+
+## Added by the production incident fix (2026-10-29; docs/PRODUCTION_INCIDENT_REALTIME_TIMEOUTS.md)
+
+- **Realtime DELETE events** still reach every open sheet (they cannot be filtered server-side). The sheet now drops the
+  deletes of other characters; for nine tables whose key holds no `character_id` it learns its own row keys with one small
+  read after the first such delete, so that first delete still causes one refresh.
+- **Aborting a read** cancels the statement in PostgREST (verified locally on PostgREST 14); a statement that is already
+  finishing may still complete, and its answer is dropped.
+- **Shared catalogs are not aborted** when a picker closes: they are cached per page and reused. Only the Background catalog
+  has its own 15 s client limit; the others are bounded by the 8 s server statement timeout.
+- **The spellbook loads with the Spells section** (and for export). Opening Spells for the first time after a sheet open costs
+  one request there instead of on every open.
+- **Saves**: after 6 failed automatic attempts (about a minute) unsaved edits wait for the next edit, reconnect or tab close.
+- **Derived stats remain the main cost** of a sheet (about 9 RPCs that each evaluate the rules core). The items-scan fix
+  removes about 40 % of that work; the next step (R2: spell slots and resources without the full derived evaluation,
+  docs/PERFORMANCE_AUDIT_2026-10-27.md) is a larger change and not part of this fix.
+- **Measured locally only** for request counts and the rapid-switch behaviour; production timings are from read-only
+  production statistics. No staging project exists.

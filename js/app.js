@@ -1,19 +1,19 @@
-import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=10';
+import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=12';
 import {
   state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
   loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
   updateProfile, listCharacters, listCharacterBadges, createCharacter, loadBundle, saver,
-} from './store.js?v=10';
-import { getDerivedStats, getProficiencies } from './inventory-api.js?v=10';
-import { icon, classIcon, iconSrc } from './icons.js?v=10';
-import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, friendlyError } from './utils.js?v=10';
-import { mountSheet, unmountSheet } from './sheet.js?v=10';
-import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=10';
-import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=10';
-import { openLineagePicker } from './lineage-ui.js?v=10';
-import { getCharacterLineage } from './lineage-api.js?v=10';
-import { openAddClass } from './class-setup.js?v=10';
-import { getClassSummary } from './class-api.js?v=10';
+} from './store.js?v=12';
+import { getDerivedStats, getProficiencies } from './inventory-api.js?v=12';
+import { icon, classIcon, iconSrc } from './icons.js?v=12';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, friendlyError } from './utils.js?v=12';
+import { mountSheet, unmountSheet } from './sheet.js?v=12';
+import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=12';
+import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=12';
+import { openLineagePicker } from './lineage-ui.js?v=12';
+import { getCharacterLineage } from './lineage-api.js?v=12';
+import { openAddClass } from './class-setup.js?v=12';
+import { getClassSummary } from './class-api.js?v=12';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders
@@ -69,7 +69,10 @@ async function handleSession(session) {
   state.session = session;
   if (!session) {
     state.profile = null;
+    routeToken += 1;          // a character still being opened must not appear after sign-out
+    bundleReads?.abort();
     unmountSheet();
+    unmountDmSpace();
     $('#topbar').hidden = true;
     renderAuth();
     return;
@@ -98,7 +101,7 @@ function renderSaveStatus(s) {
   if (!el) return;
   const labels = {
     idle: '', pending: 'Editing…', saving: 'Saving…', saved: 'Saved ✓',
-    error: 'Save failed — retrying', offline: 'Offline — will sync',
+    error: 'Save failed — retrying', offline: 'Offline — will sync', stalled: 'Not saved yet — retries on your next edit',
   };
   el.dataset.state = s;
   el.textContent = labels[s] ?? '';
@@ -112,6 +115,7 @@ function route() {
   if (!state.session) return;
   const hash = window.location.hash || '#/';
   const token = ++routeToken;
+  bundleReads?.abort();
   window.scrollTo(0, 0);
 
   const charMatch = hash.match(/^#\/c\/([0-9a-f-]{36})$/i);
@@ -772,14 +776,23 @@ function newCharacterDialog() {
   identity();
 }
 
+// The stored rows of the character being opened; aborted as soon as the user opens something else (route()), so a quick
+// A -> B -> C switch does not leave A's and B's reads running (incident 2026-10-23, docs/CHARACTER_LOAD_COORDINATOR.md).
+let bundleReads = null;
+
 async function openCharacter(id, token) {
+  bundleReads?.abort();
+  const reads = bundleReads = new AbortController();
   const cached = cacheGet(`bundle:${id}`);
   if (cached) mountSheet(app, cached, { readOnly: true });
-  else app.innerHTML = '<div class="center-wrap"><div class="spinner"></div></div>';
+  else {
+    unmountSheet({ keepRealtimeFor: id });   // the previous character stops reading and listening now, not when this one arrives
+    app.innerHTML = '<div class="center-wrap"><div class="spinner"></div></div>';
+  }
 
   try {
     await saver.flush();
-    const [bundle] = await Promise.all([loadBundle(id), loadCampaigns()]);
+    const [bundle] = await Promise.all([loadBundle(id, reads.signal), loadCampaigns()]);
     if (token !== routeToken) return;
     updateBadges();
     mountSheet(app, bundle, {
@@ -787,8 +800,8 @@ async function openCharacter(id, token) {
       onDeleted: () => { window.location.hash = '#/'; },
     });
   } catch (err) {
+    if (token !== routeToken || reads.signal.aborted) return;   // superseded: nothing to report
     console.error(err);
-    if (token !== routeToken) return;
     if (cached) {
       toast('Offline — showing a read-only cached copy.', 'bad', 5000);
     } else {

@@ -58,7 +58,7 @@ def open_page(browser, url, prefix=None):
     page.on("request", lambda r: requests.append(r.url))
     page.goto(url)
     page.wait_for_timeout(2500)
-    env = page.evaluate("() => import('./js/supabase.js?v=10').then((m) => m.environment + '|' + (m.supabase ? m.supabase.supabaseUrl : '')).catch((e) => 'import failed: ' + e)")
+    env = page.evaluate("() => import('./js/supabase.js?v=12').then((m) => m.environment + '|' + (m.supabase ? m.supabase.supabaseUrl : '')).catch((e) => 'import failed: ' + e)")
     env, _, configured = env.partition("|")
     hosted.append("configured:" + configured) if configured.startswith("https://") else None
     return ctx, page, env, hosted, requests, errors
