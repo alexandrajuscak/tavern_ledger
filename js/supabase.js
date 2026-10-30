@@ -1,8 +1,8 @@
 // supabase-js 2.117.2 is self-hosted (vendor/supabase-js, loaded by index.html as a classic script): no CDN request at runtime.
 const { createClient } = globalThis.supabase;
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PRODUCTION_HOSTS } from './config.js?v=14';
-import { readSignalFor } from './read-control.js?v=14';
-import { interceptRpc, setRawRpc } from './read-layer.js?v=14';
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PRODUCTION_HOSTS } from './config.js?v=15';
+import { readSignalFor } from './read-control.js?v=15';
+import { interceptRpc, setRawRpc } from './read-layer.js?v=15';
 
 // Local development only. When the app is served from localhost / 127.0.0.1 it talks ONLY to the local Supabase
 // stack, never to the hosted project in js/config.js. The local URL and anon key come from js/config.local.js,

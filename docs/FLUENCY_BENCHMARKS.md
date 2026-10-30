@@ -1,8 +1,8 @@
 # Fluency benchmarks: legacy vs fluent read path (2026-10-30)
 
-Release `20261030000100` / frontend `?v=13`. Outcome: **the fluent path stays behind the flag (`FLUENT_READS = 'off'`,
-per-browser `?fluent=1`)**. It does less work in total, but its first usable paint is later, and under a concurrent
-session-start burst on production it exceeds the 8 s statement timeout (§3). The next change is a progressive first paint (§5).
+Releases `20261030000100` (monolithic view, kept behind the flag after §3) and `20261030000200` (**progressive open**, §6,
+the production default since 2026-10-30 with `FLUENT_READS = 'on'`, frontend `?v=15`; `?fluent=0` is the per-browser
+fallback). Production numbers of the progressive release: docs/FLUENCY_PRODUCTION_DEPLOYMENT.md, "Progressive release".
 
 ## 1. Production, single character (read-only, as each owner, nobody else online)
 

@@ -206,7 +206,7 @@ def main():
         expected = []                     # console errors this test causes on purpose (a missing file, a refused change)
         n_err = len(s.errors)
         res = page.evaluate("""async () => {
-          const m = await import('./js/icons.js?v=14');
+          const m = await import('./js/icons.js?v=15');
           const host = document.createElement('div'); host.id = 'icon-probe'; document.body.append(host);
           host.innerHTML = m.icon('does.not.exist', { size: 24 }) + m.icon('ui/no-such-file', { size: 24 })
             + '<img class="tl-icon" data-icon="ui.attack" src="assets/icons/ui/missing-file.webp" width="24" height="24" alt="" aria-hidden="true">';

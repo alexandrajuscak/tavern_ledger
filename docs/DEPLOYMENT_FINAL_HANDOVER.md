@@ -60,8 +60,8 @@ Incidents: none. The CLI's confirmation menu printed two migration names twice; 
 | F-6 | Free plan has no automatic backups | Take a `supabase db dump` (roles / schema / data, as in the window) regularly and before every future migration. |
 | F-7 | The old backup folder is in OneDrive | Move it to a non-synced folder (it holds e-mail addresses and password hashes). |
 | F-8 | This handover and the smoke results are local edits after `9b810aa` | Commit them in a small follow-up commit when convenient (approval as usual). |
-| F-9 | **Fluent read path (2026-10-30) deployed behind the flag, not default** | Migration `20261030000100` (43 migrations) and frontend `?v=13` are live with `FLUENT_READS = 'off'`; per browser `?fluent=1`. The view is slower to first paint and runs past the 8 s timeout under concurrent opens (docs/FLUENCY_BENCHMARKS.md). Next: progressive first paint (docs/FLUENCY_PRODUCTION_DEPLOYMENT.md). |
-| F-10 | Starting equipment prompt missing for some characters | Pre-existing: `authenticated` has no EXECUTE on `_starting_equipment_candidates` (docs/FLUENCY_PRODUCTION_DEPLOYMENT.md). Fix with a one-line grant migration after review. |
+| F-9 | **Progressive fluent reads are the default (2026-10-30)** | Migrations `20261030000100` + `20261030000200` (44), frontend `?v=15`, `FLUENT_READS = 'on'`; per browser `?fluent=0` falls back to the legacy reads. Monitoring until a real multi-player session has run without a timeout cluster (docs/FLUENCY_PRODUCTION_DEPLOYMENT.md). |
+| F-10 | Starting equipment prompt | Fixed 2026-10-30 (migration `20261030000200`: `authenticated` may execute `_starting_equipment_candidates`); a failed read now shows Retry. |
 | F-11 | Nightly backup not scheduled yet | `scripts/backup/nightly_backup.ps1` (docs/PRODUCTION_OPERATIONS.md): create the URL file and the Task Scheduler entry. |
 
 ## Rollback (still available)

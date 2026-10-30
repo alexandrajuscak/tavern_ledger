@@ -1,20 +1,20 @@
-import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=14';
+import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=15';
 import {
   state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
   loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
   updateProfile, listCharacters, listCharacterBadges, createCharacter, loadBundle, loadCharacterView, saver,
-} from './store.js?v=14';
-import { getDerivedStats, getProficiencies } from './inventory-api.js?v=14';
-import { icon, classIcon, iconSrc } from './icons.js?v=14';
-import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=14';
-import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=14';
-import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=14';
-import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=14';
-import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=14';
-import { openLineagePicker } from './lineage-ui.js?v=14';
-import { getCharacterLineage } from './lineage-api.js?v=14';
-import { openAddClass } from './class-setup.js?v=14';
-import { getClassSummary } from './class-api.js?v=14';
+} from './store.js?v=15';
+import { getDerivedStats, getProficiencies } from './inventory-api.js?v=15';
+import { icon, classIcon, iconSrc } from './icons.js?v=15';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=15';
+import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=15';
+import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=15';
+import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=15';
+import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=15';
+import { openLineagePicker } from './lineage-ui.js?v=15';
+import { getCharacterLineage } from './lineage-api.js?v=15';
+import { openAddClass } from './class-setup.js?v=15';
+import { getClassSummary } from './class-api.js?v=15';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders

@@ -15,7 +15,7 @@
 //   ?fluent=1 or ?fluent=0 (?fluent=default clears it). The flag changes only how data is fetched, never who may read it:
 //   every read is authorized by the database. If the fluent read functions are missing or fail on the server, the page falls
 //   back to the legacy read path for the rest of the session (never a mix inside one sheet).
-import { FLUENT_READS } from './config.js?v=14';
+import { FLUENT_READS } from './config.js?v=15';
 
 const FLAG_KEY = 'tl-flag:fluent-reads';
 let broken = null;   // the reason the fluent path was switched off for this page session
