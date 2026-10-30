@@ -15,7 +15,8 @@ import isolation as iso
 from class_ui_common import APP, RUN, Sheet, User
 from incident_probe import Net, USABLE, emulate
 
-LAT = [int(x) for x in os.environ.get("LATENCIES", "0,50,150,300").split(",")]
+# Chromium latency emulation had no measurable effect in this setup (docs/FLUENCY_BENCHMARKS.md); default: local latency only
+LAT = [int(x) for x in os.environ.get("LATENCIES", "0").split(",")]
 N = int(os.environ.get("N", "5"))
 OUT = os.environ.get("OUT")
 NAME_IN_HEADER = "(n) => !!document.querySelector('.sheet-root .sheet') && document.querySelector('.sheet-root').textContent.includes(n)"
@@ -31,7 +32,18 @@ def p95(xs):
     return round(xs[min(len(xs) - 1, int(len(xs) * 0.95))] * 1000) if xs else None
 
 
+def no_offline_copy(page):
+    """Legacy opens otherwise paint the localStorage offline copy first (not a network result): removed before each open."""
+    page.evaluate("() => Object.keys(localStorage).filter((k) => k.includes('bundle:')).forEach((k) => localStorage.removeItem(k))")
+
+
+def bump_rules_epoch():
+    """Every server-side cached rules result becomes invalid (as after a catalog / campaign change): a cold open."""
+    iso.psql("update tl_cache.global_rev set rev = rev + 1 where id = 1")
+
+
 def open_measure(s, net, cid, name, settle=2500):
+    no_offline_copy(s.page)
     i = net.mark()
     t0 = time.time()
     s.page.evaluate(f"location.hash = '#/c/{cid}'")
@@ -55,7 +67,7 @@ def run(t):
     out = {"run": RUN, "n": N, "results": {}}
     with sync_playwright() as p:
         b = p.chromium.launch(channel="msedge", headless=True)
-        for mode in ("legacy", "fluent"):
+        for mode in ("legacy", "progressive"):
             flag = "0" if mode == "legacy" else "1"
             s = Sheet(b, pl, tab="combat"); s.page.goto(APP + f"?fluent={flag}"); s.page.wait_for_selector(".char-card", timeout=20000)
             net = Net(s.page)
@@ -109,11 +121,22 @@ def run(t):
             s.page.keyboard.press("Escape")
             out["results"][f"{mode}@bindings_per_join"] = sorted(set(net.bindings))
             s.close()
-            # five players open five characters at the same moment (150 ms)
+            # five players open five characters at the same moment, warm and cold server cache
+            for temp in ("warm", "cold"):
+                out["results"][f"{mode}@burst5_{temp}"] = burst(b, pl, chars, flag, cold=(temp == "cold"))
+                print(mode, "burst", temp, out["results"][f"{mode}@burst5_{temp}"], flush=True)
+        b.close()
+    return out
+
+
+def burst(b, pl, chars, flag, cold):
+    if True:
+        if True:
             pages = []
             for k in "ABCEF":
                 x = Sheet(b, pl, tab="combat"); x.page.goto(APP + f"?fluent={flag}"); x.page.wait_for_selector(".char-card", timeout=20000)
-                emulate(x, x.page, 150); pages.append((k, x, Net(x.page)))
+                no_offline_copy(x.page); pages.append((k, x, Net(x.page)))
+            if cold: bump_rules_epoch()
             t0 = time.time()
             for k, x, _ in pages: x.page.evaluate(f"location.hash = '#/c/{chars[k]}'")
             done = []
@@ -124,13 +147,12 @@ def run(t):
                     done.append(None)
             time.sleep(2)
             fails = sum(1 for _, _, nx in pages for r in nx.rows if str(r["outcome"]).startswith("failed"))
-            out["results"][f"{mode}@burst5_150"] = {"usable_median_ms": med(done), "usable_max_ms": round(max(d for d in done if d) * 1000) if any(done) else None,
-                                                   "not_usable": sum(1 for d in done if d is None), "failed_requests": fails,
-                                                   "requests_total": sum(len(nx.rows) for _, _, nx in pages)}
-            print(mode, "burst", out["results"][f"{mode}@burst5_150"], flush=True)
+            ends = [max((r["t1"] for r in nx.rows if r["t1"]), default=t0) - t0 for _, _, nx in pages]
+            res = {"usable_median_ms": med(done), "usable_max_ms": round(max(d for d in done if d) * 1000) if any(done) else None,
+                   "complete_max_ms": round(max(ends) * 1000), "not_usable": sum(1 for d in done if d is None), "failed_requests": fails,
+                   "requests_total": sum(len(nx.rows) for _, _, nx in pages)}
             for _, x, _ in pages: x.close()
-        b.close()
-    return out
+            return res
 
 
 if __name__ == "__main__":

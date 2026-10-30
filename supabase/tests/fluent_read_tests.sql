@@ -70,7 +70,7 @@ begin
   perform public.get_character_derived_stats(c); perform public.get_character_derived_stats(c);
   select coalesce(sum(calls), 0) into n2 from pg_stat_xact_user_functions where funcname = '_derived_stats_core';
   execute 'reset role';
-  insert into fr values ('view: at most 2 rules evaluations (invoker + definer)', n1 - n0 between 1 and 2, (n1 - n0)::text);
+  insert into fr values ('view: at most 2 rules evaluations (invoker + definer; 0 when served from the read cache)', n1 - n0 between 0 and 2, (n1 - n0)::text);
   insert into fr values ('outside a bundle: 2 calls = 2 evaluations (memo off)', n2 - n1 = 2, (n2 - n1)::text);
 end $$;
 

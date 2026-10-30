@@ -1,20 +1,20 @@
-import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=13';
+import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=14';
 import {
   state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
   loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
   updateProfile, listCharacters, listCharacterBadges, createCharacter, loadBundle, loadCharacterView, saver,
-} from './store.js?v=13';
-import { getDerivedStats, getProficiencies } from './inventory-api.js?v=13';
-import { icon, classIcon, iconSrc } from './icons.js?v=13';
-import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=13';
-import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=13';
-import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=13';
-import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=13';
-import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=13';
-import { openLineagePicker } from './lineage-ui.js?v=13';
-import { getCharacterLineage } from './lineage-api.js?v=13';
-import { openAddClass } from './class-setup.js?v=13';
-import { getClassSummary } from './class-api.js?v=13';
+} from './store.js?v=14';
+import { getDerivedStats, getProficiencies } from './inventory-api.js?v=14';
+import { icon, classIcon, iconSrc } from './icons.js?v=14';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=14';
+import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=14';
+import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=14';
+import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=14';
+import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=14';
+import { openLineagePicker } from './lineage-ui.js?v=14';
+import { getCharacterLineage } from './lineage-api.js?v=14';
+import { openAddClass } from './class-setup.js?v=14';
+import { getClassSummary } from './class-api.js?v=14';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders
@@ -300,7 +300,7 @@ function wirePrefetch(list) {
     const card = e.target.closest?.('.char-card[data-char]');
     if (!card || !fluentEnabled()) return;
     clearTimeout(timer);
-    timer = setTimeout(() => prefetchView(state.profile?.id, card.dataset.char, activeTabKey()), delay);
+    timer = setTimeout(() => prefetchView(state.profile?.id, card.dataset.char), delay);
   };
   list.addEventListener('pointerover', (e) => go(e, 150));
   list.addEventListener('pointerout', (e) => { if (e.target.closest?.('.char-card')) clearTimeout(timer); });

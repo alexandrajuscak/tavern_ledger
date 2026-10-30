@@ -1,8 +1,8 @@
 // Class levels, spell slots, Pact Magic, resources and rests (migration 20261015001700). The rules (total level, proficiency
 // bonus, effective caster level, slot maximums, limits) live in the database; this module only moves data.
-import { supabase } from './supabase.js?v=13';
-import { takeSeed } from './read-layer.js?v=13';
-import { friendlyError } from './utils.js?v=13';
+import { supabase } from './supabase.js?v=14';
+import { awaitSeed } from './read-layer.js?v=14';
+import { friendlyError } from './utils.js?v=14';
 
 export class ClassError extends Error {
   constructor(message, raw) { super(message); this.raw = raw; this.needsConfirm = raw?.hint === 'confirm_required'; }
@@ -77,8 +77,8 @@ export async function getStartingEquipmentState(characterId, summary) {
   const primary = (summary?.classes || []).find((k) => k.is_primary);
   if (!primary) return null;
   // fluent read path: both parts came with the character view (seeded once; otherwise the normal reads below)
-  const seedApplied = takeSeed('starting_equipment_applied', characterId);
-  const seedEq = takeSeed('primary_class_starting_equipment', characterId);
+  const [seedApplied, seedEq] = await Promise.all([awaitSeed('starting_equipment_applied', characterId),
+    awaitSeed('primary_class_starting_equipment', characterId)]);
   if (seedApplied.hit && !seedApplied.error && seedEq.hit && !seedEq.error && seedEq.data?.class_version_id === primary.class_version_id) {
     if (!equipmentCache.has(primary.class_version_id)) equipmentCache.set(primary.class_version_id, Promise.resolve(seedEq.data.equipment));
     const eq = seedEq.data.equipment;

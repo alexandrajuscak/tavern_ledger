@@ -1,10 +1,10 @@
 // Background card on the Build tab and its dialogs (docs/BACKGROUNDS.md): choose a background version (2024 or legacy, never
 // mixed), allocate the 2024 ability increases, make the choices, review and apply the starting equipment once, replace a
 // duplicated proficiency, keep personal characteristics. The server validates everything (set_character_background).
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=13';
-import * as api from './background-api.js?v=13';
-import { loadIntoPicker } from './catalog-load.js?v=13';
-import { SKILLS } from './dnd.js?v=13';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=14';
+import * as api from './background-api.js?v=14';
+import { loadIntoPicker } from './catalog-load.js?v=14';
+import { SKILLS } from './dnd.js?v=14';
 
 const AB = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const ABS = { str: 'STR', dex: 'DEX', con: 'CON', int: 'INT', wis: 'WIS', cha: 'CHA' };
@@ -244,7 +244,11 @@ export async function openBackgroundPicker({ characterId, current, onSaved }) {
     }
   });
   showEditor();
-  setTimeout(() => $('[name=q]', m.el)?.focus(), 60);
+  // initial focus on the search box, unless the user already moved the focus to a control of the dialog (fast keyboard use)
+  setTimeout(() => {
+    const a = document.activeElement;
+    if (!a || !m.el.contains(a) || !a.matches('input, select, button:not([data-close]), textarea')) $('[name=q]', m.el)?.focus();
+  }, 60);
   // search and filters typed while loading are kept: the first render uses them
   loadIntoPicker(list, () => api.getBackgroundList(), {
     label: 'backgrounds',

@@ -215,6 +215,11 @@ def run(t):
         # 3/13/14 while the sheet still loads and Inventory / spellbook answers are held back for 8 s
         slow = []
         def delay(route):
+            # fluent (progressive): only the coalesced reads that carry the spellbook or the inventory are held back; the open's
+            # domain request (Build, Play) is not part of this scenario
+            body = route.request.post_data or ""
+            if "get_character_reads" in route.request.url and "get_character_spellbook" not in body and "inventory_bundle" not in body:
+                route.continue_(); return
             slow.append(route)
         page.route("**/rest/v1/v_inventory_detail*", delay)
         page.route("**/rest/v1/rpc/get_character_spellbook", delay)
@@ -378,7 +383,7 @@ def run(t):
         # 10/30 sign-out: reads stop, channels are removed
         go(page, chars["C"], wait=False)
         page.wait_for_timeout(300)
-        page.evaluate("async () => { const m = await import('./js/supabase.js?v=13'); await m.supabase.auth.signOut(); }")
+        page.evaluate("async () => { const m = await import('./js/supabase.js?v=14'); await m.supabase.auth.signOut(); }")
         page.wait_for_selector("input[name=email]", timeout=15000)
         check("30 sign-out removes every Realtime subscription of the user", wait_until(lambda: subs_for(pl.id) == 0, 15), subs_for(pl.id))
         check("10 sign-out: no sheet is rendered afterwards", page.locator(".sheet-root").count() == 0)

@@ -60,3 +60,30 @@ are coalesced into one request.
   The legacy path reloaded the whole sheet (34 requests) per drop.
 - A prefetched view older than 1.5 s triggers the same reconciliation once after mount (nothing is missed between the
   prefetch and the subscription).
+
+## Server-side read cache (migration 20261030000200)
+
+`get_character_reads` (and with it the Character Shell, the view and the bundles) serves the expensive rules reads from
+`tl_cache.character_reads`, one row per character, **viewer** (`auth.uid()`) and read. The legacy path (each RPC called
+directly) never uses it. A cached value is served only while its key is unchanged:
+
+| Key part | Bumped by |
+|---|---|
+| `tl_cache.character_rev(character)` | trigger `tl_cache_rev` on every public table with a `character_id` column; tables with an `inventory_id` column via `inventories.character_id`; `characters` itself unless only runtime columns changed (`hp_current`, `hp_temp`, `death_successes`, `death_failures`, `inspiration`, `hit_dice_current`, `cp`/`sp`/`ep`/`gp`/`pp`, `updated_at`) |
+| `tl_cache.global_rev` | trigger `tl_cache_rev` on every other public table (catalog, campaigns, members, policies, DM content, profiles, item secrets, ...) and on a party / shop inventory |
+| latest applied migration + calculation version | any migration (a migration may change a rules function) |
+
+Rules that make a stale value impossible (each tested in `supabase/tests/progressive_read_tests.sql`):
+
+- every public table carries the trigger (a coverage check fails for a future table without one);
+- the key is read **before** the value is computed: a concurrent change can only make a stored value look older (a miss);
+- the counter is a stored number compared for equality (never "the newest log row", which a pruned or uncommitted log row could
+  fool); a no-op update does not bump; one bump per transaction;
+- a transaction that has bumped a counter never stores a value (a later write in it would not bump again);
+- trigger errors are not swallowed (a missed bump would be a stale value; the write fails instead);
+- never cached: characters with a Wild Shape row (the form layer depends on current HP and on the clock), governance, change
+  requests, table reads, errors; callers other than an API user (`authenticated`).
+
+Cached reads: derived stats, proficiencies, lineage, background, feats, class summary, spell slots, class features,
+resources, states, infusions, spellbook, primary-class starting equipment, transformation (only without a Wild Shape row).
+A cached derived-stats value also seeds the request's memo, so nested invoker callers reuse it.

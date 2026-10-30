@@ -88,3 +88,33 @@ Next change (not in this release): **progressive first paint.** Fetch the vitals
 governance, revisions) in one small `get_character_reads`, and the rest of the shell in a second one. Make Build's class
 features (33-118 KB) and Wild Shape options (up to 86 KB) lazy. Run the §3 burst and the 0.5 CPU switch/burst again as the
 gate before setting `FLUENT_READS = 'on'`.
+
+## 6. Progressive open (migration 20261030000200, frontend `?v=14`)
+
+Same benchmark (`fluency_benchmark.py`), fixed: legacy opens no longer paint the localStorage offline copy first (removed
+before every open), the ineffective latency loop is off, and every burst runs twice, with the server cache **warm** and
+**cold** (`tl_cache.global_rev` bumped first, as after a catalog / campaign change). Medians of 5; DB container at 0.5 CPU
+(production speed) and 16 CPUs.
+
+| Measure (0.5 CPU) | Legacy | Monolithic view (§4) | **Progressive** |
+|---|---|---|---|
+| Open: identity / vitals | 62 / 71 ms | 1,031 / 1,037 ms | **106 / 111 ms** |
+| Open: whole sheet loaded | 2,278 ms | 1,037 ms | **1,055 ms** |
+| Open: requests | 35 | 4 | **5** (shell + domain + campaigns refresh) |
+| Switch A→B→C: C usable | 842 ms | 2,926 ms | **495 ms** |
+| 5 simultaneous opens, warm: usable median / max | 834 / 2,054 ms | 7,337 / 7,351 ms | **895 / 1,589 ms** |
+| 5 simultaneous opens, cold: usable median / max | 327 / 339 ms | — | **912 / 1,097 ms** |
+| 5 simultaneous opens: requests | 195-198 | 52 | **55** |
+| Failed requests / not usable | 0 / 0 | 0 / 0 | 0 / 0 |
+
+| Measure (16 CPUs) | Legacy | Progressive |
+|---|---|---|
+| Open: vitals / whole sheet | 73 / 491 ms | 96 / 509 ms |
+| Switch A→B→C | 843 ms | 499 ms |
+| 5 simultaneous opens warm / cold, max usable | 349 / 588 ms | 226 / 273 ms |
+
+The first Inventory open measured 2.4 s (10 reference tables on the click, against 1.6 s legacy, both including a 1.5 s settle
+wait). It now prefetches those tables in idle time after the open has completed (`js/sheet.js`).
+
+Server cost per open: the shell is 14 KB and the domain request 47-90 KB. With a warm cache neither evaluates the rules
+(`progressive_read_tests.sql`: "warm batch: no invoker rules evaluation").

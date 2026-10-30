@@ -10,6 +10,10 @@
 -- =============================================================================
 begin;
 
+-- progressive fluent reads (20261030000200): the read cache and its counter trigger on every table
+drop function if exists public.get_character_shell(uuid);
+drop schema if exists tl_cache cascade;
+
 -- fluent read architecture (20261030000100): the change-log triggers first (they run on base tables), then its table and
 -- read functions; get_character_derived_stats / _derived_stats_levels go with the cascades below.
 drop function if exists public._bump_character_revision() cascade;

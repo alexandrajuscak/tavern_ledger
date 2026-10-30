@@ -59,7 +59,7 @@ Script: `scripts/backup/nightly_backup.ps1` (tested in the 2026-10-30 release: i
    "Last Run Result" ≠ 0. Check weekly; a missing folder for today is a failure too.
 5. Off-device: copy the newest folder weekly to an encrypted location (BitLocker-protected USB disk, or a cloud folder after
    `7z a -p` / `age` encryption). The PC disk is not a backup of itself.
-6. Monthly restore rehearsal: `-Rehearse` restores into a throw-away local PostgreSQL and compares the character count; the
+6. Monthly restore rehearsal: `-Rehearse` restores into a throw-away Supabase Postgres container (public data; the Auth tables are created by the Auth service and are not part of the check) and compares the character count; the
    full restore procedure is docs/DEPLOYMENT_INPLACE_UPGRADE_RUNBOOK.md §5.
 
 Before every migration: run it with `-Label pre-<name>` (kept forever).

@@ -53,3 +53,18 @@ note absent from every player response, present for the DM).
 ## Test counts
 
 See `docs/FLUENCY_PRODUCTION_DEPLOYMENT.md` §Results for the final numbers of every suite run for this release.
+
+## Progressive release (migration 20261030000200)
+
+| Object | Security | Grants | Notes |
+|---|---|---|---|
+| schema `tl_cache` | not exposed by PostgREST (`public`, `graphql_public` only) | `usage` to `authenticated`, `service_role` | tables: RLS on, **no** table grants; reachable only through the functions below |
+| `tl_cache.key / get / put` | DEFINER, pinned `search_path` | `authenticated`, `service_role` | `get` and `put` always use `viewer = auth.uid()`: a caller can neither read nor write another viewer's rows; `put` stores only for `authenticated` callers. Even if the schema were exposed, a user could only forge values shown to themselves, never to the DM or other players, and never values used by a write (writes always compute) |
+| `tl_cache.bump` (trigger) | DEFINER | revoked from everyone | counters only (two numbers) |
+| `get_character_shell` | INVOKER | `authenticated`, `service_role` | same checks as `get_character_reads` (`42501` before any read) |
+| `_starting_equipment_candidates` | INVOKER (unchanged) | **+ `authenticated`**, revoked from `anon` | reads official, non-archived catalog items only (`owner_id`, `campaign_id` null); its caller `get_class_starting_equipment` was already granted to `authenticated` |
+
+Hidden data: the cache stores exactly what the same viewer's direct call returns, keyed by that viewer; a DM's result is never
+served to a player. No hidden condition, DM note or item secret is part of any cached read. Tested: per-viewer rows, unrelated
+player `42501` on shell and reads, `tl_cache.get` of another character empty, `authenticated` denied on the cache tables and
+counters, anonymous denied on shell and on `tl_cache`, starting-equipment candidates official items only, anonymous denied.

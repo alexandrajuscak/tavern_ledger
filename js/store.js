@@ -1,7 +1,7 @@
-import { supabase, announceGovernance } from './supabase.js?v=13';
-import { toast, friendlyError } from './utils.js?v=13';
-import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=13';
-import { fetchView } from './read-layer.js?v=13';
+import { supabase, announceGovernance } from './supabase.js?v=14';
+import { toast, friendlyError } from './utils.js?v=14';
+import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=14';
+import { fetchView } from './read-layer.js?v=14';
 
 export const state = {
   session: null,
@@ -203,7 +203,7 @@ async function healBundle(id, { character, inventory, notes, slots, trackers, fe
  * its loader (it then reads it itself, as before).
  */
 export async function loadCharacterView(id, tab, signal) {
-  const view = await fetchView(state.profile?.id || state.session?.user?.id, id, tab, { signal });
+  const view = await fetchView(state.profile?.id || state.session?.user?.id, id, { signal });
   if (signal?.aborted) throw Object.assign(new Error('AbortError: superseded'), { name: 'AbortError' });
   const r = view.reads || {};
   if (!r.characters) {

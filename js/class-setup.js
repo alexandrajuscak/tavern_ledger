@@ -2,9 +2,9 @@
 // prerequisites of every class, features, proficiencies, choices to make, spellcasting and slots) and the starting
 // equipment review (one option per group, a concrete item for "any martial weapon"-style entries, added to the inventory
 // once, first class only). Everything comes from preview_character_class_add / get_class_starting_equipment; no class names.
-import { $, $$, esc, toast, openModal } from './utils.js?v=13';
-import * as api from './class-api.js?v=13';
-import { catalogOrExplain } from './catalog-load.js?v=13';
+import { $, $$, esc, toast, openModal } from './utils.js?v=14';
+import * as api from './class-api.js?v=14';
+import { catalogOrExplain } from './catalog-load.js?v=14';
 
 const ord = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`;
 const words = (id) => String(id || '').replace(/-/g, ' ');
@@ -236,6 +236,11 @@ export function openStartingEquipment({ characterId, equipment, className, onDon
 
 /** Card button for the primary class while its starting equipment was not added yet. */
 export function startingEquipmentButtonHTML(state, { editable = true } = {}) {
-  if (!editable || !state || state.applied || !state.class_version_id || !state.has_options) return '';
+  if (!editable || !state || !state.class_version_id) return '';
+  if (state.error) {
+    return `<span class="muted" data-start-eq-error>Starting equipment could not be loaded.</span>
+      <button type="button" class="btn btn-sm" data-action="class-start-eq-retry" data-focus-key="class-start-eq-retry">Retry</button>`;
+  }
+  if (state.applied || !state.has_options) return '';
   return `<button type="button" class="btn btn-sm" data-action="class-start-eq" data-version="${esc(state.class_version_id)}" data-focus-key="class-start-eq">Starting equipment…</button>`;
 }

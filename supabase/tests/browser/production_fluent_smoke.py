@@ -72,7 +72,7 @@ class Session:
         if not row:
             return
         row["status"] = resp.status
-        if row["name"] in ("get_character_view", "get_character_reads", "get_background_list", "get_background_detail"):
+        if row["name"] in ("get_character_view", "get_character_shell", "get_character_reads", "get_background_list", "get_background_detail"):
             try:
                 body = resp.text()
                 row["bytes"] = len(body.encode())
@@ -135,12 +135,17 @@ def run():
         hero, solo = pl.char_id(HERO), pl.char_id(SOLO)
         t_open, rows = pl.open(hero)
         summary["open"] = {"usable_ms": round(t_open * 1000), "requests": len(rows), "names": sorted({r["name"] for r in rows}),
-                           "view_bytes": sum(r["bytes"] for r in rows if r["name"] == "get_character_view"),
+                           "shell_bytes": sum(r["bytes"] for r in rows if r["name"] == "get_character_shell"),
+                           "domain_bytes": sum(r["bytes"] for r in rows if r["name"] == "get_character_reads"),
+                           "shell_ms": [round((r["t1"] - r["t0"]) * 1000) for r in rows if r["name"] == "get_character_shell" and r["t1"]],
+                           "domain_ms": [round((r["t1"] - r["t0"]) * 1000) for r in rows if r["name"] == "get_character_reads" and r["t1"]],
                            "failed": [r["name"] for r in rows if r["outcome"] == "failed" or (r["status"] or 200) >= 500]}
         check("SM-03 open: Character Shell renders (name, AC)", HERO in pl.text())
-        if FLAG != "0":
-            check("SM-03 open: 1 get_character_view, no per-widget reads", len([r for r in rows if r["name"] == "get_character_view"]) == 1
-                  and not [r for r in rows if r["rpc"] and r["name"].startswith("get_character_") and r["name"] not in ("get_character_view", "get_character_reads")],
+        if info.get("path") == "fluent":
+            check("SM-03 open: progressive (1 shell + 1 domain request), no full view, no per-widget reads",
+                  len([r for r in rows if r["name"] == "get_character_shell"]) == 1 and len([r for r in rows if r["name"] == "get_character_reads"]) == 1
+                  and not [r for r in rows if r["name"] == "get_character_view"]
+                  and not [r for r in rows if r["rpc"] and r["name"].startswith("get_character_") and r["name"] not in ("get_character_shell", "get_character_reads")],
                   summary["open"]["names"])
         check("SM-03 open: no failed / 5xx request", not summary["open"]["failed"], summary["open"]["failed"])
         for key in ("combat", "stats", "spells", "inventory", "features", "bio"):
@@ -225,7 +230,7 @@ def run():
         rc = pl.since(i)
         summary["reconnect"] = {"requests": [r["name"] for r in rc]}
         if FLAG != "0":
-            check("SM-13 reconnect: one reconciliation, no full reload", len(rc) <= 2 and not [r for r in rc if r["name"] == "get_character_view"], summary["reconnect"])
+            check("SM-13 reconnect: one reconciliation, no full reload", len(rc) <= 2 and not [r for r in rc if r["name"] in ("get_character_view", "get_character_shell")], summary["reconnect"])
 
         # security: hidden data absent from every player response; stranger denied
         leaked = [n for n, body in pl.bodies if any(s in body for s in SECRETS)]

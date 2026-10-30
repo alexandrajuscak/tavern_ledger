@@ -75,3 +75,23 @@ history. Hidden data cannot appear: every section is the existing RLS-filtered r
 
 Additive: every old read RPC stays and behaves identically; the legacy frontend path (`FLUENT_READS = 'off'`) keeps working
 against the new database. Version field `contract` changes only with an incompatible shape change.
+
+## Progressive open (contract 2, migration 20261030000200)
+
+The one-request view stays available, but the client no longer opens a character with it (docs/FLUENCY_BENCHMARKS.md).
+An open is two requests:
+
+1. `get_character_shell(p_character)`: `_character_read_set('core')`, i.e. `characters`, the stored rows (`inventory_items`,
+   `notes`, `spell_slots`, `feature_trackers`, `features`, `attacks`, `spells`), `get_character_derived_stats`,
+   `get_character_governance`, `get_character_change_requests` (open) and `revisions`. Response:
+   `{character_id, reads, errors, server_ms, cache: {hits, stored}, domain: 'core', contract: 2}`. The sheet renders
+   identity, vitals (HP, temp HP, AC, initiative, speed, proficiency bonus, death saves), the tab bar, the lock/approval bar
+   and open requests from it.
+2. Immediately after rendering, one `get_character_reads` with the rest of what the sheet reads (`js/sheet.js`
+   `SHEET_DOMAIN_READS`: proficiencies, lineage, background, feats, class summary, spell slots, class features, resources,
+   states, transformation, companions, infusions, starting equipment), plus `get_character_spellbook` or `inventory_bundle`
+   when Spells or Inventory is the open tab.
+
+Both are served from the per-viewer server cache when nothing relevant changed (docs/CHARACTER_DATA_INVALIDATION_MODEL.md),
+so a repeated open does not evaluate the rules again. Same security as above: INVOKER, `can_access_character` first, 57014
+never caught per read.

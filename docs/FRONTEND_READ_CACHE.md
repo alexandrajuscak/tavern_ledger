@@ -35,3 +35,15 @@ Small, explicit, vanilla. No framework, no persistence of character data.
 bundles; cached tabs; A→B→C without stale render; prefetch reuse; Background list/detail; HP across sessions without a
 derived re-read; revision-driven list refresh; reconnect = 1 reconciliation; no `bundle:*` in localStorage; unrelated player
 denied; sign-out clears; `?fluent=0` legacy; automatic fallback when `get_character_view` is missing; a view statement timeout (57014) opens that sheet on the legacy reads; no console errors.
+
+## Progressive open (release 2026-10-30, `?v=14`)
+
+| Step | Priority | What |
+|---|---|---|
+| 1 | highest | `get_character_shell` (or its Home prefetch), then the sheet mounts and renders identity and vitals |
+| 2 | next | `prefetchDomain`: ONE `get_character_reads` with `SHEET_DOMAIN_READS` (+ the open tab's domain). Every loader that asks for one of these names while it is in flight waits for it (`interceptRpc`, `awaitSeed`) instead of starting its own wave; nothing else is requested before it |
+| 3 | idle | `requestIdleCallback`: the Inventory tab's static reference tables (`getLookups`), after step 2 has finished |
+| 4 | on demand | Spells / Inventory first open (one request each), pickers (list, then one detail), feature details |
+
+Cancellation, stale-response guards and the one-sheet scope are unchanged: closing or switching aborts the shell, the domain
+request and their waiters. A failed starting-equipment read is shown on the class card with **Retry** (it used to be silent).

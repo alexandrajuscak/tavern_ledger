@@ -4,54 +4,54 @@ import {
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   ACTIVATIONS, ACTIVATION_BY_KEY, CASTING_TIMES, CONDITIONS, CONDITION_BY_NAME,
   weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js?v=13';
+} from './dnd.js?v=14';
 import {
   saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, subscribeCharacterFluent, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
-} from './store.js?v=13';
-import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=13';
-import { mountInventory } from './inventory-ui.js?v=13';
-import { exportCharacter, downloadJson } from './transfer.js?v=13';
-import { getDerivedStats, getProficiencies, setCharacterProficiency } from './inventory-api.js?v=13';
+} from './store.js?v=14';
+import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=14';
+import { mountInventory } from './inventory-ui.js?v=14';
+import { exportCharacter, downloadJson } from './transfer.js?v=14';
+import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups } from './inventory-api.js?v=14';
 import { backgroundCardHTML, openBackgroundPicker, openBackgroundEquipment, openReplaceDuplicate, saveCharacteristics, rollCharacteristic,
-  removeBackground } from './background-ui.js?v=13';
-import { getCharacterBackground } from './background-api.js?v=13';
-import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=13';
-import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=13';
+  removeBackground } from './background-ui.js?v=14';
+import { getCharacterBackground } from './background-api.js?v=14';
+import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=14';
+import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=14';
 import {
   acNote, openAcBreakdown, equippedWeaponsHTML, trackWeaponDetails, toolsHTML, specificProficienciesHTML,
   openProficiencyManager, equipmentNotes,
-} from './derived-ui.js?v=13';
-import { openLevelUp } from './levelup.js?v=13';
-import { mountGovernance } from './request-ui.js?v=13';
-import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=13';
-import { fluentEnabled, beginReadScope, endReadScope, seedReads, readNow, knownRevision, noteRevisions, takeSeed } from './read-layer.js?v=13';
-import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=13';
-import { exportFeats } from './feat-api.js?v=13';
-import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=13';
-import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=13';
-import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=13';
+} from './derived-ui.js?v=14';
+import { openLevelUp } from './levelup.js?v=14';
+import { mountGovernance } from './request-ui.js?v=14';
+import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=14';
+import { fluentEnabled, beginReadScope, endReadScope, seedReads, prefetchDomain, readNow, knownRevision, noteRevisions, awaitSeed } from './read-layer.js?v=14';
+import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=14';
+import { exportFeats } from './feat-api.js?v=14';
+import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=14';
+import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=14';
+import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=14';
 import {
   emptyFilters, filtersHTML, readFilter, sourcesHTML, spellbookListHTML, openSpellDetail, openAddSpell, openSourceEditor, rememberSpellSections,
-} from './spell-ui.js?v=13';
+} from './spell-ui.js?v=14';
 import {
   getClassSummary, getSpellSlots, getClassCatalog, expendStandardSlot, restoreStandardSlot, expendPactSlot, restorePactSlot,
   setSlotState, setCharacterClass, shortRest, longRest, getClassFeatures, getResources, exportClassFeatures, useTemporarySlot,
   restoreTemporarySlot, getStartingEquipmentState, getStartingEquipment, getStates,
-} from './class-api.js?v=13';
-import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=13';
-import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=13';
-import { openStartingEquipment } from './class-setup.js?v=13';
+} from './class-api.js?v=14';
+import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=14';
+import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=14';
+import { openStartingEquipment } from './class-setup.js?v=14';
 import {
   companionsHTML, openAddCompanion, changeCompanionHp, removeCompanionConfirm,
-} from './creature-ui.js?v=13';
-import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=13';
-import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=13';
+} from './creature-ui.js?v=14';
+import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=14';
+import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=14';
 import {
   featuresPanelHTML, featureSummaryHTML, restoreDrafts, resourceListHTML, attachFeatureHandlers, hydrateSpellChoices, restResourceLines, restResultText, restSummaryHTML,
   riderDiceRange, statesHTML, glanceHTML,
-} from './feature-ui.js?v=13';
-import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=13';
-import { sectionHTML, sectionHead } from './section.js?v=13';
+} from './feature-ui.js?v=14';
+import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=14';
+import { sectionHTML, sectionHead } from './section.js?v=14';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -609,7 +609,12 @@ async function loadClasses() {
     const [tf, comps, infs] = await Promise.all([getTransformation(id).catch(() => null), getCompanions(id).catch(() => null),
       getInfusions(id).catch(() => null)]);
     if (stale()) return;
-    const eq = ctx?.readOnly ? null : await getStartingEquipmentState(id, summary).catch(() => null);
+    // a failed read is shown on the class card (with Retry), not silently dropped
+    const eq = ctx?.readOnly ? null : await getStartingEquipmentState(id, summary).catch((e) => {
+      console.warn('[starting equipment]', e?.message || e);
+      const primary = (summary?.classes || []).find((k) => k.is_primary);
+      return primary ? { class_version_id: primary.class_version_id, class_name: primary.class_name, error: true } : null;
+    });
     if (stale()) return;
     startEqState = eq;
     classStates = sts;
@@ -2709,6 +2714,7 @@ const actions = {
   'comp-add': () => openAddCompanion({ characterId: C().id, onDone: loadClasses }),
   'comp-hp': async (el) => { await changeCompanionHp(el, companions); await loadClasses(); },
   'comp-remove': async (el) => { if (await removeCompanionConfirm(el, companions)) await loadClasses(); },
+  'class-start-eq-retry': () => loadClasses(),
   'class-start-eq': async (el) => {
     const equipment = await getStartingEquipment(el.dataset.version);
     openStartingEquipment({ characterId: C().id, equipment, className: startEqState?.class_name, onDone: async () => { await loadClasses(); inventory?.refresh?.(); } });
@@ -3015,7 +3021,15 @@ export function mountSheet(container, bundle, options = {}) {
 
   beginSheetReads(C().id);   // every character read of this sheet is aborted when it closes (js/read-control.js)
   sheetFluent = fluentEnabled() && !!options.view;
-  if (sheetFluent) { beginReadScope(C().id); seedReads(C().id, options.view); }
+  if (sheetFluent) {
+    beginReadScope(C().id);
+    seedReads(C().id, options.view);
+    // progressive open, step 2: everything else the sheet reads now, plus the active tab's domain, in ONE request
+    const tab = activeTabKey();
+    const domain = prefetchDomain(C().id, [...SHEET_DOMAIN_READS, ...(tab === 'spells' ? ['get_character_spellbook'] : tab === 'inventory' ? ['inventory_bundle'] : [])]);
+    // lowest priority, after the open is complete: the Inventory tab's session reference tables (static catalog lookups)
+    if (tab !== 'inventory') domain.then(() => whenIdle(() => getLookups().catch(() => {})));
+  }
   root.dataset.readPath = sheetFluent ? 'fluent' : 'legacy';
   serverChar = { ...B.character };
   root.addEventListener('input', onInput);
@@ -3071,7 +3085,7 @@ function mountInventoryPanel() {
     },
     getEquipmentNotes: (inventoryItemId) => equipmentNotes(derived, inventoryItemId),
     loadBundle: sheetFluent ? async () => {
-      const seed = takeSeed('inventory_bundle', id);
+      const seed = await awaitSeed('inventory_bundle', id);
       if (seed.hit) { if (seed.error) throw seed.error; return seed.data; }
       const r = await readNow(id, ['inventory_bundle']);
       if (r.errors?.inventory_bundle) throw r.errors.inventory_bundle;
@@ -3083,6 +3097,15 @@ function mountInventoryPanel() {
 // ---- fluent read path: one revision table instead of 64 bindings (docs/CHARACTER_DATA_INVALIDATION_MODEL.md) ------------
 // The stored-row lists of the sheet: a revision of one of them re-reads that list and replays the differences through
 // onRemote (same patching, focus and in-flight-edit protection as the per-row events of the legacy path).
+/** Run `fn` when the browser is idle (low-priority prefetch), at the latest after 3 s. */
+const whenIdle = (fn) => (window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 3000 }) : setTimeout(fn, 1200));
+
+// What the mounted sheet reads after the Character Shell (js/read-layer.js prefetchDomain): Play, Abilities and Build share
+// these loaders, so they come in one request; Spells and Inventory add their own domain when they are the open tab.
+const SHEET_DOMAIN_READS = ['get_character_proficiencies', 'get_character_lineage', 'get_character_background', 'get_character_feats',
+  'get_character_class_summary', 'get_character_spell_slots', 'get_character_class_features', 'get_character_resources',
+  'get_character_states', 'get_character_transformation', 'companions', 'get_character_infusions', 'starting_equipment_applied',
+  'primary_class_starting_equipment'];
 const LIST_TABLES = new Set(['notes', 'spell_slots', 'feature_trackers', 'features', 'attacks', 'spells']);
 const pendingLists = new Set();
 

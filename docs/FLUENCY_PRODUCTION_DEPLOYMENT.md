@@ -52,3 +52,21 @@ Pre-existing finding (not caused by this release, not changed): `get_class_start
 characters whose class has placeholder equipment entries, on both paths (2 of 7 production characters). Since migration
 `20261017000600`, `authenticated` has had no EXECUTE on `_starting_equipment_candidates`. The UI ignores the error (no
 starting-equipment prompt for those characters).
+
+## Progressive release (migration 20261030000200, frontend `?v=14`)
+
+| # | Step | Gate |
+|---|---|---|
+| 1 | Local: `progressive_read_tests.sql`, `fluent_read_tests.sql`, fluent UI suite, full browser suite (flag on), plain-PostgreSQL suite, rollback exact (`rollback_progressive_fluent_reads.sql`) + reapply | all green |
+| 2 | Identity: ref of the access file = ref of `js/config.js`; 43 migrations; nobody active | match |
+| 3 | Backup `-Label pre-progressive -Rehearse`; catalog counts; golden before; live frontend revision | OK, rehearsal 7/7 |
+| 4 | Dry run: exactly `20261030000200` | anything else → stop |
+| 5 | Commit `feat: add progressive fluent character loading` with `FLUENT_READS = 'off'`; secret scan; push; Pages serves `?v=14` | one coherent revision |
+| 6 | `db push`; golden after (direct == before, view == direct); grants; trigger coverage; counts unchanged | identical |
+| 7 | Controlled concurrency (`scripts/fluent/controlled_concurrency.sh "1 2 3 5"`): real characters as their owners, API timeout 8 s, levels 1 → 2 → 3 → 5, health check between levels; stops at any error or a request over 6 s | all levels pass |
+| 8 | Synthetic smoke fixture; `production_fluent_smoke.py` with `FLAG=1` and `FLAG=0` | all pass |
+| 9 | Commit `FLUENT_READS = 'on'`; push; smoke with the site default (`FLAG=''`) | all pass |
+| 10 | Cleanup (left 0), post backup, delete the access file, password rotation | — |
+
+Rollback: `FLUENT_READS = 'off'` (one line) or `?fluent=0` per browser; the database objects can stay (additive, used only by
+the fluent path). `rollback_progressive_fluent_reads.sql` only for a confirmed database defect.

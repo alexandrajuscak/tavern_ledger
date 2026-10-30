@@ -1,6 +1,6 @@
 """Fluent read architecture, browser suite (docs/FLUENT_READ_ARCHITECTURE.md). LOCAL ONLY, synthetic users inside isolation.
 
-Covers: one request per open, seeded loaders (no per-widget reads), coalesced reloads, tab bundles (Spells, Inventory),
+Covers: progressive open (Character Shell, then one domain request), seeded loaders (no per-widget reads), coalesced reloads, tab bundles (Spells, Inventory),
 cached tabs, A -> B -> C without stale render, Home prefetch reuse, Background list/detail, HP between two sessions without
 a derived re-read, revision-driven list refresh, reconnect = one reconciliation, 3+2 Realtime bindings, legacy flag and
 automatic fallback, sign-out clears user data, unrelated player denied, no character payload in localStorage.
@@ -16,7 +16,10 @@ import isolation as iso
 from class_ui_common import APP, RUN, Sheet, User, check, report
 from incident_probe import Net, USABLE, emulate
 
-READ_RPCS = re.compile(r"^get_character_(?!view$|reads$|bundle$)")
+# static catalog lookups of the Inventory tab (prefetched in idle time after an open)
+REFERENCE_TABLES = {"item_kinds", "item_categories", "rarities", "source_books", "ammo_types", "equipment_slots", "equipment_slot_rules",
+                    "damage_types", "weapon_properties", "currencies"}
+READ_RPCS = re.compile(r"^get_character_(?!view$|reads$|bundle$|shell$)")
 
 
 def rpcs(rows, name=None):
@@ -58,14 +61,24 @@ def run(t):
         i = net.mark(); j0 = net.joins
         open_wait(s, chars["A"]); page.wait_for_timeout(2500)
         rows = net.since(i)
-        views = rpcs(rows, "get_character_view")
+        shells = rpcs(rows, "get_character_shell")
+        domains = rpcs(rows, "get_character_reads")
         per_widget = [r for r in rpcs(rows) if READ_RPCS.match(r["name"])]
         tables = [r for r in rows if not r["rpc"] and r["char"] == chars["A"]]
-        check("FL-01 open = 1 get_character_view", len(views) == 1, [r["name"] for r in rows])
+        check("FL-01 open = 1 get_character_shell + 1 domain request (progressive), no full view",
+              len(shells) == 1 and len(domains) == 1 and not rpcs(rows, "get_character_view"), [r["name"] for r in rows])
+        check("FL-01 the domain request starts after the shell has arrived (shell first)",
+              len(shells) == 1 and len(domains) == 1 and shells[0]["t1"] and domains[0]["t0"] >= shells[0]["t1"] - 0.005,
+              [(r["name"], round(r["t0"] % 100, 3), round((r["t1"] or 0) % 100, 3)) for r in shells + domains])
         check("FL-01 open: no per-widget character RPC", not per_widget, [r["name"] for r in per_widget])
         check("FL-01 open: no table reads of the character", not tables, [r["name"] for r in tables])
-        check("FL-01 open: total requests <= 2 (view + at most a throttled campaigns refresh)", len([r for r in rows if r["name"] not in ("campaigns", "campaign_members", "profiles")]) == 1
-              and len(rows) <= 4, [r["name"] for r in rows])
+        refs = [r for r in rows if r["name"] in REFERENCE_TABLES]
+        core = [r for r in rows if r["name"] not in REFERENCE_TABLES]
+        check("FL-01 open: total requests <= 5 (shell + domain + at most a throttled campaigns refresh), reference tables aside",
+              len([r for r in core if r["name"] not in ("campaigns", "campaign_members", "profiles")]) == 2 and len(core) <= 5, [r["name"] for r in rows])
+        check("FL-01 idle prefetch: static reference tables only after the domain request finished (lowest priority)",
+              all(r["t0"] >= domains[0]["t1"] for r in refs) if refs and domains and domains[0]["t1"] else True,
+              [(r["name"], round(r["t0"] % 100, 3)) for r in refs][:3])
         check("FL-01 sheet marked fluent", page.evaluate("() => document.querySelector('.sheet-root')?.dataset.readPath") == "fluent")
         check("FL-01 header shows the character", f"Fluent A {RUN}" in page.locator(".sheet-root").inner_text())
         check("FL-02 Realtime: 2 sheet bindings per join (was 64)", 2 in net.bindings and 64 not in net.bindings[-3:], net.bindings[-4:])
@@ -95,18 +108,18 @@ def run(t):
         txt = page.locator(".sheet-root").inner_text()
         check("FL-04 switch: C shown, not A or B", f"Fluent C {RUN}" in txt and f"Fluent B {RUN}" not in txt and f"Fluent A {RUN}" not in txt)
         sw = net.since(i)
-        check("FL-04 switch: <= 1 view per character, no per-widget reads", all(len([r for r in rpcs(sw, "get_character_view") if r["char"] == chars[k]]) <= 1 for k in "ABC")
+        check("FL-04 switch: <= 1 shell per character, no per-widget reads", all(len([r for r in rpcs(sw, "get_character_shell") if r["char"] == chars[k]]) <= 1 for k in "ABC")
               and not [r for r in rpcs(sw) if READ_RPCS.match(r["name"])], [r["name"] for r in sw])
 
         # --- FL-05 Home prefetch is reused by the open
         page.evaluate("location.hash = '#/'"); page.wait_for_selector(".char-card", timeout=15000); page.wait_for_timeout(800)
         i = net.mark()
         page.locator(f'.char-card[data-char="{chars["B"]}"]').hover(); page.wait_for_timeout(900)
-        pre = rpcs(net.since(i), "get_character_view")
+        pre = rpcs(net.since(i), "get_character_shell")
         page.locator(f'.char-card[data-char="{chars["B"]}"]').click(); page.wait_for_function(USABLE, timeout=30000); page.wait_for_timeout(1500)
-        allv = rpcs(net.since(i), "get_character_view")
-        check("FL-05 hover prefetches the view", len(pre) == 1, [r["name"] for r in net.since(i)])
-        check("FL-05 open reuses the prefetch (no second view)", len(allv) == 1, len(allv))
+        allv = rpcs(net.since(i), "get_character_shell")
+        check("FL-05 hover prefetches the shell (not the full view)", len(pre) == 1 and not rpcs(net.since(i), "get_character_view"), [r["name"] for r in net.since(i)])
+        check("FL-05 open reuses the prefetch (no second shell)", len(allv) == 1, len(allv))
 
         # --- FL-06 Background picker: compact list, detail on selection
         s.tab("features"); page.wait_for_timeout(500)
@@ -154,7 +167,7 @@ def run(t):
         page.wait_for_timeout(9000)
         r9 = net.since(i)
         check("FL-09 reconnect: <= 2 requests (reconciliation), no view, no per-widget reads",
-              len(r9) <= 2 and not rpcs(r9, "get_character_view") and not [r for r in rpcs(r9) if READ_RPCS.match(r["name"])], [r["name"] for r in r9])
+              len(r9) <= 2 and not rpcs(r9, "get_character_view") and not rpcs(r9, "get_character_shell") and not [r for r in rpcs(r9) if READ_RPCS.match(r["name"])], [r["name"] for r in r9])
         s2.close()
 
         # --- FL-10 no character payload persisted in localStorage
@@ -178,12 +191,12 @@ def run(t):
         s3 = Sheet(b, pl, tab="combat"); s3.page.goto(APP + "?fluent=0"); s3.page.wait_for_selector(".char-card", timeout=20000)
         net3 = Net(s3.page)
         i = net3.mark(); open_wait(s3, chars["A"]); s3.page.wait_for_timeout(2500)
-        check("FL-13 ?fluent=0: legacy path (no view, per-widget reads)", fluent(s3) == "legacy" and not rpcs(net3.since(i), "get_character_view")
+        check("FL-13 ?fluent=0: legacy path (no view, per-widget reads)", fluent(s3) == "legacy" and not rpcs(net3.since(i), "get_character_shell")
               and len(net3.since(i)) > 10, [r["name"] for r in net3.since(i)][:12])
         s3.close()
         s4 = Sheet(b, pl, tab="combat")
-        s4.page.route("**/rest/v1/rpc/get_character_view", lambda r: r.fulfill(status=404, content_type="application/json",
-                      body=json.dumps({"code": "PGRST202", "message": "Could not find the function public.get_character_view"})))
+        s4.page.route("**/rest/v1/rpc/get_character_shell", lambda r: r.fulfill(status=404, content_type="application/json",
+                      body=json.dumps({"code": "PGRST202", "message": "Could not find the function public.get_character_shell"})))
         s4.page.goto(APP + "?fluent=1"); s4.page.wait_for_selector(".char-card", timeout=20000)
         open_wait(s4, chars["A"]); s4.page.wait_for_timeout(1500)
         info = s4.page.evaluate("() => window.__tavernLedgerReadPath")
@@ -191,7 +204,7 @@ def run(t):
               and f"Fluent A {RUN}" in s4.page.locator(".sheet-root").inner_text(), info)
         s4.close()
         s5 = Sheet(b, pl, tab="combat")
-        s5.page.route("**/rest/v1/rpc/get_character_view", lambda r: r.fulfill(status=500, content_type="application/json",
+        s5.page.route("**/rest/v1/rpc/get_character_shell", lambda r: r.fulfill(status=500, content_type="application/json",
                       body=json.dumps({"code": "57014", "message": "canceling statement due to statement timeout"})))
         s5.page.goto(APP + "?fluent=1"); s5.page.wait_for_selector(".char-card", timeout=20000)
         open_wait(s5, chars["A"]); s5.page.wait_for_timeout(1500)
