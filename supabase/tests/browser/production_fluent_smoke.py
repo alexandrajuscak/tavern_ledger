@@ -51,7 +51,8 @@ class Session:
         p.fill("input[name=email]", EMAIL(kind))
         p.fill("input[name=password]", PW)
         p.click("button[value=signin]")
-        p.wait_for_selector(".char-card, .empty-state, a.brand", timeout=30000)
+        # Home's list (a.brand is in the header before the list has loaded)
+        p.wait_for_selector(".char-card, .empty-state", timeout=30000)
 
     def _req(self, r):
         if "/rest/v1/" not in r.url:
@@ -177,10 +178,13 @@ def run():
         check("SM-07 Lineage picker opens with results", ok)
         pl.page.keyboard.press("Escape"); pl.page.wait_for_timeout(600)
         pl.tab("spells")
-        t0 = time.time(); pl.page.locator('[data-action="spell-add"]').first.click()
-        ok = True
-        try: pl.page.wait_for_selector(".modal input[type=search], .modal [data-spell-pick], .modal li", timeout=30000)
-        except Exception: ok = False
+        # the Spells tab re-renders when its reads arrive (legacy: 5 of them); a click on the old button is lost, so retry once
+        ok = False
+        t0 = time.time()
+        for _ in range(2):
+            pl.page.locator('[data-action="spell-add"]').first.click()
+            try: pl.page.wait_for_selector(".modal input[type=search], .modal [data-spell-pick], .modal li", timeout=15000); ok = True; break
+            except Exception: pass
         summary["spell_picker_ms"] = round((time.time() - t0) * 1000)
         check("SM-08 Spell picker opens", ok)
         pl.page.keyboard.press("Escape"); pl.page.wait_for_timeout(600)

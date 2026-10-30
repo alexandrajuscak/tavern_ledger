@@ -168,7 +168,8 @@ const setTab = (t) => { try { localStorage.setItem('tavern-ledger:tab', t); } ca
 export const activeTabKey = () => { const t = TAB_ALIAS[getTab()] || getTab(); return TABS.some((x) => x.key === t) ? t : 'combat'; };
 
 // the legacy path keeps an offline copy of the stored rows; the fluent path never persists character data in localStorage
-const cacheLater = debounce(() => { if (B && !sheetFluent) cacheSet(`bundle:${C().id}`, B); }, 1000);
+// (nor does a sheet that fell back to the legacy reads while the fluent path is on)
+const cacheLater = debounce(() => { if (B && !sheetFluent && !fluentEnabled()) cacheSet(`bundle:${C().id}`, B); }, 1000);
 
 // -----------------------------------------------------------------------------
 // Derived values
@@ -3047,7 +3048,7 @@ export function mountSheet(container, bundle, options = {}) {
   loadSpellbook();
   loadClasses();
   loadFeats();
-  if (!sheetFluent) cacheSet(`bundle:${C().id}`, B);
+  if (!sheetFluent && !fluentEnabled()) cacheSet(`bundle:${C().id}`, B);
   // a prefetched view may be a few seconds old: one revision check catches what changed in between (no full reload)
   else if (options.view?.fetched_at && Date.now() - options.view.fetched_at > 1500) reconcileSoon();
 }

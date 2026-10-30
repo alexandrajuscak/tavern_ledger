@@ -31,4 +31,24 @@ fix). No staging project. Reversible: frontend flag + rollback SQL; no data migr
 
 ## Results
 
-Filled in by the deployment run (see the final report and the sections below).
+Filled in by the deployment run.
+
+### Run of 2026-10-30
+
+| # | Result |
+|---|---|
+| 1 | SQL `fluent_read_tests.sql` 1,707/0; browser suite 1,019/0 (flag on), fluent UI 32/0; flag off: inventory 38/0, background 20/0, incident 57/0; plain-PostgreSQL suite green after fixing `rollback_inventory.sql` (it did not drop `character_revisions`); rollback/reapply exact (functions md5 restored) |
+| 2 | 42 migrations, last `20261029000100`, no fluent objects, 0 Realtime subscriptions; Pages served `?v=12` |
+| 3 | Backup `…\2026-10-30-fluent-release\2026-10-30T152856Z-pre-fluent` OK, rehearsal 7/7 characters (Supabase Postgres image; public data only, auth tables are created by the Auth service and are not part of the check). First attempt in a plain `postgres:17` image failed (`…T152536Z-pre-fluent`, kept); the script now uses the Supabase image. Catalog counts unchanged (items 1,146, spells 574, feats 408, backgrounds 30, …) |
+| 4 | dry run: exactly `20261030000100` |
+| 5-6 | commit `fa1d87b` (flag `'off'`), secret scan clean, pushed; Pages `?v=13` live |
+| 7 | applied 16:38:55-16:38:59 UTC; history 43; 7 functions, 21 triggers, publication entry, RLS on, `anon` no EXECUTE |
+| 8 | direct reads before == after (98 hashes); view == direct (98 pairs, 0 differences); inventory bundle == direct (7/7) |
+| 9 | smoke `?fluent=1` 28/0; `?fluent=0` 25/0 (after two wait fixes in the smoke script) |
+| 10 | **flag not switched on**: `docs/FLUENCY_BENCHMARKS.md` §3. Under 7 concurrent opens the view runs 15-23 s against the 8 s statement timeout. Commit 2 ships the `57014` → legacy fallback and the docs, with `FLUENT_READS = 'off'` |
+| 11-12 | see the final report |
+
+Pre-existing finding (not caused by this release, not changed): `get_class_starting_equipment` fails with `42501` for
+characters whose class has placeholder equipment entries, on both paths (2 of 7 production characters). Since migration
+`20261017000600`, `authenticated` has had no EXECUTE on `_starting_equipment_candidates`. The UI ignores the error (no
+starting-equipment prompt for those characters).

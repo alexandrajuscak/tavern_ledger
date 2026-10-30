@@ -7,7 +7,7 @@ Small, explicit, vanilla. No framework, no persistence of character data.
 | Piece | What it does |
 |---|---|
 | Feature flag | `js/config.js` `FLUENT_READS = 'on' | 'off'`. Per-browser override for controlled testing: `?fluent=1`, `?fluent=0`, `?fluent=default` (stored as `tl-flag:fluent-reads`). The flag selects the transport only; authorization is always the database's. |
-| Automatic fallback | if a fluent function is missing or unusable (`PGRST202`, `42883`, …), `markFluentBroken` switches the page to the legacy path for the rest of the session; the current open is retried on the legacy path. Never a mix inside one sheet (`sheetFluent` is fixed at mount). |
+| Automatic fallback | if a fluent function is missing or unusable (`PGRST202`, `42883`, …), `markFluentBroken` switches the page to the legacy path for the rest of the session; the current open is retried on the legacy path. Never a mix inside one sheet (`sheetFluent` is fixed at mount). A statement timeout (`57014`) of the view opens only that sheet on the legacy reads (the flag stays on; nothing is persisted); the next open tries the view again. |
 | Debug info | `window.__tavernLedgerReadPath = { path, configured, override, fallback }`; `.sheet-root[data-read-path]`. No data, no secrets. |
 | View fetch + dedupe | `fetchView(user, character, tab)`: one `get_character_view`; a prefetch or in-flight request for the same key is shared and consumed by the open. |
 | Home prefetch | hover ≥ 150 ms, keyboard focus or pointer down on a card → `prefetchView`; newest hover aborts the previous one; ≤ 2 kept; 5 s lifetime; skipped with Save-Data / 2G; the view only (no mutation). |
@@ -31,7 +31,7 @@ Small, explicit, vanilla. No framework, no persistence of character data.
 
 ## Tests
 
-`supabase/tests/browser/fluent_read_ui_test.py` (31 checks): one request per open; no per-widget reads; 2 bindings; tab
+`supabase/tests/browser/fluent_read_ui_test.py` (32 checks): one request per open; no per-widget reads; 2 bindings; tab
 bundles; cached tabs; A→B→C without stale render; prefetch reuse; Background list/detail; HP across sessions without a
 derived re-read; revision-driven list refresh; reconnect = 1 reconciliation; no `bundle:*` in localStorage; unrelated player
-denied; sign-out clears; `?fluent=0` legacy; automatic fallback when `get_character_view` is missing; no console errors.
+denied; sign-out clears; `?fluent=0` legacy; automatic fallback when `get_character_view` is missing; a view statement timeout (57014) opens that sheet on the legacy reads; no console errors.

@@ -361,5 +361,5 @@ Developer tools → Network (filter `rest/v1`), throttling "Fast 4G" or 150 ms.
 7. **Legacy path:** open `…/?fluent=0` → the old per-widget requests (≈35); `?fluent=default` returns to the configured path.
 8. **Sign out:** afterwards localStorage contains no `tavern-ledger:list`, `bundle:` or `cardstats:` key.
 
-Automated: `supabase/tests/browser/fluent_read_ui_test.py` (31 checks), `supabase/tests/fluent_read_tests.sql` (1,705 checks),
+Automated: `supabase/tests/browser/fluent_read_ui_test.py` (32 checks), `supabase/tests/fluent_read_tests.sql` (1,707 checks),
 benchmark `supabase/tests/browser/fluency_benchmark.py`.

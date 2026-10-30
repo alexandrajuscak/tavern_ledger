@@ -804,11 +804,11 @@ function newCharacterDialog() {
 // A -> B -> C switch does not leave A's and B's reads running (incident 2026-10-23, docs/CHARACTER_LOAD_COORDINATOR.md).
 let bundleReads = null;
 
-async function openCharacter(id, token) {
+async function openCharacter(id, token, { legacy = false } = {}) {
   bundleReads?.abort();
   const reads = bundleReads = new AbortController();
   cancelPrefetches(id);
-  if (fluentEnabled()) return openCharacterFluent(id, token, reads);
+  if (fluentEnabled() && !legacy) return openCharacterFluent(id, token, reads);
   const cached = cacheGet(`bundle:${id}`);
   if (cached) mountSheet(app, cached, { readOnly: true });
   else {
@@ -862,6 +862,9 @@ async function openCharacterFluent(id, token, reads) {
   } catch (err) {
     if (token !== routeToken || reads.signal.aborted) return;   // superseded: nothing to report
     if (isFluentUnavailable(err)) { markFluentBroken(err); openCharacter(id, token); return; }
+    // the one-request view hit the statement timeout: this sheet opens on the legacy per-read path (small reads, each retried
+    // on its own); the next open tries the view again
+    if (err?.code === '57014') { console.warn('[fluent] view timed out; legacy open for this sheet'); openCharacter(id, token, { legacy: true }); return; }
     const denied = err?.code === '42501';     // deleted or not yours: an expected answer, not a client error
     if (!denied) console.error(err);
     unmountSheet();

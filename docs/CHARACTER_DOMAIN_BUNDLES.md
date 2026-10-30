@@ -12,7 +12,7 @@ rewriting the sheet's rendering. The release therefore draws the line by **cost 
 |---|---|---|---|
 | **Shell** (Play, Abilities, Build, Bio, header, vitals) | the 26 reads of the shell | with the open (`get_character_view`) | needed by the always-visible header/vitals and the default Play tab; one evaluation serves all of them |
 | **Spells** | `get_character_spellbook` | first open of Spells (`get_character_reads`), or with the open when Spells is the active tab | the most expensive single read (production up to ~0.8 s); invisible until the tab opens |
-| **Inventory** | `inventory_bundle`: inventory id, rows (`v_inventory_detail`, same order), equipment, attunement, weight, containers, legacy review, catalog rows (`CATALOG_COLUMNS`) of the items present | first open of Inventory, or with the open | replaces 7 requests + a catalog chunk (4 waves) with one |
+| **Inventory** | `inventory_bundle`: inventory id, rows (`v_inventory_detail`, same order), equipment, attunement, weight, containers, legacy review, catalog rows (`CATALOG_COLUMNS`) of the items present | first open of Inventory, or with the open | replaces 7 character requests + a catalog chunk (4 waves) with one `get_character_reads`; the inventory reference tables (kinds, categories, rarities, slots, …: 10 small requests) are still loaded once per session on the first Inventory open (measured on production) |
 
 Play / Abilities / Build / Bio need no request of their own after the open; switching to them costs 0 requests. Revisited
 tabs use the data already in the sheet until a revision event invalidates their domain.
@@ -39,7 +39,7 @@ twice. No rule moved to JavaScript; no rule changed.
 
 ## Equality
 
-`supabase/tests/fluent_read_tests.sql` (1,705 checks): every read in a view/bundle equals the direct RPC or table query for
+`supabase/tests/fluent_read_tests.sql` (1,707 checks): every read in a view/bundle equals the direct RPC or table query for
 every local character, as the owner and as the campaign DM; batch == view; inventory rows and catalog rows equal the legacy
 queries. Production: `scripts/fluent/golden_reads.sql` compares the direct RPCs before/after the migration and the view
 against the direct RPCs after it (`docs/FLUENCY_PRODUCTION_DEPLOYMENT.md`).

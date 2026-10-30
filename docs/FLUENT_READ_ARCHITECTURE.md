@@ -1,5 +1,7 @@
 # Fluent read architecture (provider-independent design, 2026-10-30)
 
+**Status (2026-10-30):** implemented as Supabase option A (migration `20261030000100`, `js/read-layer.js`). It is deployed behind `FLUENT_READS = 'off'`; measurements: `docs/FLUENCY_BENCHMARKS.md`.
+
 The same design works on Supabase (POC A: PostgREST RPCs) and on a portable API (POC B: HTTP endpoints); both call the
 same SQL functions. Evidence for every claim: `docs/FLUENCY_POC_RESULTS.md`.
 

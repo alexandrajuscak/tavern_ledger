@@ -29,7 +29,7 @@ before any read runs (`can_access_character`).
 
 A read that fails on its own (for example a feature-engine error for one character) is reported in `errors` and the rest
 still arrives; the client lets that loader read again on its own, exactly as before. A statement timeout (`57014`) is never
-caught per read: it fails the whole request.
+caught per read: it fails the whole request, and the client then opens that sheet on the legacy per-read path (`js/app.js`).
 
 ## Shell reads (`_character_read_set('shell')`)
 

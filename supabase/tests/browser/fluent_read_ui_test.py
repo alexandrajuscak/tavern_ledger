@@ -190,6 +190,18 @@ def run(t):
         check("FL-13 missing fluent functions: falls back to legacy and still opens", info.get("path") == "legacy" and info.get("fallback")
               and f"Fluent A {RUN}" in s4.page.locator(".sheet-root").inner_text(), info)
         s4.close()
+        s5 = Sheet(b, pl, tab="combat")
+        s5.page.route("**/rest/v1/rpc/get_character_view", lambda r: r.fulfill(status=500, content_type="application/json",
+                      body=json.dumps({"code": "57014", "message": "canceling statement due to statement timeout"})))
+        s5.page.goto(APP + "?fluent=1"); s5.page.wait_for_selector(".char-card", timeout=20000)
+        open_wait(s5, chars["A"]); s5.page.wait_for_timeout(1500)
+        info = s5.page.evaluate("() => window.__tavernLedgerReadPath")
+        rp = s5.page.evaluate("() => document.querySelector('.sheet-root')?.dataset.readPath")
+        stored = s5.page.evaluate("() => Object.keys(localStorage).filter((k) => k.includes('bundle:'))")
+        check("FL-13 view statement timeout (57014): this sheet opens on the legacy reads; the flag stays on; nothing persisted",
+              rp == "legacy" and info.get("path") == "fluent" and not info.get("fallback") and f"Fluent A {RUN}" in s5.page.locator(".sheet-root").inner_text()
+              and not stored and not [e for e in s5.errors if "Failed to load resource" not in e], (rp, info, stored, s5.errors[:3]))
+        s5.close()
         s4b = Sheet(b, pl, tab="combat"); s4b.page.goto(APP + "?fluent=default"); s4b.page.wait_for_timeout(500); s4b.close()
 
         check("FL-99 no console errors (fluent session)", not [e for e in s.errors if "Failed to load resource" not in e], s.errors[:5])
