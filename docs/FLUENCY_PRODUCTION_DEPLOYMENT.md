@@ -70,3 +70,22 @@ starting-equipment prompt for those characters).
 
 Rollback: `FLUENT_READS = 'off'` (one line) or `?fluent=0` per browser; the database objects can stay (additive, used only by
 the fluent path). `rollback_progressive_fluent_reads.sql` only for a confirmed database defect.
+
+### Run of the progressive release (2026-10-30, 19:39-21:45 UTC)
+
+| # | Result |
+|---|---|
+| 1 | `progressive_read_tests.sql` 1,283/0; `fluent_read_tests.sql` 1,707/0; fluent UI 34/0; full browser suite (flag on) 1,022/0 in 34 suites; plain-PostgreSQL suite 3,432/0 incl. whole-schema rollback + reapply; progressive rollback exact (function hash restored, reapply identical) |
+| 2 | access-file ref = frontend ref; 43 migrations; 8 users, 7 characters, 2 campaigns, 0 custom content; nobody active |
+| 3 | backup `…\2026-10-30-progressive-release\2026-10-30T193946Z-pre-progressive` OK, rehearsal 7/7; golden before == the previous release's golden after |
+| 4 | dry run: exactly `20261030000200` |
+| 5 | `e2d4473` (flag `'off'`, `?v=14`) pushed; Pages served one coherent revision |
+| 6 | applied 21:27:50-21:27:54 UTC; 44 migrations; trigger on 152/152 tables; grants as designed; counts and catalog unchanged; golden: direct before == after (98), view == direct (98/0), bundle 7/7, **view errors none for all 7 characters** (starting equipment fixed) |
+| 7 | concurrency levels 1, 2, 3, 5: passed (worst 710 ms); **5 cold at once: worst shell 1.13 s, domain 0.93 s**; repeat after the fixture had invalidated the cache: worst 1.76 s; 0 errors, database idle between levels |
+| 8 | smoke `?fluent=1` 28/0, `?fluent=0` 25/0 |
+| 9 | `f9eb28c` (`FLUENT_READS = 'on'`, `?v=15`) pushed; smoke site default 28/0 (twice), `?fluent=0` 25/0; `pg_stat_statements` after a reset: 0 API statements over 6 s, worst 2.7 s, 0 deadlocks |
+| 10 | smoke data removed (left 0); backup `…T214417Z-post-progressive` OK, rehearsal 7/7; access file deleted |
+
+Production open (signed-in smoke, site default): usable 309 ms (shell 262 ms / 11 KB, domain 147 ms / 12 KB), A→B→C 494 ms,
+2 Realtime bindings, reconnect 1 request; legacy on the same day: 260 ms, A→B→C 1,360 ms, 2 / 64 bindings, reconnect = full reload.
+Status: **fixed and monitoring** until a real multi-player session has run without a timeout cluster.
