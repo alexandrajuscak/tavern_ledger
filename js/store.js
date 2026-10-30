@@ -1,6 +1,7 @@
-import { supabase, announceGovernance } from './supabase.js?v=12';
-import { toast, friendlyError } from './utils.js?v=12';
-import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=12';
+import { supabase, announceGovernance } from './supabase.js?v=13';
+import { toast, friendlyError } from './utils.js?v=13';
+import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=13';
+import { fetchView } from './read-layer.js?v=13';
 
 export const state = {
   session: null,
@@ -166,8 +167,11 @@ export async function loadBundle(id, signal) {
     r(supabase.from('spells').select('*').eq('character_id', id).order('level').order('sort_order').order('created_at')),
   ]);
   if (signal?.aborted) throw Object.assign(new Error('AbortError: superseded'), { name: 'AbortError' });
+  return healBundle(id, { character, inventory, notes, slots, trackers, features, attacks, spells });
+}
 
-  // Self-heal characters that are missing seeded rows.
+/** Self-heal characters that are missing seeded rows (notes of every kind, spell slot rows 1-9); shared by both read paths. */
+async function healBundle(id, { character, inventory, notes, slots, trackers, features, attacks, spells }) {
   const missingKinds = NOTE_KINDS.filter((k) => !notes.some((n) => n.kind === k));
   if (missingKinds.length) {
     const rows = check(
@@ -191,6 +195,24 @@ export async function loadBundle(id, signal) {
   }
 
   return { character, inventory, notes, slots, trackers, features, attacks, spells };
+}
+
+/**
+ * Fluent read path (js/read-layer.js): ONE request for the stored rows and every read the mounted sheet makes. Returns the
+ * same bundle as loadBundle plus the view, whose reads seed the sheet's loaders. A part the server could not read is left to
+ * its loader (it then reads it itself, as before).
+ */
+export async function loadCharacterView(id, tab, signal) {
+  const view = await fetchView(state.profile?.id || state.session?.user?.id, id, tab, { signal });
+  if (signal?.aborted) throw Object.assign(new Error('AbortError: superseded'), { name: 'AbortError' });
+  const r = view.reads || {};
+  if (!r.characters) {
+    const e = view.errors?.characters;
+    throw Object.assign(new Error(e?.message || 'This character could not be loaded.'), { code: e?.code });
+  }
+  const bundle = await healBundle(id, { character: r.characters, inventory: r.inventory_items || [], notes: r.notes || [],
+    slots: r.spell_slots || [], trackers: r.feature_trackers || [], features: r.features || [], attacks: r.attacks || [], spells: r.spells || [] });
+  return { bundle, view };
 }
 
 export async function insertRow(table, row) {
@@ -422,6 +444,28 @@ export function subscribeCharacter(id, handler, onResync) {
   channel.subscribe((status) => {
     if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') dropped = true;
     else if (status === 'SUBSCRIBED' && dropped) { dropped = false; epoch += 1; owned.clear(); learning.clear(); onResync?.(); }
+  });
+  return () => supabase.removeChannel(channel);
+}
+
+/**
+ * Fluent read path: ONE channel with 2 bindings instead of 64 (docs/REALTIME_SUBSCRIPTION_ARCHITECTURE.md).
+ *  - characters UPDATE (filtered): the row itself, so HP / coins / notes fields are patched without any read;
+ *  - character_revisions INSERT (filtered): {source_table, id = revision} once per committed transaction and table (an
+ *    append-only log); the sheet refreshes only that table's domain.
+ * Events carry no hidden data: a revision row says only which table of a readable character changed.
+ * onRevision(table, rev); onResync() once after a dropped connection (the sheet reconciles revisions, no full reload).
+ */
+export function subscribeCharacterFluent(id, handler, onRevision, onResync) {
+  const rev = (p) => { if (p.new?.character_id === id && p.new?.source_table) onRevision(p.new.source_table, Number(p.new.id) || 0); };
+  const channel = supabase
+    .channel(`sheet-${id}-${Math.random().toString(36).slice(2, 8)}`)
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'characters', filter: `id=eq.${id}` }, (p) => handler('characters', p.eventType, p.new, p.old))
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'character_revisions', filter: `character_id=eq.${id}` }, rev);
+  let dropped = false;
+  channel.subscribe((status) => {
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') dropped = true;
+    else if (status === 'SUBSCRIBED' && dropped) { dropped = false; onResync?.(); }
   });
   return () => supabase.removeChannel(channel);
 }

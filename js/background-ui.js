@@ -1,10 +1,10 @@
 // Background card on the Build tab and its dialogs (docs/BACKGROUNDS.md): choose a background version (2024 or legacy, never
 // mixed), allocate the 2024 ability increases, make the choices, review and apply the starting equipment once, replace a
 // duplicated proficiency, keep personal characteristics. The server validates everything (set_character_background).
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=12';
-import * as api from './background-api.js?v=12';
-import { loadIntoPicker } from './catalog-load.js?v=12';
-import { SKILLS } from './dnd.js?v=12';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=13';
+import * as api from './background-api.js?v=13';
+import { loadIntoPicker } from './catalog-load.js?v=13';
+import { SKILLS } from './dnd.js?v=13';
 
 const AB = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const ABS = { str: 'STR', dex: 'DEX', con: 'CON', int: 'INT', wis: 'WIS', cha: 'CHA' };
@@ -174,18 +174,19 @@ export async function openBackgroundPicker({ characterId, current, onSaved }) {
   const list = $('[data-bg-list]', m.el);
   const edit = $('[data-bg-edit]', m.el);
   const save = $('[data-bg-save]', m.el);
-  let picked = null;
+  let picked = null;     // the complete version shown in the editor
+  let pickedId = null;   // the highlighted list entry (its detail may still be loading)
   const render = () => {
     if (!versions) return;   // still loading, or the load failed (the list shows the state)
     const q = $('[name=q]', m.el).value.trim().toLowerCase();
     const rules = $('[name=rules]', m.el).value;
     const pt = $('[name=playtest]', m.el).checked;
-    const rows = versions.filter((v) => (rules === 'all' || v.ruleset === rules) && (v.enabled_by_default || pt || v.id === picked?.id)
+    const rows = versions.filter((v) => (rules === 'all' || v.ruleset === rules) && (v.enabled_by_default || pt || v.id === pickedId)
       && (!q || v.name.toLowerCase().includes(q)));
     // rebuilt only when it changes: a blur "change" right before a click must not replace the button under the pointer
-    const html = rows.map((v) => `<li><button type="button" class="bg-pick${picked?.id === v.id ? ' is-picked' : ''}" data-bg-pick="${esc(v.id)}"
-        aria-pressed="${picked?.id === v.id}"><strong>${esc(v.name)}</strong> ${rulesBadge(v)} ${statusBadges(v)}
-        <span class="muted small">${esc(v.source_label)} · ${(v.grants || []).filter((g) => g.kind === 'skill').map((g) => esc(g.name)).join(', ') || 'skills by choice'}</span></button></li>`).join('')
+    const html = rows.map((v) => `<li><button type="button" class="bg-pick${pickedId === v.id ? ' is-picked' : ''}" data-bg-pick="${esc(v.id)}"
+        aria-pressed="${pickedId === v.id}"><strong>${esc(v.name)}</strong> ${rulesBadge(v)} ${statusBadges(v)}
+        <span class="muted small">${esc(v.source_label)} · ${(v.skills || []).map((n) => esc(n)).join(', ') || 'skills by choice'}</span></button></li>`).join('')
       || '<li class="muted small">No background matches.</li>';
     if (list.__html !== html) { list.innerHTML = html; list.__html = html; }
   };
@@ -193,16 +194,33 @@ export async function openBackgroundPicker({ characterId, current, onSaved }) {
     edit.innerHTML = picked ? editorHTML(picked, current) : '';
     save.disabled = !picked;
   };
+  /** The complete version of the selected entry: detail request (fluent) or the catalog entry; Retry on failure. */
+  const select = async (id, { focus = true } = {}) => {
+    pickedId = id;
+    picked = null;
+    render();
+    edit.innerHTML = '<p class="muted small" data-bg-detail-state="loading" role="status"><span class="spinner spinner-inline" aria-hidden="true"></span> Loading the background…</p>';
+    save.disabled = true;
+    let d;
+    try { d = await api.getBackgroundDetail(id); } catch (err) {
+      if (pickedId !== id || !m.el.isConnected) return;
+      edit.innerHTML = `<p class="bg-eq-warn" data-bg-detail-state="error" role="alert">${esc(err.message)}
+        <button type="button" class="btn btn-sm" data-bg-detail-retry>Retry</button></p>`;
+      $('[data-bg-detail-retry]', m.el).addEventListener('click', () => select(id), { once: true });
+      return;
+    }
+    if (pickedId !== id || !m.el.isConnected) return;   // another background was selected meanwhile
+    picked = d;
+    showEditor();
+    if (focus) $('[data-bg-editor] select, [data-bg-editor] input', m.el)?.focus();
+  };
   m.el.addEventListener('input', (e) => { if (e.target.closest('.bg-filters')) render(); });
   // not for the search box: it filters on 'input', and its 'change' on blur would re-render under the pointer (lost click)
   m.el.addEventListener('change', (e) => { if (e.target.closest('.bg-filters') && e.target.type !== 'search') render(); });
   m.el.addEventListener('click', (e) => {
     const b = e.target.closest('[data-bg-pick]');
     if (!b || !versions) return;
-    picked = versions.find((v) => v.id === b.dataset.bgPick);
-    render();
-    showEditor();
-    $('[data-bg-editor] select, [data-bg-editor] input', m.el)?.focus();
+    select(b.dataset.bgPick);
   });
   save.addEventListener('click', async () => {
     const form = $('[data-bg-editor]', m.el);
@@ -228,15 +246,14 @@ export async function openBackgroundPicker({ characterId, current, onSaved }) {
   showEditor();
   setTimeout(() => $('[name=q]', m.el)?.focus(), 60);
   // search and filters typed while loading are kept: the first render uses them
-  loadIntoPicker(list, () => api.getBackgroundCatalog(), {
+  loadIntoPicker(list, () => api.getBackgroundList(), {
     label: 'backgrounds',
     isOpen: () => m.el.isConnected && !m.el.dataset.closing,
     onReady: (catalog) => {
       versions = catalog.versions || [];
-      picked = current?.selected ? versions.find((v) => v.id === current.version.id) : null;
       list.__html = null;
-      render();
-      showEditor();
+      if (current?.selected && versions.some((v) => v.id === current.version.id)) select(current.version.id, { focus: false });
+      else { render(); showEditor(); }
     },
   });
   return m;
@@ -304,10 +321,8 @@ export async function openReplaceDuplicate({ characterId, bg, onSaved }) {
   if (!dup) return;
   const items = dup.items || [];
   // tools: every tool any background offers (artisan's tools, instruments, gaming sets, kits)
-  const cat = await api.getBackgroundCatalog().catch(() => ({ versions: [] }));
-  const tools = new Map();
-  for (const v of cat.versions) for (const c of v.choices || []) for (const o of c.options || []) if (o.kind === 'tool') tools.set(o.id, o.name);
-  for (const v of cat.versions) for (const g of v.grants || []) if (g.kind === 'tool') tools.set(g.id, g.name);
+  const cat = await api.getBackgroundList().catch(() => ({ tools: [] }));
+  const tools = new Map((cat.tools || []).map((t) => [t.id, t.name]));
   const have = new Set((bg.grants || []).map((g) => `${g.kind}:${g.id}`));
   const opts = (kind) => (kind === 'skill' ? SKILLS.map((x) => [x.key, x.name]) : [...tools.entries()].sort((a, b) => a[1].localeCompare(b[1])))
     .filter(([id]) => !have.has(`${kind}:${id}`)).map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');

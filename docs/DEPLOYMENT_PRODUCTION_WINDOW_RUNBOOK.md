@@ -88,7 +88,7 @@ $B   = "$env:USERPROFILE\tavern-ledger-production-exports\$WIN-window\pre-upgrad
 New-Item -ItemType Directory -Force $B | Out-Null
 $pw  = Read-Host "Production DB password" -AsSecureString
 $enc = [uri]::EscapeDataString([Net.NetworkCredential]::new('', $pw).Password)
-$env:PROD_DB_URL = "postgresql://postgres.pfgzbzzouvwvobftwlsc:$enc@<POOLER-HOST>:5432/postgres"
+$env:PROD_DB_URL = "postgresql://postgres.<project-ref>:$enc@<POOLER-HOST>:5432/postgres"
 & $SB db dump --db-url $env:PROD_DB_URL -f "$B\roles.sql" --role-only
 & $SB db dump --db-url $env:PROD_DB_URL -f "$B\schema.sql"
 & $SB db dump --db-url $env:PROD_DB_URL -f "$B\data.sql" --data-only

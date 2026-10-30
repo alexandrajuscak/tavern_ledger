@@ -1,7 +1,8 @@
 // supabase-js 2.117.2 is self-hosted (vendor/supabase-js, loaded by index.html as a classic script): no CDN request at runtime.
 const { createClient } = globalThis.supabase;
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PRODUCTION_HOSTS } from './config.js?v=12';
-import { readSignalFor } from './read-control.js?v=12';
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PRODUCTION_HOSTS } from './config.js?v=13';
+import { readSignalFor } from './read-control.js?v=13';
+import { interceptRpc, setRawRpc } from './read-layer.js?v=13';
 
 // Local development only. When the app is served from localhost / 127.0.0.1 it talks ONLY to the local Supabase
 // stack, never to the hosted project in js/config.js. The local URL and anon key come from js/config.local.js,
@@ -108,7 +109,11 @@ export function announceGovernance(fn, args, error) {
 }
 if (supabase) {
   const rawRpc = supabase.rpc.bind(supabase);
+  setRawRpc(rawRpc);
   supabase.rpc = (fn, args, options) => {
+    // reads of the open character: from the character view's seed or one coalesced request (js/read-layer.js)
+    const served = options ? null : interceptRpc(fn, args);
+    if (served) return served;
     const builder = rawRpc(fn, args, options);
     // character reads of the open sheet are cancelled when it closes (js/read-control.js); writes never are
     const signal = readSignalFor(fn, args);

@@ -44,7 +44,22 @@ current Dashboard value (record it first; Realtime restarts and clients reconnec
 Prefer a compute upgrade (Free -> Pro Micro/Small) over connection-limit changes if, after the fix, single sheet RPCs still
 exceed ~2 s at normal play. Decide from `pgss_top_by_max` and Dashboard -> Reports -> CPU a week after the deployment.
 
-## Backups
+## Backups (CRITICAL: Supabase Free has no automatic backups)
 
-Free plan has no automatic backups: `supabase db dump` roles / schema / data (as in the 2026-10-23 window runbook) before every
-migration and regularly; store outside Git and outside OneDrive; record SHA-256.
+Script: `scripts/backup/nightly_backup.ps1` (tested in the 2026-10-30 release: it made the pre- and post-deployment backups).
+
+1. Put the database URL (ideally of a read-only role) into `%USERPROFILE%\.tavern-ledger\backup-db-url.txt`; restrict the
+   file to your user (`icacls <file> /inheritance:r /grant:r "%USERNAME%:R"`). Never inside the repository or OneDrive.
+2. Task Scheduler → Create Task → daily 04:00 → Action `powershell -NoProfile -ExecutionPolicy Bypass -File
+   "<repo>\scripts\backup\nightly_backup.ps1"`; on the 1st of each month a second task with `-Rehearse`.
+3. Output: `%USERPROFILE%\tavern-ledger-production-exports\nightly\<UTC stamp>\` with roles.sql, schema.sql, data.sql,
+   migration_history.txt, counts.txt, SHA256SUMS.txt, STATUS.txt. Retention: 14 daily + the first of each of 6 months;
+   folders labelled `-pre-` / `-post-` are never deleted.
+4. Failure: the script exits 1, writes `STATUS.txt` with the failed step and `..\LAST_FAILURE.txt`; Task Scheduler shows
+   "Last Run Result" ≠ 0. Check weekly; a missing folder for today is a failure too.
+5. Off-device: copy the newest folder weekly to an encrypted location (BitLocker-protected USB disk, or a cloud folder after
+   `7z a -p` / `age` encryption). The PC disk is not a backup of itself.
+6. Monthly restore rehearsal: `-Rehearse` restores into a throw-away local PostgreSQL and compares the character count; the
+   full restore procedure is docs/DEPLOYMENT_INPLACE_UPGRADE_RUNBOOK.md §5.
+
+Before every migration: run it with `-Label pre-<name>` (kept forever).

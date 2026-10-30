@@ -45,6 +45,17 @@ export function cacheClear() {
   }
 }
 
+/** Remove the cached entries whose key starts with one of `prefixes` (e.g. 'bundle:' = the legacy offline copies). */
+export function cacheClearPrefix(...prefixes) {
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith(CACHE_PREFIX) && prefixes.some((p) => k.slice(CACHE_PREFIX.length).startsWith(p)))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch {
+    /* ignore */
+  }
+}
+
 // ---- Pickers ----------------------------------------------------------------
 /** Secondary filters of a picker start open on wide screens and folded on phones (the results stay above the fold). */
 export const filtersOpenAttr = () => (window.matchMedia?.('(min-width: 701px)').matches ? 'open' : '');

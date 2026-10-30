@@ -10,6 +10,14 @@
 -- =============================================================================
 begin;
 
+-- fluent read architecture (20261030000100): the change-log triggers first (they run on base tables), then its table and
+-- read functions; get_character_derived_stats / _derived_stats_levels go with the cascades below.
+drop function if exists public._bump_character_revision() cascade;
+drop table if exists public.character_revisions cascade;
+drop function if exists public.get_character_view(uuid, text), public.get_character_bundle(uuid, text),
+  public.get_character_reads(uuid, text[]), public._character_read(uuid, text), public._character_read_set(text),
+  public.get_background_list(), public.get_background_detail(text) cascade;
+
 -- governance, requests, feats, DM content, hidden data, DM read models (20261019*): base-table triggers first (they would call
 -- functions whose tables are gone), then the tables; the functions of the dropped tables go with the cascades below or stay
 -- unused. The 11 base tables keep their data.

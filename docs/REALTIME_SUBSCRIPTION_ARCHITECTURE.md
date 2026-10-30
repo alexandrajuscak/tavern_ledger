@@ -1,4 +1,19 @@
-# Realtime subscription architecture (incident 2026-10-23)
+# Realtime subscription architecture (incident 2026-10-23; consolidated 2026-10-30)
+
+## Fluent read path (release 2026-10-30, default when `FLUENT_READS = 'on'`)
+
+| Channel | Bindings | Why each exists |
+|---|---|---|
+| `sheet-<character>-<rand>` | **2**: `characters` UPDATE (filter `id=eq`), `character_revisions` INSERT (filter `character_id=eq`) | the row patch for runtime fields (HP, coins, inspiration) without any read; one change-log row per committed transaction and table for everything else (`docs/CHARACTER_DATA_INVALIDATION_MODEL.md`) |
+| `requests-<character>-<rand>` (request bar) | 2 (unchanged): `change_requests`, `character_governance` | approvals, locks, decisions |
+| DM Space | 2 (unchanged) | campaign requests |
+
+A player's open sheet now holds **4** `realtime.subscription` rows instead of **66**; a switch leaves 2 and joins 2 instead of
+64 and 64. No binding watches a static catalog table. `'*'` with a filter is not used (it delivered nothing in local tests).
+A reconnect runs one reconciliation request instead of reloading the sheet (34 requests). The legacy section below applies
+only when the flag is `'off'` or the automatic fallback is active.
+
+## Legacy path (`FLUENT_READS = 'off'`)
 
 ## Client and sockets
 

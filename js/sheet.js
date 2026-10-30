@@ -4,53 +4,54 @@ import {
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   ACTIVATIONS, ACTIVATION_BY_KEY, CASTING_TIMES, CONDITIONS, CONDITION_BY_NAME,
   weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js?v=12';
+} from './dnd.js?v=13';
 import {
-  saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
-} from './store.js?v=12';
-import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=12';
-import { mountInventory } from './inventory-ui.js?v=12';
-import { exportCharacter, downloadJson } from './transfer.js?v=12';
-import { getDerivedStats, getProficiencies, setCharacterProficiency } from './inventory-api.js?v=12';
+  saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, subscribeCharacterFluent, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
+} from './store.js?v=13';
+import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=13';
+import { mountInventory } from './inventory-ui.js?v=13';
+import { exportCharacter, downloadJson } from './transfer.js?v=13';
+import { getDerivedStats, getProficiencies, setCharacterProficiency } from './inventory-api.js?v=13';
 import { backgroundCardHTML, openBackgroundPicker, openBackgroundEquipment, openReplaceDuplicate, saveCharacteristics, rollCharacteristic,
-  removeBackground } from './background-ui.js?v=12';
-import { getCharacterBackground } from './background-api.js?v=12';
-import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=12';
-import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=12';
+  removeBackground } from './background-ui.js?v=13';
+import { getCharacterBackground } from './background-api.js?v=13';
+import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=13';
+import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=13';
 import {
   acNote, openAcBreakdown, equippedWeaponsHTML, trackWeaponDetails, toolsHTML, specificProficienciesHTML,
   openProficiencyManager, equipmentNotes,
-} from './derived-ui.js?v=12';
-import { openLevelUp } from './levelup.js?v=12';
-import { mountGovernance } from './request-ui.js?v=12';
-import { beginSheetReads, endSheetReads } from './read-control.js?v=12';
-import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=12';
-import { exportFeats } from './feat-api.js?v=12';
-import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=12';
-import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=12';
-import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=12';
+} from './derived-ui.js?v=13';
+import { openLevelUp } from './levelup.js?v=13';
+import { mountGovernance } from './request-ui.js?v=13';
+import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=13';
+import { fluentEnabled, beginReadScope, endReadScope, seedReads, readNow, knownRevision, noteRevisions, takeSeed } from './read-layer.js?v=13';
+import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=13';
+import { exportFeats } from './feat-api.js?v=13';
+import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=13';
+import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=13';
+import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=13';
 import {
   emptyFilters, filtersHTML, readFilter, sourcesHTML, spellbookListHTML, openSpellDetail, openAddSpell, openSourceEditor, rememberSpellSections,
-} from './spell-ui.js?v=12';
+} from './spell-ui.js?v=13';
 import {
   getClassSummary, getSpellSlots, getClassCatalog, expendStandardSlot, restoreStandardSlot, expendPactSlot, restorePactSlot,
   setSlotState, setCharacterClass, shortRest, longRest, getClassFeatures, getResources, exportClassFeatures, useTemporarySlot,
   restoreTemporarySlot, getStartingEquipmentState, getStartingEquipment, getStates,
-} from './class-api.js?v=12';
-import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=12';
-import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=12';
-import { openStartingEquipment } from './class-setup.js?v=12';
+} from './class-api.js?v=13';
+import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=13';
+import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=13';
+import { openStartingEquipment } from './class-setup.js?v=13';
 import {
   companionsHTML, openAddCompanion, changeCompanionHp, removeCompanionConfirm,
-} from './creature-ui.js?v=12';
-import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=12';
-import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=12';
+} from './creature-ui.js?v=13';
+import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=13';
+import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=13';
 import {
   featuresPanelHTML, featureSummaryHTML, restoreDrafts, resourceListHTML, attachFeatureHandlers, hydrateSpellChoices, restResourceLines, restResultText, restSummaryHTML,
   riderDiceRange, statesHTML, glanceHTML,
-} from './feature-ui.js?v=12';
-import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=12';
-import { sectionHTML, sectionHead } from './section.js?v=12';
+} from './feature-ui.js?v=13';
+import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=13';
+import { sectionHTML, sectionHead } from './section.js?v=13';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -61,6 +62,11 @@ let root = null;
 let ctx = null; // { reload, onDeleted }
 let unsubscribe = null;
 let liveCharacterId = null;  // the character of the Realtime channel: kept when the same sheet is reloaded (no leave + join)
+let liveFluent = false;      // which subscription the kept channel is (legacy 64 bindings or fluent 3)
+// Fluent read path (js/read-layer.js): this sheet was mounted from one get_character_view response; its later reads are
+// coalesced, Realtime is one revision table, the inventory panel loads on its first open. Never mixed with the legacy path.
+let sheetFluent = false;
+let inventoryDeferred = false;
 let serverChar = null;       // the character row as last stored on the server (bundle, Realtime): what a remote UPDATE changed
 let inventory = null; // inventory-ui controller
 let governance = null; // request-ui controller: lock banner, pending changes, approval requests
@@ -158,8 +164,11 @@ const getTab = () => {
   return TAB_ALIAS[t] || t;
 };
 const setTab = (t) => { try { localStorage.setItem('tavern-ledger:tab', t); } catch { /* ignore */ } };
+/** The section a sheet opens on (the character view loads that domain together with the shell). */
+export const activeTabKey = () => { const t = TAB_ALIAS[getTab()] || getTab(); return TABS.some((x) => x.key === t) ? t : 'combat'; };
 
-const cacheLater = debounce(() => { if (B) cacheSet(`bundle:${C().id}`, B); }, 1000);
+// the legacy path keeps an offline copy of the stored rows; the fluent path never persists character data in localStorage
+const cacheLater = debounce(() => { if (B && !sheetFluent) cacheSet(`bundle:${C().id}`, B); }, 1000);
 
 // -----------------------------------------------------------------------------
 // Derived values
@@ -2202,6 +2211,7 @@ function showTab(key, scroll = true) {
   $$('.panel', root).forEach((p) => { p.hidden = p.dataset.panel !== key; });
   $$(`.panel[data-panel="${key}"] textarea.autosize`, root).forEach(autoResize);
   if (key === 'spells' && spellbookStale) loadSpellbook();
+  if (key === 'inventory' && inventoryDeferred) mountInventoryPanel();
   if (scroll) {
     // land at the top of the section (below the vitals), never further down than where the player already is
     const panel = $(`.panel[data-panel="${key}"]`, root);
@@ -3003,6 +3013,9 @@ export function mountSheet(container, bundle, options = {}) {
   if (options.readOnly) return;
 
   beginSheetReads(C().id);   // every character read of this sheet is aborted when it closes (js/read-control.js)
+  sheetFluent = fluentEnabled() && !!options.view;
+  if (sheetFluent) { beginReadScope(C().id); seedReads(C().id, options.view); }
+  root.dataset.readPath = sheetFluent ? 'fluent' : 'legacy';
   serverChar = { ...B.character };
   root.addEventListener('input', onInput);
   root.addEventListener('change', onChange);
@@ -3013,24 +3026,15 @@ export function mountSheet(container, bundle, options = {}) {
   attachFeatHandlers(root, { getCharacterId: () => C().id, getState: () => featState, onChanged: featsChanged });
   rememberSpellSections(root);
   // one channel per character: a reload of the same sheet (reconnect, refused change) keeps it instead of leave + join
-  if (liveCharacterId !== C().id) {
-    unsubscribe = subscribeCharacter(C().id, onRemote, resyncSoon);
+  if (liveCharacterId !== C().id || liveFluent !== sheetFluent) {
+    unsubscribe?.();
+    unsubscribe = sheetFluent ? subscribeCharacterFluent(C().id, onRemote, onRevision, resyncSoon) : subscribeCharacter(C().id, onRemote, resyncSoon);
     liveCharacterId = C().id;
+    liveFluent = sheetFluent;
   }
-  let invLoaded = false;
-  inventory = mountInventory($('#inventory-app', root), {
-    characterId: C().id,
-    getCharacter: C,
-    userId: state.profile?.id,
-    getCampaigns: myCampaigns,
-    onRows: (rows) => {
-      B.inventory = rows.map(legacyInventoryRow);
-      cacheLater();
-      if (invLoaded) scheduleDerived();   // the first load is not a change: the derived read started on mount covers it
-      invLoaded = true;
-    },
-    getEquipmentNotes: (inventoryItemId) => equipmentNotes(derived, inventoryItemId),
-  });
+  // fluent: the Inventory panel (7 reads + catalog on the legacy path) loads in one request on its first open
+  inventoryDeferred = sheetFluent && activeTabKey() !== 'inventory';
+  if (!inventoryDeferred) mountInventoryPanel();
   // a change the campaign refuses is never saved: reload the sheet so it shows the stored values again
   governance = mountGovernance($('#gov-bar', root), { characterId: C().id, reload: () => ctx.reload?.(), onRefused: () => ctx.reload?.(),
     onState: (st) => { govState = st; renderSheetChips(); } });
@@ -3043,20 +3047,107 @@ export function mountSheet(container, bundle, options = {}) {
   loadSpellbook();
   loadClasses();
   loadFeats();
-  cacheSet(`bundle:${C().id}`, B);
+  if (!sheetFluent) cacheSet(`bundle:${C().id}`, B);
+  // a prefetched view may be a few seconds old: one revision check catches what changed in between (no full reload)
+  else if (options.view?.fetched_at && Date.now() - options.view.fetched_at > 1500) reconcileSoon();
 }
+
+function mountInventoryPanel() {
+  inventoryDeferred = false;
+  if (!root || inventory) return;
+  const id = C().id;
+  let invLoaded = false;
+  inventory = mountInventory($('#inventory-app', root), {
+    characterId: id,
+    getCharacter: C,
+    userId: state.profile?.id,
+    getCampaigns: myCampaigns,
+    onRows: (rows) => {
+      B.inventory = rows.map(legacyInventoryRow);
+      cacheLater();
+      if (invLoaded) scheduleDerived();   // the first load is not a change: the derived read started on mount covers it
+      invLoaded = true;
+    },
+    getEquipmentNotes: (inventoryItemId) => equipmentNotes(derived, inventoryItemId),
+    loadBundle: sheetFluent ? async () => {
+      const seed = takeSeed('inventory_bundle', id);
+      if (seed.hit) { if (seed.error) throw seed.error; return seed.data; }
+      const r = await readNow(id, ['inventory_bundle']);
+      if (r.errors?.inventory_bundle) throw r.errors.inventory_bundle;
+      return r.reads.inventory_bundle;
+    } : null,
+  });
+}
+
+// ---- fluent read path: one revision table instead of 64 bindings (docs/CHARACTER_DATA_INVALIDATION_MODEL.md) ------------
+// The stored-row lists of the sheet: a revision of one of them re-reads that list and replays the differences through
+// onRemote (same patching, focus and in-flight-edit protection as the per-row events of the legacy path).
+const LIST_TABLES = new Set(['notes', 'spell_slots', 'feature_trackers', 'features', 'attacks', 'spells']);
+const pendingLists = new Set();
+
+/** A committed change of `table` for this character (revision `rev`): refresh only that domain. */
+function onRevision(table, rev) {
+  if (!B || !sheetFluent || ctx?.readOnly) return;
+  if (rev && rev <= knownRevision(table)) return;          // already known: a duplicate or replayed event
+  noteRevisions({ [table]: rev });
+  if (LIST_TABLES.has(table)) { pendingLists.add(table); refreshListsSoon(); return; }
+  if (table === 'inventory_items' || table === 'character_equipment') {
+    if (inventory) { inventory.scheduleRefresh(); return; }  // its onRows re-reads the derived stats
+    scheduleDerived();                                        // the panel is not open: AC, attacks and the stored rows only
+    if (table === 'inventory_items') { pendingLists.add('inventory_items'); refreshListsSoon(); }
+    return;
+  }
+  onRemote(table, 'UPDATE', { character_id: C().id }, null); // the legacy handler decides which loaders re-read
+}
+
+async function refreshLists() {
+  if (!B || !pendingLists.size) return;
+  const id = C().id;
+  const tables = [...pendingLists];
+  pendingLists.clear();
+  let data;
+  try { data = await readNow(id, tables); } catch (err) { if (!isAbortError(err)) console.warn('[lists]', err?.message || err); return; }
+  if (!B || C().id !== id) return;
+  for (const t of tables) {
+    const rows = data.reads?.[t];
+    if (!Array.isArray(rows)) continue;
+    if (t === 'inventory_items') { if (!inventory) B.inventory = rows; continue; }
+    const list = B[LIST_KEY[t]];
+    if (!list) continue;
+    const fresh = new Set(rows.map((r) => r.id));
+    for (const row of rows) onRemote(t, list.some((r) => r.id === row.id) ? 'UPDATE' : 'INSERT', row, null);
+    for (const r of [...list]) if (!fresh.has(r.id)) onRemote(t, 'DELETE', null, { id: r.id });
+  }
+}
+const refreshListsSoon = debounce(refreshLists, 300);
+
+/** After a dropped connection or a prefetched view: one request (row + revisions), then only the changed domains. */
+async function reconcile() {
+  if (!B || !sheetFluent) return;
+  const id = C().id;
+  let data;
+  try { data = await readNow(id, ['characters', 'revisions']); } catch (err) { if (!isAbortError(err)) console.warn('[reconcile]', err?.message || err); return; }
+  if (!B || C().id !== id) return;
+  if (data.reads?.characters) onRemote('characters', 'UPDATE', data.reads.characters, null);
+  for (const [t, r] of Object.entries(data.reads?.revisions || {})) if (r > knownRevision(t)) onRevision(t, r);
+}
+const reconcileSoon = debounce(reconcile, 300);
 
 // After a dropped connection: own unsaved edits are saved first, then the stored state is shown. A flaky network that drops
 // and returns several times in a few seconds causes one reload, not one per return.
 const resyncSoon = debounce(() => {
   if (!B || liveCharacterId !== C().id) return;
   toast('Connection restored — showing the latest values.', 'info');
-  saver.flush().finally(() => ctx?.reload?.());
+  // fluent: one revision check refreshes what changed while offline; legacy: the whole sheet reloads
+  saver.flush().finally(() => (sheetFluent ? reconcile() : ctx?.reload?.()));
 }, 1500);
 
 /** Close the sheet. keepRealtimeFor: the character about to be mounted again (its channel stays open). */
 export function unmountSheet({ keepRealtimeFor = null } = {}) {
   endSheetReads();
+  endReadScope();
+  pendingLists.clear();
+  inventoryDeferred = false;
   vitalsObserver?.disconnect();
   vitalsObserver = null;
   const tv = document.getElementById('topbar-vitals');
@@ -3094,6 +3185,7 @@ export function unmountSheet({ keepRealtimeFor = null } = {}) {
     unsubscribe?.();
     unsubscribe = null;
     liveCharacterId = null;
+    liveFluent = false;
   }
   serverChar = null;
   spellbookStale = false;

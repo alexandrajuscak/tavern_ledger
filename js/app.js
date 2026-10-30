@@ -1,19 +1,20 @@
-import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=12';
+import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=13';
 import {
   state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
   loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
-  updateProfile, listCharacters, listCharacterBadges, createCharacter, loadBundle, saver,
-} from './store.js?v=12';
-import { getDerivedStats, getProficiencies } from './inventory-api.js?v=12';
-import { icon, classIcon, iconSrc } from './icons.js?v=12';
-import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, friendlyError } from './utils.js?v=12';
-import { mountSheet, unmountSheet } from './sheet.js?v=12';
-import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=12';
-import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=12';
-import { openLineagePicker } from './lineage-ui.js?v=12';
-import { getCharacterLineage } from './lineage-api.js?v=12';
-import { openAddClass } from './class-setup.js?v=12';
-import { getClassSummary } from './class-api.js?v=12';
+  updateProfile, listCharacters, listCharacterBadges, createCharacter, loadBundle, loadCharacterView, saver,
+} from './store.js?v=13';
+import { getDerivedStats, getProficiencies } from './inventory-api.js?v=13';
+import { icon, classIcon, iconSrc } from './icons.js?v=13';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=13';
+import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=13';
+import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=13';
+import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=13';
+import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=13';
+import { openLineagePicker } from './lineage-ui.js?v=13';
+import { getCharacterLineage } from './lineage-api.js?v=13';
+import { openAddClass } from './class-setup.js?v=13';
+import { getClassSummary } from './class-api.js?v=13';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders
@@ -71,6 +72,8 @@ async function handleSession(session) {
     state.profile = null;
     routeToken += 1;          // a character still being opened must not appear after sign-out
     bundleReads?.abort();
+    clearReadCaches();        // views, prefetches and seeds of this user (memory only)
+    cacheClearPrefix('list', 'bundle:', 'cardstats:');   // the session ended (here, in another tab, or expired): no user data stays
     unmountSheet();
     unmountDmSpace();
     $('#topbar').hidden = true;
@@ -90,8 +93,11 @@ async function handleSession(session) {
   route();
 }
 
+if (fluentEnabled()) cacheClearPrefix('bundle:');   // fluent read path: no character payload is persisted in localStorage
+
 async function signOut() {
   await saver.flush();
+  clearReadCaches();
   cacheClear();
   await supabase.auth.signOut();
 }
@@ -181,8 +187,8 @@ function renderSetupNeeded() {
   </div>`;
 }
 
-function renderError(message, err) {
-  if (err) console.error('[load]', err);
+function renderError(message, err, { expected = false } = {}) {
+  if (err) (expected ? console.warn : console.error)('[load]', err?.code || '', err?.message || err);
   app.innerHTML = `
   <div class="center-wrap">
     <div class="card narrow">
@@ -284,6 +290,23 @@ function hpPct(c, max = c.hp_max) {
 let listBadges = {};
 const titleCase = (id) => String(id || '').split(/[-_]/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
 const statsKey = (c) => `cardstats:${c.id}:${c.updated_at}`;
+
+/** Home cards: fetch the character view on clear intent; one at a time, cancellable, nothing on save-data connections. */
+function wirePrefetch(list) {
+  if (!list || list.__prefetch) return;
+  list.__prefetch = true;
+  let timer = null;
+  const go = (e, delay) => {
+    const card = e.target.closest?.('.char-card[data-char]');
+    if (!card || !fluentEnabled()) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => prefetchView(state.profile?.id, card.dataset.char, activeTabKey()), delay);
+  };
+  list.addEventListener('pointerover', (e) => go(e, 150));
+  list.addEventListener('pointerout', (e) => { if (e.target.closest?.('.char-card')) clearTimeout(timer); });
+  list.addEventListener('focusin', (e) => go(e, 0));
+  list.addEventListener('pointerdown', (e) => go(e, 0));
+}
 
 async function loadCardStats(chars, token) {
   const queue = chars.filter((c) => !cacheGet(statsKey(c)));
@@ -599,6 +622,7 @@ async function renderList(token) {
     if (count) count.textContent = q ? `${shown} found` : '';
   };
   $('#char-search').addEventListener('input', applySearch);
+  wirePrefetch($('#char-list'));
 
   const cached = cacheGet('list');
   if (cached && state.campaigns.length) paint(cached);
@@ -783,6 +807,8 @@ let bundleReads = null;
 async function openCharacter(id, token) {
   bundleReads?.abort();
   const reads = bundleReads = new AbortController();
+  cancelPrefetches(id);
+  if (fluentEnabled()) return openCharacterFluent(id, token, reads);
   const cached = cacheGet(`bundle:${id}`);
   if (cached) mountSheet(app, cached, { readOnly: true });
   else {
@@ -808,6 +834,38 @@ async function openCharacter(id, token) {
       unmountSheet();   // the previous character's top bar, subscriptions and state must not stay above the error (V6.2)
       renderError('This character could not be loaded. It may have been deleted, or you may not have access.', err);
     }
+  }
+}
+
+/**
+ * Fluent read path: one get_character_view request (shell + active tab) instead of 35. The previous character is unmounted
+ * at once (its reads abort, its data is never shown as the new character); a stable placeholder stays until the whole sheet
+ * paints in one step. If the fluent read functions are unavailable on the server, this session falls back to the legacy path.
+ */
+let campaignsLoadedAt = 0;
+async function openCharacterFluent(id, token, reads) {
+  unmountSheet({ keepRealtimeFor: id });
+  app.innerHTML = '<div class="center-wrap" data-sheet-loading><div class="spinner"></div></div>';
+  try {
+    await saver.flush();
+    // campaigns and members change rarely: refreshed at most once a minute, and never on the open's critical path once known
+    const campaigns = Date.now() - campaignsLoadedAt > 60000 || !state.campaigns.length
+      ? loadCampaigns().then(() => { campaignsLoadedAt = Date.now(); }, (e) => { if (!state.campaigns.length) throw e; console.warn('[campaigns]', e?.message || e); }) : null;
+    const [{ bundle, view }] = await Promise.all([loadCharacterView(id, activeTabKey(), reads.signal), state.campaigns.length ? null : campaigns]);
+    if (token !== routeToken) return;
+    updateBadges();
+    mountSheet(app, bundle, {
+      view,
+      reload: () => openCharacter(id, routeToken),
+      onDeleted: () => { window.location.hash = '#/'; },
+    });
+  } catch (err) {
+    if (token !== routeToken || reads.signal.aborted) return;   // superseded: nothing to report
+    if (isFluentUnavailable(err)) { markFluentBroken(err); openCharacter(id, token); return; }
+    const denied = err?.code === '42501';     // deleted or not yours: an expected answer, not a client error
+    if (!denied) console.error(err);
+    unmountSheet();
+    renderError('This character could not be loaded. It may have been deleted, or you may not have access.', err, { expected: denied });
   }
 }
 

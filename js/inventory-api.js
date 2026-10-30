@@ -1,7 +1,7 @@
 // Inventory data access. The ONLY module that talks to Supabase about items, inventories and equipment.
 // Reads come from views (RLS applies: they are security_invoker), every change goes through an RPC.
 // Function names follow the database; where they differ the mapping is written next to the function.
-import { supabase } from './supabase.js?v=12';
+import { supabase } from './supabase.js?v=13';
 
 // ---- Errors -----------------------------------------------------------------------------------
 
@@ -185,6 +185,10 @@ export function invalidateCatalogItems(ids = null) {
   if (!ids) detailCache.clear();
   else ids.forEach((id) => detailCache.delete(id));
 }
+
+/** Catalog rows that arrived with a bundle (same columns as CATALOG_COLUMNS): replace the cached copies. */
+export function primeCatalogItems(rows) { rows.forEach((r) => detailCache.set(r.id, r)); }
+export const cachedCatalogItem = (id) => detailCache.get(id) || null;
 
 /** Catalog details for the given item ids (cached). */
 export async function getCatalogItems(ids, { fresh = false } = {}) {

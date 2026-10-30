@@ -1,7 +1,8 @@
 // Creature catalog, transformations (Wild Shape) and companions (migration 20261017000800). The rules (which forms are
 // allowed, costs, hit point carry-over) live in the database; this module only moves data.
-import { supabase } from './supabase.js?v=12';
-import { friendlyError } from './utils.js?v=12';
+import { supabase } from './supabase.js?v=13';
+import { takeSeed } from './read-layer.js?v=13';
+import { friendlyError } from './utils.js?v=13';
 
 class CreatureError extends Error {}
 
@@ -64,6 +65,8 @@ export async function getEquipped(characterId) {
 }
 
 export async function getCompanions(characterId) {
+  const seed = takeSeed('companions', characterId);    // fluent read path: came with the character view
+  if (seed.hit && !seed.error) return seed.data;
   const { data, error } = await supabase.from('character_companions')
     .select('id, name, source, hp_max, hp_current, notes, active, creature_id, creature:creatures(id, name, size, creature_type, challenge_rating, armor_class, speed, actions, abilities)')
     .eq('character_id', characterId).order('created_at');

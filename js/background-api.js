@@ -1,8 +1,9 @@
 // Background data access (migration 20261017001200): the catalog and the character RPCs. The rules live in the database
 // (set_character_background validates; get_character_background resolves); this module only moves data.
-import { supabase } from './supabase.js?v=12';
-import { friendlyError } from './utils.js?v=12';
-import { PICKER_TIMEOUT_MS } from './catalog-load.js?v=12';
+import { supabase } from './supabase.js?v=13';
+import { friendlyError } from './utils.js?v=13';
+import { PICKER_TIMEOUT_MS } from './catalog-load.js?v=13';
+import { fluentEnabled, isFluentUnavailable, onUserCachesCleared } from './read-layer.js?v=13';
 
 /** Validation messages (SQLSTATE 22023 / 23505) are written for users; everything else is mapped. */
 function bgError(raw) {
@@ -27,6 +28,51 @@ export function getBackgroundCatalog() {
     .then(({ data, error }) => { if (error) throw bgError(error); return data; })
     .catch((e) => { catalogPromise = null; throw e; });
   return catalogPromise;
+}
+
+// ---- compact picker (fluent read path, docs/CATALOG_LIST_DETAIL_API.md): ~9 KB list, one version on selection ----------
+let listPromise = null;
+let listFromCatalog = false;   // the database has no compact list (older migration): details come from the catalog too
+const detailCache = new Map();
+onUserCachesCleared(() => { listPromise = null; listFromCatalog = false; detailCache.clear(); catalogPromise = null; });
+const timed = (fn, args) => supabase.rpc(fn, args).abortSignal(AbortSignal.timeout(PICKER_TIMEOUT_MS))
+  .then(({ data, error }) => { if (error) throw bgError(error); return data; });
+
+/** Picker list: {versions: [{id, name, ruleset, skills, ...}], tools: [{id, name}]}. Legacy path: derived from the catalog. */
+export function getBackgroundList() {
+  if (!fluentEnabled()) return getBackgroundCatalog().then(catalogAsList);
+  listPromise ||= timed('get_background_list', {}).catch((e) => {
+    listPromise = null;
+    if (isFluentUnavailable(e?.raw || e)) { listFromCatalog = true; return getBackgroundCatalog().then(catalogAsList); }   // older database
+    throw e;
+  });
+  return listPromise;
+}
+
+/** One complete background version (the object get_background_catalog lists), cached per session. */
+export function getBackgroundDetail(versionId) {
+  if (!fluentEnabled() || listFromCatalog) {
+    return getBackgroundCatalog().then((c) => (c.versions || []).find((v) => v.id === versionId) || null);
+  }
+  if (!detailCache.has(versionId)) {
+    detailCache.set(versionId, timed('get_background_detail', { p_version: versionId }).catch((e) => {
+      detailCache.delete(versionId);
+      if (isFluentUnavailable(e?.raw || e)) return getBackgroundCatalog().then((c) => (c.versions || []).find((v) => v.id === versionId) || null);
+      throw e;
+    }));
+  }
+  return detailCache.get(versionId);
+}
+
+/** The catalog in the list shape (legacy path and fallback). */
+function catalogAsList(c) {
+  const tools = new Map();
+  for (const v of c.versions || []) {
+    for (const ch of v.choices || []) for (const o of ch.options || []) if (o.kind === 'tool') tools.set(o.id, o.name);
+    for (const g of v.grants || []) if (g.kind === 'tool') tools.set(g.id, g.name);
+  }
+  return { versions: (c.versions || []).map((v) => ({ ...v, skills: (v.grants || []).filter((g) => g.kind === 'skill').map((g) => g.name) })),
+    tools: [...tools].map(([id, name]) => ({ id, name })), full: true };
 }
 
 export const getCharacterBackground = (characterId) => rpc('get_character_background', { p_character: characterId });

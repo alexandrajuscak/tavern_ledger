@@ -15,3 +15,7 @@ export const SUPABASE_ENV = 'production';
 export const PRODUCTION_HOSTS = ['alexandrajuscak.github.io'];
 export const SUPABASE_URL = 'https://pfgzbzzouvwvobftwlsc.supabase.co';
 export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_8pUE0WNlOpKZAhm9jHAeZg_YglBmUY8';
+// Character read path (docs/FRONTEND_READ_CACHE.md): 'on' = one request per character open (get_character_view) with
+// coalesced reloads and one Realtime table; 'off' = the legacy per-widget reads. Rollback of the frontend = 'off'.
+// A browser may override it for controlled testing with ?fluent=1 / ?fluent=0 (?fluent=default clears the override).
+export const FLUENT_READS = 'off';

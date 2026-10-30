@@ -2,8 +2,8 @@
 // icon() is decorative (alt="") unless a label is given, and every caller shows the meaning in text or an accessible name.
 // Every icon goes through the registry (js/icon-registry.js): semantic key -> asset, label, fallback. No other module builds
 // asset paths. A name may be a semantic key ("spell.damage.fire") or the older asset name ("damage-types/fire").
-import { esc } from './utils.js?v=12';
-import { ICON_REGISTRY } from './icon-registry.js?v=12';
+import { esc } from './utils.js?v=13';
+import { ICON_REGISTRY } from './icon-registry.js?v=13';
 
 const BASE = 'assets/icons';
 const GENERIC = 'generic';

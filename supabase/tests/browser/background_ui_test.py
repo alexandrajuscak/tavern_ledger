@@ -49,6 +49,7 @@ def main():
               and dlg.locator("[data-bg-pick]").count() == 1 and "Soldier" in dlg.locator("[data-bg-pick]").inner_text(),
               (n_default, has_rune, has_rune_pt, legacy_only))
         dlg.locator("[data-bg-pick=soldier-2024]").click()
+        dlg.locator("[data-bg-editor]").wait_for(timeout=15000)   # the version detail loads on selection (fluent path)
         ed = dlg.locator("[data-bg-editor]")
         opts = ed.locator("select[name=plus2] option").all_text_contents()
         check("BU3 the 2024 editor offers only the listed abilities (Strength, Dexterity, Constitution) and the compatibility box",
@@ -93,6 +94,7 @@ def main():
         card.locator("[data-action=bg-choose]").click()
         dlg = page.locator(".modal").last
         dlg.locator("[data-bg-pick=urchin-phb]").click()
+        dlg.locator("[data-bg-editor]").wait_for(timeout=15000)   # the version detail loads on selection (fluent path)
         check("BU11 a legacy version says it has no ability increases and no feat", "no ability score increases" in dlg.locator("[data-bg-editor]").inner_text())
         dlg.locator("[data-bg-save]").click()
         nope = page.locator(".modal").last
@@ -116,6 +118,7 @@ def main():
         dlg = page.locator(".modal").last
         dlg.locator("[name=playtest]").check()
         dlg.locator("[data-bg-pick=rune-carver-ua]").click()
+        dlg.locator("[data-bg-editor]").wait_for(timeout=15000)   # the version detail loads on selection (fluent path)
         dlg.locator("[data-bg-save]").click()
         msg = dlg.locator("[data-bg-editor-status]").inner_text()
         check("BU15 Rune Carver (playtest) asks for the DM's permission before saving", "DM allows" in msg, msg)
@@ -152,6 +155,7 @@ def main():
         ov_card = s.overflow()
         card.locator("[data-action=bg-choose]").click()
         page.locator(".modal [data-bg-pick=sage-2024]").click()
+        page.locator(".modal [data-bg-editor]").wait_for(timeout=15000)
         page.wait_for_timeout(300)
         ov_dlg = page.evaluate("() => { const m = document.querySelector('.modal-backdrop:last-child .modal'); return m ? m.scrollWidth - m.clientWidth : 0; }")
         check("BU19 390 px: no horizontal overflow on the Build tab and in the background editor", ov_card <= 0 and ov_dlg <= 0, (ov_card, ov_dlg))

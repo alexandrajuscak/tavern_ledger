@@ -72,3 +72,21 @@ nothing about a hosted deployment.
 - **Measured locally only** for request counts and the rapid-switch behaviour; production timings are from read-only
   production statistics. No staging project exists. Deployed 2026-10-29 (`a568ab5`); the signed-in production smoke is the
   operator's checklist in docs/DEPLOYMENT_PRODUCTION_SMOKE_RESULTS.md.
+
+## Added by the fluent read release (2026-10-30; docs/FLUENT_READ_ARCHITECTURE.md)
+
+- **No permanent build snapshot yet.** Each character open still runs the rules core once per security context (1-2 times,
+  was ~10). Whether bursts on Supabase Free need the snapshot is decided by the measured checkpoint in
+  docs/FLUENCY_PRODUCTION_DEPLOYMENT.md.
+- **Still in the open:** Build's class-feature list (33-118 KB) and the Wild Shape form options (up to 86 KB) arrive with every
+  open; making them lazy needs the class and Wild Shape panels to render without them.
+- **Spell and Feat picker lists are large** (≈ 429 KB / 300 KB uncompressed; already list/detail): trimming needs the filters
+  reworked. The Background picker list is ≈ 9 KB (was 470 KB).
+- **No offline copy on the fluent path.** The legacy path kept the last stored rows of each opened character in localStorage
+  and showed them read-only when offline; the fluent path deliberately persists no character data (privacy, shared devices).
+  Offline, a character cannot be opened; edits in progress are still queued and saved later as before.
+- **Session catalogs** (class catalog, lineage and spell references, inventory lookups) are still separate requests on the
+  first open of a session; afterwards they are cached until sign-out.
+- **Home card stats** (max HP, AC) still read the derived stats per card, six at a time, cached per character version.
+- **Feature flag:** `FLUENT_READS` in js/config.js; `?fluent=0` per browser forces the legacy path. The legacy code path and its
+  64-binding Realtime channel remain in this release as the rollback; they are removed only after production monitoring.

@@ -44,3 +44,8 @@ data/raw/
 supabase/seed/
 data/
 scripts/data-migration/
+
+# Architecture POCs (2026-10-30): local evidence only, never published
+poc/
+supabase/poc/
+supabase/tests/browser/latency_probe.py

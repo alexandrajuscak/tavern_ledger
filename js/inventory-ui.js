@@ -1,12 +1,12 @@
 // Inventory tab: summary, equipment slots, item list, item detail and the catalog picker.
 // All data comes from inventory-api.js; after every change the authoritative state is re-read from the server
 // (no client-side simulation of splits, merges or quantities).
-import * as api from './inventory-api.js?v=12';
-import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=12';
-import { openHomebrewForm } from './homebrew-form.js?v=12';
-import { isAnyDM } from './store.js?v=12';
-import { icon, ITEM_ICONS } from './icons.js?v=12';
-import { sectionHead } from './section.js?v=12';
+import * as api from './inventory-api.js?v=13';
+import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=13';
+import { openHomebrewForm } from './homebrew-form.js?v=13';
+import { isAnyDM } from './store.js?v=13';
+import { icon, ITEM_ICONS } from './icons.js?v=13';
+import { sectionHead } from './section.js?v=13';
 
 const CATEGORIES = [
   ['all', 'All', () => true],
@@ -105,6 +105,21 @@ export function mountInventory(el, opts) {
   // ---- data -------------------------------------------------------------------------------------------
   async function load() {
     s.lookups ||= await api.getLookups();
+    // fluent read path: the whole inventory state in one request (get_character_bundle 'inventory'), same rows as below
+    if (opts.loadBundle) {
+      const b = await opts.loadBundle();
+      if (!b) throw new api.InventoryError('not_found', 'This character has no inventory yet. Ask the DM to run the inventory migration.');
+      s.inventoryId = b.inventory_id;
+      const ids = [...new Set((b.rows || []).map((r) => r.item_id).filter(Boolean))];
+      api.invalidateCatalogItems(ids);              // fresh, as below: a shared homebrew definition may have changed
+      api.primeCatalogItems(b.catalog_items || []);
+      const details = new Map(ids.filter((id) => api.cachedCatalogItem(id)).map((id) => [id, api.cachedCatalogItem(id)]));
+      const reviewMap = new Map();
+      (b.review || []).forEach((x) => reviewMap.set(x.inventory_item_id, [...(reviewMap.get(x.inventory_item_id) || []), x]));
+      return { rows: b.rows || [], equipment: b.equipment || [], attunement: b.attunement || { attuned_count: 0, attunement_limit: 3, slots_free: 3 },
+        weight: b.weight || { stacks: 0, pieces: 0, total_weight_lb: 0 }, details,
+        containers: new Map((b.containers || []).map((c) => [c.container_item_id, c])), review: reviewMap };
+    }
     s.inventoryId ||= await api.getCharacterInventoryId(opts.characterId);
     const [rows, equipment, attunement, weight, containers, review] = await Promise.all([
       api.getInventoryRows(s.inventoryId), api.getCharacterEquipment(opts.characterId), api.getAttunement(opts.characterId),

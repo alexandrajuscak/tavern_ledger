@@ -342,3 +342,24 @@ Developer tools → Network → throttling "Fast 4G" (or a custom 150 ms latency
 
 Automated: `supabase/tests/browser/production_timeout_incident_test.py` (57 checks, 150 ms latency); diagnostic numbers:
 `LATENCY_MS=150 OUT=probe.json python supabase/tests/browser/incident_probe.py`.
+
+## Fluent read release (2026-10-30): one request per character
+
+Developer tools → Network (filter `rest/v1`), throttling "Fast 4G" or 150 ms.
+
+1. **Open:** open a character from Home. Exactly one `get_character_view` request (plus, at most once a minute, the
+   campaigns refresh); the whole sheet appears in one step. `window.__tavernLedgerReadPath` in the console shows `path: 'fluent'`.
+2. **Hover prefetch:** rest the mouse on a Home card for a moment: one `get_character_view` starts; clicking the card then
+   opens without a second one.
+3. **Tabs:** Spells and Inventory each send one `get_character_reads` the first time; going back to them sends nothing.
+4. **Background picker:** Build → Choose background…: one `get_background_list` (~9 KB); clicking a background loads
+   `get_background_detail` with "Loading the background…".
+5. **Two windows:** open the same character in two browser windows; change HP in one: the other updates within a second with
+   no request. Add a tracker in one: the other sends one `get_character_reads`.
+6. **Reconnect:** turn the network off for a few seconds and on again: one "Connection restored" toast and one small
+   `get_character_reads`, not a reload.
+7. **Legacy path:** open `…/?fluent=0` → the old per-widget requests (≈35); `?fluent=default` returns to the configured path.
+8. **Sign out:** afterwards localStorage contains no `tavern-ledger:list`, `bundle:` or `cardstats:` key.
+
+Automated: `supabase/tests/browser/fluent_read_ui_test.py` (31 checks), `supabase/tests/fluent_read_tests.sql` (1,705 checks),
+benchmark `supabase/tests/browser/fluency_benchmark.py`.

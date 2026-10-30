@@ -87,6 +87,12 @@ def run(t):
         s, net = new_sheet(b, pl)
         page = s.page
         PUMP.append(page)
+        FLUENT = page.evaluate("() => window.__tavernLedgerReadPath?.path === 'fluent'")
+        # fluent read path: one sheet = 2 bindings (characters row + character_revisions INSERT) + 2 of the request bar;
+        # a derived refresh is a coalesced get_character_reads request; a reconnect is one reconciliation read
+        SUBS_ALL, SUBS_CHAR = (4, 4) if FLUENT else (66, 45)
+        REFRESH = HEAVY | {"get_character_reads"} if FLUENT else HEAVY
+        heavy_of = lambda rows: sum(1 for r in rows if r["name"] in REFRESH)
 
         # ---------------------------------------------------------------- incident reproduction + request budget
         go(page, chars["D"]); page.wait_for_timeout(2500)     # warm-up: shared reference data, bundle cache
@@ -102,9 +108,9 @@ def run(t):
         check("26 one Realtime WebSocket per page", net.ws == 1, net.ws)
         # one sheet = 64 bindings (43 filtered on the character + 21 DELETE without filter) + 2 of the request bar
         # the server removes the previous sheet's subscriptions asynchronously: wait for the steady state
-        wait_until(lambda: subs_for(pl.id) == 66, 15)
+        wait_until(lambda: subs_for(pl.id) == SUBS_ALL, 15)
         n_sub, n_all = subs_for(pl.id, chars["A"]), subs_for(pl.id)
-        check("27 one character channel: %d filtered / %d total subscriptions" % (n_sub, n_all), n_sub == 45 and n_all == 66, (n_sub, n_all))
+        check("27 one character channel: %d filtered / %d total subscriptions" % (n_sub, n_all), n_sub == SUBS_CHAR and n_all == SUBS_ALL, (n_sub, n_all))
 
         # rapid A -> B -> C, 10 times: C renders, nothing of A or B, obsolete reads cancelled, no error
         stale_render, errors_before = False, len(s.errors)
@@ -133,7 +139,7 @@ def run(t):
         check("28 old channels left: no subscription for A or B after the switches",
               wait_until(lambda: subs_for(pl.id, chars["A"]) == 0 and subs_for(pl.id, chars["B"]) == 0, 15),
               (subs_for(pl.id, chars["A"]), subs_for(pl.id, chars["B"])))
-        check("8 the current load stays active: one channel for C", wait_until(lambda: subs_for(pl.id, chars["C"]) == 45, 10),
+        check("8 the current load stays active: one channel for C", wait_until(lambda: subs_for(pl.id, chars["C"]) == SUBS_CHAR, 10),
               subs_for(pl.id, chars["C"]))
         i = net.mark(); page.wait_for_timeout(5000)
         idle = net.since(i)
@@ -159,7 +165,7 @@ def run(t):
         i1, i2 = net.mark(), net2.mark()
         hp = page.locator("#hp-card .hp-current").first
         hp.fill("21"); hp.press("Enter"); page.wait_for_timeout(4500)
-        heavy1 = summary(net.since(i1))["heavy_rpcs"]; heavy2 = summary(net2.since(i2))["heavy_rpcs"]
+        heavy1 = heavy_of(net.since(i1)); heavy2 = heavy_of(net2.since(i2))
         seen = s2.page.locator("#hp-card .hp-current").first.input_value()
         check("HP edit: no derived re-read in the editing session (%d) or the viewing session (%d)" % (heavy1, heavy2),
               heavy1 == 0 and heavy2 == 0)
@@ -168,7 +174,7 @@ def run(t):
         i2 = net2.mark()
         pst, pbody = call("PATCH", f"/rest/v1/characters?id=eq.{chars['B']}", {"dexterity": 16}, token=pl.jwt, key=ANON)
         check("ability change still re-reads derived stats in the other session",
-              wait_until(lambda: any(r["name"] == "get_character_derived_stats" for r in net2.since(i2)), 8),
+              wait_until(lambda: any(r["name"] in ("get_character_derived_stats", "get_character_reads" if FLUENT else "-") for r in net2.since(i2)), 8),
               (pst, str(pbody)[:160], [r["name"] for r in net2.since(i2)]))
 
         # DELETE attribution: a delete on another character costs nothing (after learning), on this one it refreshes
@@ -178,7 +184,7 @@ def run(t):
             m1, m2 = net.mark(), net2.mark()
             pl.rpc("set_character_proficiency", p_character=cid, p_group=group, p_item=None, p_enabled=False)
             page.wait_for_timeout(3500)
-            return summary(net.since(m1))["heavy_rpcs"], summary(net2.since(m2))["heavy_rpcs"]
+            return heavy_of(net.since(m1)), heavy_of(net2.since(m2))
         toggle(chars["D"], "simple-weapons")                    # first one: learned, conservative
         f1, f2 = toggle(chars["D"], "martial-weapons")
         check("foreign DELETE (character D, not open) re-reads nothing in two sheets of B (%d, %d)" % (f1, f2), f1 == 0 and f2 == 0)
@@ -188,14 +194,15 @@ def run(t):
 
         # ---------------------------------------------------------------- Realtime reconnect
         go(page, chars["C"]); page.wait_for_timeout(2500)
-        wait_until(lambda: subs_for(pl.id) == 66, 15)
+        wait_until(lambda: subs_for(pl.id) == SUBS_ALL, 15)
         before = subs_for(pl.id)
         i = net.mark()
         page.evaluate(DROP); page.wait_for_timeout(400); page.evaluate(DROP)      # two drops in quick succession
         page.wait_for_timeout(9000)
         rows = net.since(i)
-        bundle_reads = sum(1 for r in rows if r["name"] == "characters" and r["char"] == chars["C"])
-        check("29 two quick reconnects cause one coordinated refresh (%d bundle reads)" % bundle_reads, bundle_reads == 1, bundle_reads)
+        bundle_reads = sum(1 for r in rows if r["name"] == ("get_character_reads" if FLUENT else "characters") and r["char"] == chars["C"])
+        check("29 two quick reconnects cause one coordinated refresh (%d %s)" % (bundle_reads, "reconciliation reads" if FLUENT else "bundle reads"),
+              bundle_reads == 1 and not (FLUENT and any(r["name"] == "get_character_view" for r in rows)), [r["name"] for r in rows])
         check("4 reconnect keeps the sheet usable and on C", page.evaluate(USABLE) and page.locator("#hp-card .hp-current").first.input_value() == "33")
         check("reconnect: no extra channel (subscriptions %d -> %d)" % (before, subs_for(pl.id)),
               wait_until(lambda: subs_for(pl.id) == before, 15), (before, subs_for(pl.id)))
@@ -211,6 +218,7 @@ def run(t):
             slow.append(route)
         page.route("**/rest/v1/v_inventory_detail*", delay)
         page.route("**/rest/v1/rpc/get_character_spellbook", delay)
+        page.route("**/rest/v1/rpc/get_character_reads", delay)   # fluent: any later coalesced read of the sheet
         go(page, chars["C"], wait=False)
         page.wait_for_function(USABLE, timeout=60000)
         i = net.mark(); t0 = time.time()
@@ -221,11 +229,12 @@ def run(t):
         page.wait_for_selector(".modal [data-bg-pick]", timeout=20000); listed = time.time() - t0
         check("11 Background picker opens at once (%.2f s)" % shell, shell < 1.5, shell)
         check("47 loading state is announced (role=status, aria-live) or results are already there", loading_seen)
-        check("3/13/14 results while Inventory and spellbook are still held back (%.2f s)" % listed, listed < 8 and len(slow) > 0, (listed, len(slow)))
+        # fluent: Inventory and the spellbook are not read on open at all (held-back count may be 0); legacy: they are held back
+        check("3/13/14 results while Inventory and spellbook are still held back (%.2f s)" % listed, listed < 8 and (FLUENT or len(slow) > 0), (listed, len(slow)))
         for r in slow:
             try: r.continue_()
             except Exception: pass
-        page.unroute("**/rest/v1/v_inventory_detail*"); page.unroute("**/rest/v1/rpc/get_character_spellbook")
+        page.unroute("**/rest/v1/v_inventory_detail*"); page.unroute("**/rest/v1/rpc/get_character_spellbook"); page.unroute("**/rest/v1/rpc/get_character_reads")
         n = page.locator(".modal [data-bg-pick]").count()
         check("12 permitted backgrounds are listed (%d, 29 enabled by default)" % n, n == 29, n)
         check("50 focus stays inside the picker", page.evaluate("() => !!document.activeElement?.closest('.modal')"))
@@ -233,6 +242,7 @@ def run(t):
         names = page.locator(".modal [data-bg-pick] strong").all_inner_texts()
         check("15 search filters (%s)" % names, names and all("sage" in x.lower() for x in names), names)
         page.locator(".modal [data-bg-pick]").first.click()
+        page.locator(".modal [data-bg-editor]").wait_for(timeout=15000)   # detail on selection (fluent path)
         check("16 first click after search picks the background",
               page.locator(".modal [data-bg-pick].is-picked").count() == 1 and not page.locator(".modal [data-bg-save]").is_disabled())
         page.fill('.modal input[name="q"]', "zzzz")
@@ -263,6 +273,7 @@ def run(t):
             px = sx.page
             go(px, chars["C"])
             px.route("**/rest/v1/rpc/get_background_catalog", handler)
+            px.route("**/rest/v1/rpc/get_background_list", handler)
             ix = nx.mark()
             px.locator('[data-action="bg-choose"]').first.click()
             px.wait_for_selector(".modal", timeout=5000)
@@ -284,11 +295,11 @@ def run(t):
         check("server statement timeout (57014) is explained (%s)" % txt.strip()[:80], "too long" in txt.lower() and not RAW.search(txt), txt)
         check("48 the error is announced (role=alert)", px.locator('.modal [data-picker-state="error"][role="alert"]').count() == 1)
         # 49/22 Retry with the keyboard: one request, then results
-        px.unroute("**/rest/v1/rpc/get_background_catalog")
+        px.unroute("**/rest/v1/rpc/get_background_catalog"); px.unroute("**/rest/v1/rpc/get_background_list")
         ix = nx.mark()
         px.focus(".modal [data-picker-retry]"); px.keyboard.press("Enter"); px.keyboard.press("Enter")
         px.wait_for_selector(".modal [data-bg-pick]", timeout=10000)
-        tries = sum(1 for r in nx.since(ix) if r["name"] == "get_background_catalog")
+        tries = sum(1 for r in nx.since(ix) if r["name"] in ("get_background_catalog", "get_background_list"))
         check("22/49 Retry by keyboard loads the list with one request (%d)" % tries, tries == 1, tries)
         sx.close()
         # 21/41/42/46 a request that never answers: a final state with Retry, and no automatic retry afterwards
@@ -297,9 +308,9 @@ def run(t):
         check("21/41/46 an unanswered request ends in a message with Retry (%s)" % txt.strip()[:60],
               "too long" in txt.lower() and px.locator(".modal [data-picker-retry]").count() == 1, txt)
         px.wait_for_timeout(6000)
-        n_tries = sum(1 for r in nx.since(ix) if r["name"] == "get_background_catalog")
+        n_tries = sum(1 for r in nx.since(ix) if r["name"] in ("get_background_catalog", "get_background_list"))
         check("42 no automatic retry (%d request)" % n_tries, n_tries == 1, n_tries)
-        px.unroute("**/rest/v1/rpc/get_background_catalog")
+        px.unroute("**/rest/v1/rpc/get_background_catalog"); px.unroute("**/rest/v1/rpc/get_background_list")
         px.locator(".modal [data-picker-retry]").click()
         check("22 Retry after a stalled request sends a new request and shows the list",
               wait_until(lambda: px.locator(".modal [data-bg-pick]").count() == 29, 15))
@@ -367,7 +378,7 @@ def run(t):
         # 10/30 sign-out: reads stop, channels are removed
         go(page, chars["C"], wait=False)
         page.wait_for_timeout(300)
-        page.evaluate("async () => { const m = await import('./js/supabase.js?v=12'); await m.supabase.auth.signOut(); }")
+        page.evaluate("async () => { const m = await import('./js/supabase.js?v=13'); await m.supabase.auth.signOut(); }")
         page.wait_for_selector("input[name=email]", timeout=15000)
         check("30 sign-out removes every Realtime subscription of the user", wait_until(lambda: subs_for(pl.id) == 0, 15), subs_for(pl.id))
         check("10 sign-out: no sheet is rendered afterwards", page.locator(".sheet-root").count() == 0)
