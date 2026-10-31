@@ -1,6 +1,6 @@
 # Gameplay polish: audit and fixes (2026-10-31)
 
-Migration `20261031000100_gameplay_polish.sql` (rollback `supabase/rollback/rollback_gameplay_polish.sql`), frontend `?v=16`.
+Migration `20261031000100_gameplay_polish.sql` (rollback `supabase/rollback/rollback_gameplay_polish.sql`), frontend `?v=16` (import fix `?v=17`, section 8).
 Tests: `supabase/tests/gameplay_polish_tests.sql`, `supabase/tests/browser/gameplay_polish_ui_test.py`.
 
 ## 1. Homebrew items (DM Space item editor)
@@ -11,7 +11,7 @@ Tests: `supabase/tests/gameplay_polish_tests.sql`, `supabase/tests/browser/gamep
 | Root cause | `js/content-editors.js` always showed and sent the Armor section. Its "Stealth disadvantage" checkbox is serialised as `false`, which survives `prune`, so `definition.stats.armor = {stealth_disadvantage: false}` was sent for every item. `_write_homebrew` (the validator and writer behind both validate and publish) rejects any armor section on a non-armor item. The coin select always has a value. |
 | Fix, frontend | Weapon, Armor and Ammunition sections are shown only for their type (`data-ce-for`, re-applied after every redraw). `readForm` sends only the stats of the chosen type (values left in a hidden section never become mechanics) and drops the coin when there is no cost. An Ammunition section (type, pack size) was added. Type lists only the 8 homebrew types. Required fields are labelled "(required)". The player homebrew form now requires weapon damage dice. |
 | Fix, backend (authoritative) | `_write_homebrew` ignores a stats section with no value (null, false, empty), so an old cached editor works too. A section **with** values must still fit the type, so a tool with `base_ac` is still refused. A weapon now needs damage dice. Every other rule is unchanged, and armor still needs a base AC (or a shield bonus). |
-| Existing content | No published item is changed (the writer runs only when an item is saved). Production had 0 custom items. |
+| Existing content | No published item is changed (the writer runs only when an item is saved). Production at deployment: 10 custom items (armor 1, gear 2, tool 3, magic item 3, scroll 1) and 2 DM content entries, **0 custom weapons**, so the new damage-dice rule blocks no existing item from being edited, versioned or imported. |
 | Tests | SQL H1-H24 (gear, tool, weapon, potion, wondrous, scroll, ammunition, armor and shield valid; armor without AC, weapon without damage, stale armor on a tool, stale weapon on armor refused; published tool has no armor or weapon stats; unrelated player denied). Browser H0, H3, H11-H13, H22. |
 
 ### Item-type validation matrix (server)
@@ -99,3 +99,12 @@ overrides. All are self-hosted 96 px WebP, with no external request. `scripts/lo
 
 The player whose character has Magic Initiate from a background picks its cantrips and spell once more (Build → background
 feat → choices); they are kept from now on.
+
+## 8. Follow-up the same day: import of lineage counters (`?v=17`, frontend only, commit `0824603`)
+
+Found while testing export / import: the importer restores the lineage first (its trigger creates the Hungry Jaws counter),
+then tried to create the exported counter again under the same key. `save_character_resource` refused (unique key), and the
+used count was lost with only a console warning. `js/transfer.js` now carries the used count over to the existing lineage
+counter. Tested (`gameplay_polish_ui_test.py`, 35/0): C29 coins identical after import, L12 one counter with the same use
+count, M23 the Magic Initiate choices and its 3 spells come back. Before this release, imported background feat choices had
+been dropped by the same `_store_feat_choices` bug.
