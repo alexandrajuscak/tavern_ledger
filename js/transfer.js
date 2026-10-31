@@ -3,16 +3,16 @@
 // dice and so on. Bonuses (skills, saves, passives, initiative, to-hit) are
 // always calculated by the app and never stored.
 
-import { supabase } from './supabase.js?v=16';
-import { friendlyError } from './utils.js?v=16';
-import { importInventoryItems } from './inventory-api.js?v=16';
-import { setCharacterLineage } from './lineage-api.js?v=16';
-import { setCharacterBackground } from './background-api.js?v=16';
-import { currentPayload } from './background-ui.js?v=16';
-import { setCharacterClass, getClassSummary, setSlotState, saveResource, changeResource, importClassFeatures } from './class-api.js?v=16';
-import { saveSpellcastingSource, setCharacterSpell } from './spell-api.js?v=16';
-import { importFeats } from './feat-api.js?v=16';
-import { ABILITIES, SKILLS, CLASS_HIT_DIE, ACTIVATIONS, FEATURE_CATEGORIES, skillLevel, skillValue, dieSize } from './dnd.js?v=16';
+import { supabase } from './supabase.js?v=17';
+import { friendlyError } from './utils.js?v=17';
+import { importInventoryItems } from './inventory-api.js?v=17';
+import { setCharacterLineage } from './lineage-api.js?v=17';
+import { setCharacterBackground } from './background-api.js?v=17';
+import { currentPayload } from './background-ui.js?v=17';
+import { setCharacterClass, getClassSummary, setSlotState, saveResource, changeResource, importClassFeatures } from './class-api.js?v=17';
+import { saveSpellcastingSource, setCharacterSpell } from './spell-api.js?v=17';
+import { importFeats } from './feat-api.js?v=17';
+import { ABILITIES, SKILLS, CLASS_HIT_DIE, ACTIVATIONS, FEATURE_CATEGORIES, skillLevel, skillValue, dieSize } from './dnd.js?v=17';
 
 export const SCHEMA_VERSION = 1;
 
@@ -568,7 +568,15 @@ export async function importCharacter(json, ownerId, campaignId) {
     if (e2) console.warn('[import] unresolved spells not kept:', e2.message);
   }
   // generic resources and slot usage (best effort; maximums come from the classes)
+  // a lineage counter (Hungry Jaws, ...) already exists: the restored lineage created it; only its used count is carried over
+  const { data: existing } = await supabase.from('character_resources').select('id, resource_key').eq('character_id', c.id).eq('source_type', 'lineage');
+  const lineageIds = Object.fromEntries((existing || []).map((x) => [x.resource_key, x.id]));
   for (const r of p.characterResources) {
+    if (r.sourceType === 'lineage') {
+      try { if (lineageIds[r.key] && r.expended > 0) await changeResource(lineageIds[r.key], r.expended, 'Imported from JSON'); }
+      catch (err) { console.warn('[import] lineage counter use not restored:', r.name, err?.message || err); }
+      continue;
+    }
     try {
       const saved = await saveResource(c.id, {
         resource_key: r.key, name: r.name, source_type: r.sourceType || 'manual', source_id: r.sourceId || null,

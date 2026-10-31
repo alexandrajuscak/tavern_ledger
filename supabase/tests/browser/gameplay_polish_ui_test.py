@@ -6,12 +6,15 @@ keyboard, 390 px), the Hungry Jaws lineage counter on Play (source, Use, rest), 
 Spells tab, and the type-aware DM item editor (Tool / Weapon / Armor sections, validation messages).
 Usage: APP_URL=... python gameplay_polish_ui_test.py   (run_browser_local.sh sets the environment)
 """
+import json
+import re
 import uuid
+from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
 import isolation as iso
-from class_ui_common import APP, RUN, Sheet, User, call, check, report
+from class_ui_common import APP, RUN, SHOTS, Sheet, User, call, check, report
 
 HASH_JS = """async (path) => { const r = await fetch(path, { cache: 'no-store' }); if (!r.ok) return 'HTTP ' + r.status;
   const b = await r.arrayBuffer(); const d = await crypto.subtle.digest('SHA-256', b);
@@ -25,6 +28,26 @@ def coin_inputs(page):
 def stored_coins(u, cid):
     _, rows = call("GET", f"/rest/v1/characters?id=eq.{cid}&select=cp,sp,ep,gp,pp", token=u.jwt)
     return rows[0]
+
+
+def export_import(s, cid, new_name):
+    """Export the character from the Bio tab, import it as a new character (Home -> Import file); returns (export, new id)."""
+    page = s.page
+    s.open(cid); s.tab("bio")
+    with page.expect_download() as dl:
+        page.locator("[data-action=export-json]").click()
+    exported = json.loads(Path(dl.value.path()).read_text(encoding="utf-8"))
+    exported["name"] = new_name
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    f = SHOTS / f"gp_transfer_{RUN}_{cid[:8]}.json"
+    f.write_text(json.dumps(exported), encoding="utf-8")
+    page.goto(APP)
+    page.click("#btn-import")
+    page.set_input_files(".modal input[name=file]", str(f))
+    page.locator(".modal button[type=submit]").click()
+    page.wait_for_url(re.compile(r"#/c/"), timeout=30000)
+    page.wait_for_timeout(2000)
+    return exported, page.url.split("#/c/")[1].split("/")[0]
 
 
 def run(t):
@@ -43,9 +66,9 @@ def run(t):
         page = s.page
 
         # ---- icons ------------------------------------------------------------------------------------------------------
-        reg = page.evaluate("async () => { const m = await import('./js/icon-registry.js?v=16'); return m.ICON_REGISTRY || m.default || m.REGISTRY || null; }")
+        reg = page.evaluate("async () => { const m = await import('./js/icon-registry.js?v=17'); return m.ICON_REGISTRY || m.default || m.REGISTRY || null; }")
         if not reg:
-            reg = page.evaluate("async () => { const m = await import('./js/icon-registry.js?v=16'); return Object.values(m).find((v) => v && typeof v === 'object' && v['item.weapons']) || null; }")
+            reg = page.evaluate("async () => { const m = await import('./js/icon-registry.js?v=17'); return Object.values(m).find((v) => v && typeof v === 'object' && v['item.weapons']) || null; }")
         assets = {k: v.get("asset") for k, v in (reg or {}).items()}
         h = {a: page.evaluate(HASH_JS, f"assets/icons/{a}.webp") for a in ["items/weapons", "items/tools", "classes/fighter", "spell-schools/illusion",
                                                                              "classes/rogue", "spell-schools/divination", "classes/artificer", "items/lute"]}
@@ -145,6 +168,23 @@ def run(t):
         txt = page.locator("#spellbook-list").inner_text()
         check("M6/M7/M27 the Spells tab lists both cantrips and the level-1 spell", all(n in txt for n in names), (names, txt[:300]))
         check("M8 the source is shown as Magic Initiate", "Magic Initiate" in page.locator(".sheet-root").inner_text())
+
+        # ---- export / import: coins, the lineage counter's use, Magic Initiate choices and spells ------------------------
+        pl.rpc("expend_character_resource", p_character=hero, p_resource_key="r:" + iso.psql(
+            f"select id from public.character_resources where character_id = '{hero}' and resource_key = 'lin-lizardfolk-mpmm-hungry-jaws'"), p_amount=1, p_reason=None)
+        before = stored_coins(pl, hero)
+        exp, new_hero = export_import(s, hero, f"GP Hero imported {RUN}")
+        check("C29 import keeps every coin exactly (no conversion)", stored_coins(pl, new_hero) == before, (before, stored_coins(pl, new_hero)))
+        q = f"select max_formula::text || '|' || expended || '|' || active from public.character_resources where character_id = '%s' and resource_key = 'lin-lizardfolk-mpmm-hungry-jaws'"
+        check("L12 import: one Hungry Jaws counter with the same use count (1 used)", iso.psql(q % new_hero) == iso.psql(q % hero)
+              and iso.psql(q % new_hero).split("|")[1] == "1"
+              and iso.psql(f"select count(*) from public.character_resources where character_id = '{new_hero}' and resource_key like 'lin-%'") == "1",
+              (iso.psql(q % hero), iso.psql(q % new_hero)))
+        exp2, new_sage = export_import(s, sage, f"GP Sage imported {RUN}")
+        q2 = ("select coalesce(string_agg(cs.spell_version_id || ':' || cs.casting_ability, ',' order by cs.spell_version_id), '') from public.character_spells cs "
+              "join public.character_spellcasting_sources src on src.id = cs.source_id where src.character_id = '%s' and src.feat_grant_key = 'bg:sage-2024'")
+        check("M23 import: the Magic Initiate choices and its 3 spells (Intelligence) come back", iso.psql(q2 % new_sage) == iso.psql(q2 % sage)
+              and len(iso.psql(q2 % new_sage).split(",")) == 3, (iso.psql(q2 % sage), iso.psql(q2 % new_sage)))
 
         # ---- DM item editor ----------------------------------------------------------------------------------------------
         D = Sheet(b, dm); d = D.page
