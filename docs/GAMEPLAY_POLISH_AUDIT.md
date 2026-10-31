@@ -82,3 +82,20 @@ overrides. All are self-hosted 96 px WebP, with no external request. `scripts/lo
 | Magic Initiate choices | feat choices, spells, sources → character counter bump (Build, Spells, derived) |
 | DM item publish | catalog write → global counter (rare, DM action) |
 | Icons | frontend only |
+
+## 7. Production deployment (2026-10-31)
+
+| Step | Result |
+|---|---|
+| Local | `gameplay_polish_tests.sql` 70/0; `progressive_read_tests.sql` 1,283/0; `fluent_read_tests.sql` 1,707/0; `gameplay_polish_ui_test.py` 32/0; full browser suite 1,053 passed in 35 suites + 1 Realtime timing flake (DS25; `dm_space_ui_test.py` rerun 50/0 twice); plain-PostgreSQL suite 3,432/0 incl. whole-schema rollback (first run found that `rollback_class_levels.sql` drops `character_resources` under the new lineage trigger; the sync now no-ops without the table); release rollback exact (function hash `efc4edb2…` restored), reapply identical; local rehearsal of `production_polish_smoke.py` 27/0 |
+| Precheck | 44 migrations; ref matches the frontend; 8 users, 7 characters, 2 campaigns, 10 custom items, 2 DM content; 1 character with Magic Initiate from a background (0 stored choices: they were dropped by the bug); 1 Lizardfolk |
+| Backup | `…\2026-10-31-gameplay-polish-release\2026-10-31T013824Z-pre-polish`, rehearsal 7/7 |
+| Dry run | exactly `20261031000100` |
+| Commit / push | `446ef35`, Pages `?v=16`, served files byte-identical to the commit |
+| Migration | 03:28:32-03:28:36 UTC, 45 migrations; coins of every character identical (hash); counts and catalog unchanged; direct reads identical except the class summary of the Lizardfolk character (its new Hungry Jaws counter in `resources`; all derived values identical); view == direct (98/0); Hungry Jaws counter created (1); grants as designed |
+| Smoke | polish smoke 27/0; progressive smoke 28/0 and legacy `?fluent=0` 25/0 (on a fresh fixture; on the reused fixture two checks failed only because the polish smoke had already given that character a lineage and the first post-migration open was cold) |
+| Cleanup | synthetic accounts, campaign, characters, DM drafts: 0 left |
+| Backup | `…\2026-10-31T033812Z-post-polish`, rehearsal 7/7 |
+
+The player whose character has Magic Initiate from a background picks its cantrips and spell once more (Build → background
+feat → choices); they are kept from now on.
