@@ -1,8 +1,8 @@
 // DM Space data (docs/DM_SPACE.md): campaigns, overview, party, the custom content library and its lifecycle, assignment and
 // hidden information. Every function is a DM-only RPC that checks the campaign role itself (20261019000400-000600).
 
-import { supabase } from './supabase.js?v=15';
-import { friendlyError } from './utils.js?v=15';
+import { supabase } from './supabase.js?v=16';
+import { friendlyError } from './utils.js?v=16';
 
 export class DmError extends Error {
   constructor(message, raw) {
@@ -80,8 +80,9 @@ export function getEditorReference() {
     rows(supabase.from('feat_versions').select('id, name, ruleset').eq('category', 'origin').eq('status', 'official').order('name')),
     rows(supabase.from('item_kinds').select('id, name').order('sort_order')),
     rows(supabase.from('rarities').select('id, name').order('sort_order')),
-  ]).then(([schools, damageTypes, spellLists, skills, tools, languages, originFeats, itemKinds, rarities]) =>
-    ({ schools, damageTypes, spellLists, skills, tools, languages, originFeats, itemKinds, rarities }))
+    rows(supabase.from('ammo_types').select('id, name').order('name')),
+  ]).then(([schools, damageTypes, spellLists, skills, tools, languages, originFeats, itemKinds, rarities, ammoTypes]) =>
+    ({ schools, damageTypes, spellLists, skills, tools, languages, originFeats, itemKinds, rarities, ammoTypes }))
     .catch((e) => { refPromise = null; throw e; });
   return refPromise;
 }

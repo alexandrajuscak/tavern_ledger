@@ -10,6 +10,10 @@
 -- =============================================================================
 begin;
 
+-- gameplay polish (20261031000100): coin transaction and lineage counter sync (the two patched functions go with their tables)
+drop function if exists public.adjust_character_coins(uuid, text, jsonb, jsonb), public._lineage_resources_trigger() cascade;
+drop function if exists public._sync_lineage_resources(uuid) cascade;
+
 -- progressive fluent reads (20261030000200): the read cache and its counter trigger on every table
 drop function if exists public.get_character_shell(uuid);
 drop schema if exists tl_cache cascade;

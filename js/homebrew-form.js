@@ -1,8 +1,8 @@
 // Homebrew item form: create, edit and "convert a legacy item". Progressive: basic fields, a section for the chosen
 // type, and an Advanced section. Validation here is only UX; the database RPCs are authoritative.
-import * as api from './inventory-api.js?v=15';
-import { $, $$, esc, openModal, confirmDialog } from './utils.js?v=15';
-import { icon } from './icons.js?v=15';
+import * as api from './inventory-api.js?v=16';
+import { $, $$, esc, openModal, confirmDialog } from './utils.js?v=16';
+import { icon } from './icons.js?v=16';
 
 const KINDS = ['weapon', 'armor', 'gear', 'tool', 'ammunition', 'potion', 'scroll', 'magic_item'];
 const DICE = /^([1-9][0-9]?d(4|6|8|10|12|20|100)([+-][0-9]{1,3})?|[0-9]{1,3})$/;
@@ -73,7 +73,7 @@ export function openHomebrewForm(o) {
         <fieldset class="hb-section" data-for="weapon"><legend>Weapon</legend>
           <div class="hb-row">
             ${field('weapon_group', 'Weapon group', `<select id="${fid('weapon_group')}" name="weapon_group"><option value="simple">Simple</option><option value="martial">Martial</option><option value="firearm">Firearm</option></select>`)}
-            ${field('damage_dice', 'Damage dice', input('damage_dice', 'text', it.damage_dice, 'placeholder="1d8" maxlength="12"'))}
+            ${field('damage_dice', 'Damage dice (required)', input('damage_dice', 'text', it.damage_dice, 'placeholder="1d8" maxlength="12" aria-required="true"'))}
             ${field('damage_type_id', 'Damage type', `<select id="${fid('damage_type_id')}" name="damage_type_id"><option value="">—</option>${opt(L.damageTypes, it.damage_type_id)}</select>`)}
           </div>
           <div class="hb-checks" role="group" aria-label="Weapon properties">
@@ -220,7 +220,7 @@ export function openHomebrewForm(o) {
       };
       if (w.weapon_group === 'firearm') { w.reload = num(f.reload.value); w.misfire = num(f.misfire.value); }
       if (w.damage_dice && !DICE.test(w.damage_dice)) errors.damage_dice = 'Use a format like 1d8, 2d6+1 or a flat number.';
-      if (w.damage_type_id && !w.damage_dice) errors.damage_dice = 'A damage type needs damage dice.';
+      if (!w.damage_dice) errors.damage_dice = 'A weapon needs damage dice, for example 1d8.';
       if (w.versatile_damage && !DICE.test(w.versatile_damage)) errors.versatile_damage = 'Use a format like 1d10.';
       if ((w.range_normal == null) !== (w.range_max == null)) errors.range_max = 'Give both ranges or none.';
       else if (w.range_max != null && w.range_max < w.range_normal) errors.range_max = 'Cannot be smaller than the normal range.';

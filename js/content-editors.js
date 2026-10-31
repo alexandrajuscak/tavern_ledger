@@ -2,10 +2,10 @@
 // type, the lifecycle actions (save draft, validate, preview, publish, new version, archive, restore, duplicate, delete) and a
 // preview of what players will see. The definition is validated and materialized by the database (_dm_try / _dm_materialize).
 
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=15';
-import * as dm from './dm-api.js?v=15';
-import { icon } from './icons.js?v=15';
-import { spellIconHTML } from './spell-icons.js?v=15';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=16';
+import * as dm from './dm-api.js?v=16';
+import { icon } from './icons.js?v=16';
+import { spellIconHTML } from './spell-icons.js?v=16';
 
 export const TYPE = {
   spell: { icon: icon('dm/spell'), label: 'Spell' }, item: { icon: icon('dm/item'), label: 'Item' }, feat: { icon: icon('dm/feat'), label: 'Feat' },
@@ -23,6 +23,7 @@ const CR = ['0', '0.125', '0.25', '0.5', ...Array.from({ length: 20 }, (_, i) =>
 const crLabel = (v) => ({ 0.125: '1/8', 0.25: '1/4', 0.5: '1/2' }[v] || String(v));
 
 // ---- schemas -------------------------------------------------------------------------------------------------------------
+const HOMEBREW_KINDS = ['weapon', 'armor', 'tool', 'gear', 'ammunition', 'potion', 'scroll', 'magic_item'];
 // field: [path, label, kind, extra]; kind: text | area | num | sel | check | multi | rows
 const textFields = [
   ['summary', 'Short summary (players see it in lists)', 'text', { max: 400 }],
@@ -75,20 +76,23 @@ function schemaFor(type, ref) {
       { title: 'Text', fields: textFields },
     ];
     case 'item': return [
-      { title: 'Item', fields: [['definition.item.kind_id', 'Type', 'sel', { options: ref.itemKinds.map((k) => [k.id, k.name]) }],
+      // the types a homebrew item can have (_write_homebrew); mounts and vehicles are catalog-only
+      { title: 'Item', fields: [['definition.item.kind_id', 'Type', 'sel', { options: ref.itemKinds.filter((k) => HOMEBREW_KINDS.includes(k.id)).map((k) => [k.id, k.name]) }],
         ['definition.item.category_id', 'Category (weapons and armor)', 'text', { datalist: ['simple-melee', 'simple-ranged', 'martial-melee', 'martial-ranged', 'light-armor', 'medium-armor', 'heavy-armor', 'shield', 'wondrous-item', 'ring', 'wand', 'staff', 'rod'] }],
         ['definition.item.rarity_id', 'Rarity', 'sel', { options: [['', '—'], ...ref.rarities.map((r) => [r.id, r.name])] }],
         ['definition.item.is_magic', 'Magical', 'check'], ['definition.item.requires_attunement', 'Requires attunement', 'check'],
         ['definition.item.is_consumable', 'Consumable', 'check'], ['definition.item.stackable', 'Stackable', 'check'],
         ['definition.item.weight_lb', 'Weight (lb)', 'num'], ['definition.item.cost_value', 'Cost', 'num'],
         ['definition.item.cost_unit', 'Cost unit', 'sel', { options: opts(['gp', 'sp', 'cp', 'pp']) }]] },
-      { title: 'Weapon', fields: [['definition.stats.weapon.weapon_group', 'Weapon group', 'sel', { options: [['', '—'], ['simple', 'Simple'], ['martial', 'Martial']] }],
-        ['definition.stats.weapon.damage_dice', 'Damage dice', 'text'], ['definition.stats.weapon.damage_type_id', 'Damage type', 'sel', { options: [['', '—'], ...dmg] }],
+      { title: 'Weapon', for: 'weapon', fields: [['definition.stats.weapon.weapon_group', 'Weapon group', 'sel', { options: [['', '—'], ['simple', 'Simple'], ['martial', 'Martial']] }],
+        ['definition.stats.weapon.damage_dice', 'Damage dice (required)', 'text'], ['definition.stats.weapon.damage_type_id', 'Damage type', 'sel', { options: [['', '—'], ...dmg] }],
         ['definition.stats.weapon.range_normal', 'Range (normal)', 'num'], ['definition.stats.weapon.range_max', 'Range (long)', 'num']] },
-      { title: 'Armor', fields: [['definition.stats.armor.base_ac', 'Base AC', 'num'], ['definition.stats.armor.ac_bonus', 'AC bonus (shields)', 'num'],
+      { title: 'Armor', for: 'armor', fields: [['definition.stats.armor.base_ac', 'Base AC (required, except shields)', 'num'], ['definition.stats.armor.ac_bonus', 'AC bonus (shields)', 'num'],
         ['definition.stats.armor.dex_modifier_mode', 'DEX', 'sel', { options: [['', '—'], ['full', 'Full'], ['capped', 'Capped'], ['none', 'None']] }],
         ['definition.stats.armor.dex_cap', 'DEX cap', 'num'], ['definition.stats.armor.strength_requirement', 'STR requirement', 'num'],
         ['definition.stats.armor.stealth_disadvantage', 'Stealth disadvantage', 'check']] },
+      { title: 'Ammunition', for: 'ammunition', fields: [['definition.stats.ammunition.ammo_type_id', 'Ammunition type (required)', 'sel', { options: [['', '—'], ...(ref.ammoTypes || []).map((a) => [a.id, a.name])] }],
+        ['definition.stats.ammunition.pack_size', 'Pieces per pack', 'num']] },
       { title: 'Hidden from players (DM only)', dm: true, fields: [['definition.hidden.unidentified_name', 'Name while unidentified', 'text'],
         ['definition.hidden.unidentified_description', 'Description while unidentified', 'area'], ['definition.hidden.curse', 'Curse (stays secret until you reveal it)', 'area'],
         ['definition.hidden.properties', 'Secret properties (reveal them one by one)', 'rows', { row: [['key', 'Key', 'text'], ['label', 'Name', 'text'], ['text', 'What it does', 'text']] }]] },
@@ -218,6 +222,16 @@ function readForm(form, type, base) {
   });
   const d = prune(model.definition || {}) || {};
   // type-specific shaping into the definition format of _dm_materialize
+  if (type === 'item' && d.stats) {
+    // only the stats of the chosen type are sent: values left in a hidden Weapon / Armor section never become mechanics
+    const kind = d.item?.kind_id;
+    if (kind !== 'weapon') delete d.stats.weapon;
+    if (kind !== 'armor') delete d.stats.armor;
+    if (kind !== 'ammunition') delete d.stats.ammunition;
+    if (!Object.keys(d.stats).length) delete d.stats;
+  }
+  // the coin select always has a value: without a cost it must not be sent ("Cost needs both an amount and a coin")
+  if (type === 'item' && d.item && d.item.cost_value == null) delete d.item.cost_unit;
   if (type === 'feat') {
     const asi = prune(model.asi || {});
     d.choices = (base.definition?.choices || []).filter((c) => c.key !== 'asi');
@@ -315,7 +329,7 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
       ${(v.validation?.warnings || []).length ? `<div class="gov-banner"><ul>${v.validation.warnings.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>` : ''}
       <form class="ce-form" data-ce-form ${editable() ? '' : 'inert'}>
         <label class="field"><span>Name</span><input name="name" required maxlength="80" value="${esc(model.name || '')}"></label>
-        ${schemaFor(type, ref).map((sec) => `<fieldset class="ce-section ${sec.dm ? 'dm-only-field' : ''}"><legend>${esc(sec.title)}</legend>
+        ${schemaFor(type, ref).map((sec) => `<fieldset class="ce-section ${sec.dm ? 'dm-only-field' : ''}" ${sec.for ? `data-ce-for="${esc(sec.for)}"` : ''}><legend>${esc(sec.title)}</legend>
           <div class="ce-grid">${sec.fields.map((f) => fieldHTML(f, model)).join('')}</div></fieldset>`).join('')}
       </form>
       <section class="ce-preview" data-ce-preview hidden aria-live="polite"></section>`;
@@ -333,6 +347,12 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
       ${c && !c.published_version_id ? '<button type="button" class="btn btn-bad" data-ce-act="delete">Delete draft</button>' : ''}
       <button type="button" class="btn btn-ghost" data-close>Close</button>`;
     $$('.multi-opts[data-max]', m.el).forEach(limitMulti);
+    showTypeSections();
+  }
+  // item: only the stats section of the chosen type (Weapon, Armor, Ammunition) is shown, and only it is sent (readForm)
+  function showTypeSections() {
+    const kind = $('[name="definition.item.kind_id"]', m.el)?.value;
+    $$('[data-ce-for]', m.el).forEach((fs) => { fs.hidden = kind !== fs.dataset.ceFor; });
   }
   function limitMulti(g) {
     const max = Number(g.dataset.max);
@@ -346,7 +366,10 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
     c = c ? await dm.saveContent(c.id, fields, current().revision) : await dm.createContent(type, content.campaign_id ?? campaignId, fields);
     onChanged?.();
   }
-  m.el.addEventListener('change', (e) => { const g = e.target.closest('.multi-opts[data-max]'); if (g) limitMulti(g); });
+  m.el.addEventListener('change', (e) => {
+    const g = e.target.closest('.multi-opts[data-max]'); if (g) limitMulti(g);
+    if (e.target.name === 'definition.item.kind_id') showTypeSections();
+  });
   m.el.addEventListener('click', async (e) => {
     const add = e.target.closest('[data-add-row]');
     if (add) {

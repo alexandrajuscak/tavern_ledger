@@ -37,6 +37,9 @@ class Session:
                                  " const w = new W(...a); window.__tlSockets.push(w); return w; }; window.WebSocket.prototype = W.prototype;"
                                  " Object.assign(window.WebSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 }); })();"
                                  "localStorage.setItem('tavern-ledger:tab', 'combat');")
+        if os.environ.get("LOCAL_API"):   # rehearsal against the LOCAL stack only (the local app reads this override)
+            self.ctx.add_init_script("localStorage.setItem('tavern-ledger:local-supabase', JSON.stringify({url: %s, key: %s}));"
+                                     % (json.dumps(os.environ["LOCAL_API"]), json.dumps(os.environ["LOCAL_KEY"])))
         self.page = self.ctx.new_page()
         self.rows, self.bodies, self.errors, self.bindings, self.joins, self.leaves = [], [], [], [], 0, 0
         self.page.on("console", lambda m: self.errors.append(m.text) if m.type == "error" else None)

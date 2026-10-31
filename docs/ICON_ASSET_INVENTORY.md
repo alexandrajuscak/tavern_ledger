@@ -1,6 +1,6 @@
 # Icon asset inventory
 
-Generated 2026-10-22 by `scripts/local/icon_audit.py`; machine-readable report: `data/reports/icon_audit.json`.
+Generated 2026-10-31 by `scripts/local/icon_audit.py`; machine-readable report: `data/reports/icon_audit.json`.
 Registry: `js/icon-registry.js` (generated from `assets/icons` by `scripts/local/build_icon_registry.py`). Rules:
 `docs/UI_ICON_SYSTEM.md`.
 

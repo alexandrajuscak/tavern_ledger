@@ -614,6 +614,19 @@ input.big-num:focus { border-color: var(--gold) !important; }
 .coin input { text-align: center; padding: 7px 4px; font-weight: 600; }
 .coin-cp span { color: #c47a4a; } .coin-sp span { color: #c0c4cc; } .coin-ep span { color: #8fb8a8; }
 .coin-gp span { color: var(--gold); } .coin-pp span { color: #b9c9e8; }
+/* coin calculator (js/coins.js) */
+.coin-calc-open { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 0; }
+.coin-calc { display: flex; flex-direction: column; gap: 12px; }
+.coin-calc-mode { display: flex; gap: 16px; border: 0; padding: 0; margin: 0; }
+.coin-calc-mode legend { font-size: 0.8rem; color: var(--muted); margin-bottom: 4px; }
+.coin-calc-inputs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.coin-calc-inputs input { width: 100%; min-height: 44px; }
+.coin-calc-inputs input[aria-invalid] { border-color: var(--danger, #e06c6c); }
+.coin-calc-preview { min-height: 3.2em; }
+.coin-calc-dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+.coin-calc-dl dt { color: var(--muted); }
+.coin-calc-dl dd { margin: 0; font-weight: 600; }
+@media (max-width: 420px) { .coin-calc-inputs { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
 .item-list { display: flex; flex-direction: column; gap: 8px; }
 .item { padding: 10px; display: flex; flex-direction: column; gap: 6px; }

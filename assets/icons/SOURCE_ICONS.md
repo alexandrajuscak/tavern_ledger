@@ -55,13 +55,13 @@ Copied from `../icons/` (originals untouched). All 512x512 transparent PNG. Prev
 | equipment-slots/legs.png | legarmour.png | Legs / greaves slot |
 | equipment-slots/ring.png | ring.png | SLOT_ICONS ring 1 / ring 2 |
 | equipment-slots/focus.png | crystal.png | SLOT_ICONS focus (arcane orb staff) |
-| items/weapons.png | 996176437.png | Inventory filter: Weapons |
+| items/weapons.png | hammer.png | Inventory filter: Weapons (2026-10-31: was 996176437.png, identical to the Fighter emblem used as the site logo) |
 | items/armor.png | chestarmour.png | Inventory filter: Armor |
 | items/consumables.png | acid.png | Inventory filter: Consumables |
 | items/magic.png | ice.png | Inventory filter: Magic |
 | items/ammunition.png | arrows.png | Inventory filter: Ammunition (arrows) |
 | items/bullets.png | 677234081.png | Firearm ammunition |
-| items/tools.png | hammer.png | Inventory filter: Tools |
+| items/tools.png | 671385046.png | Inventory filter: Tools (2026-10-31: lute, same file as items/lute; was hammer.png, now Weapons) |
 | items/gear.png | rope.png | Inventory filter: Gear (rope) |
 | items/containers.png | cross.png | Inventory filter: Containers (chest) |
 | items/coins.png | money-bag.png | Coins section / coin purse |
@@ -142,7 +142,7 @@ Copied from `../icons/` (originals untouched). All 512x512 transparent PNG. Prev
 | spell-schools/divination.png | vision.png | School: Divination |
 | spell-schools/enchantment.png | 396726507.png | School: Enchantment |
 | spell-schools/evocation.png | fire.png | School: Evocation |
-| spell-schools/illusion.png | 684907858.png | School: Illusion |
+| spell-schools/illusion.png | barrier.png | School: Illusion (2026-10-31: figure with a spectral duplicate; was 684907858.png, a mask with a dagger that read as Rogue) |
 | spell-schools/necromancy.png | skeleton.png | School: Necromancy |
 | spell-schools/transmutation.png | storm.png | School: Transmutation |
 | spell-schools/spells-tab.png | 463977672.png | Spells tab |

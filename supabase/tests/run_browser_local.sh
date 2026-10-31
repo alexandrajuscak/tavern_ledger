@@ -79,4 +79,6 @@ echo "== production incident 2026-10-23: cancelled obsolete reads, Realtime attr
 (cd supabase/tests/browser && "$PY" production_timeout_incident_test.py) || RC=1
 echo "== fluent read architecture: one request per open, tab bundles, coalesced reloads, 2 Realtime bindings, fallback, cache isolation"
 (cd supabase/tests/browser && "$PY" fluent_read_ui_test.py) || RC=1
+echo "== gameplay polish: icons, coin calculator, Hungry Jaws counter, Magic Initiate spells, type-aware DM item editor"
+(cd supabase/tests/browser && "$PY" gameplay_polish_ui_test.py) || RC=1
 exit $RC

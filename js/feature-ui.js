@@ -3,11 +3,11 @@
 // get_character_class_features, get_character_resources, get_character_derived_stats and preview_character_class_change;
 // nothing here decides which feature is active, what a maximum is or whether a choice is valid.
 // No class-specific code: controls are derived from the choice definitions, groups from the feature categories.
-import { $, $$, esc, toast, openModal } from './utils.js?v=15';
-import { SKILLS } from './dnd.js?v=15';
-import * as api from './class-api.js?v=15';
-import { getSpellCatalog } from './spell-api.js?v=15';
-import { riderSlotButton } from './slot-actions.js?v=15';
+import { $, $$, esc, toast, openModal } from './utils.js?v=16';
+import { SKILLS } from './dnd.js?v=16';
+import * as api from './class-api.js?v=16';
+import { getSpellCatalog } from './spell-api.js?v=16';
+import { riderSlotButton } from './slot-actions.js?v=16';
 
 const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const AUTOMATION = {
@@ -66,7 +66,12 @@ function resourceHTML(r, editable, { compact = false } = {}) {
     ? `<span class="slot-pips-ro" role="img" aria-label="${esc(r.name)}: ${remaining} of ${max} left">${
       Array.from({ length: max }, (_, i) => `<span class="slot-dot ${i < remaining ? 'is-full' : ''}"></span>`).join('')}</span>` : '';
   const count = r.unlimited ? 'Unlimited' : known ? `${remaining} / ${max}` : '? / ?';
-  const source = r.kind === 'feature' ? `${r.class_name}: ${r.feature_name}` : 'Manual resource';
+  // lineage / feat counters (20261031000100): notes = "<lineage or feat> · <what it does>"
+  const [origin, ...rest] = String(r.notes || '').split(' · ');
+  const detail = r.source_type === 'lineage' ? rest.join(' · ') : '';
+  const source = r.kind === 'feature' ? `${r.class_name}: ${r.feature_name}`
+    : r.source_type === 'lineage' ? `Lineage: ${origin || 'trait'}` : r.source_type === 'feat' && r.notes ? `Feat: ${r.notes}` : 'Manual resource';
+  const locked = r.unlocked === false && r.unlock_level ? `Unlocks at level ${r.unlock_level}` : null;
   // a pool (Lay on Hands) or points are spent by an amount; uses go one at a time
   const amount = known && max > 1 && ['pool', 'points'].includes(r.resource_type) && r.active
     ? `<label class="cf-amount"><span class="sr-only">Amount of ${esc(r.name)}</span>
@@ -96,7 +101,8 @@ function resourceHTML(r, editable, { compact = false } = {}) {
     <p class="muted small cf-res-rule">${esc(RECHARGE[r.recharge] || r.recharge || '')}${r.short_rest_recovery
       ? ` · ${esc(r.short_rest_recovery)} back on a short rest` : ''}${r.temporary_bonus ? ` · +${r.temporary_bonus} temporary` : ''}</p>
     ${r.activation_note ? `<p class="small">${esc(r.activation_note)}</p>` : ''}
-    ${!r.active ? `<p class="small sp-warn">Inactive: ${esc(REASON[r.inactive_reason] || r.inactive_reason || 'not available now')}</p>` : ''}
+    ${detail ? `<p class="small" data-cf-res-detail>${esc(detail)}${/temporary hp/i.test(detail) ? ' <span class="muted">(add the temporary HP by hand)</span>' : ''}</p>` : ''}
+    ${!r.active ? `<p class="small sp-warn">${locked ? esc(locked) : `Inactive: ${esc(REASON[r.inactive_reason] || r.inactive_reason || 'not available now')}`}</p>` : ''}
     ${!known && !r.unlimited ? '<p class="small sp-warn">The maximum cannot be calculated yet; track it by hand.</p>' : ''}
     ${actions}
   </div>`;
@@ -105,7 +111,8 @@ function resourceHTML(r, editable, { compact = false } = {}) {
 /** The Resources card body: every class and manual resource. */
 export function resourceListHTML(res, { editable = true } = {}) {
   if (!res) return '<p class="muted small">Loading…</p>';
-  const list = res.resources || [];
+  // a lineage counter of a lineage the character no longer has stays stored (its count is kept) but is not shown
+  const list = (res.resources || []).filter((r) => !(r.source_type === 'lineage' && r.active === false && r.unlocked !== false));
   if (!list.length) return '<p class="empty">No class resources. Class features that grant uses (and manual resources) appear here.</p>';
   return `<div class="cf-res-list">${list.map((r) => resourceHTML(r, editable)).join('')}</div>`;
 }
@@ -408,7 +415,7 @@ export function glanceHTML(state, derived, editable, states, { attackFacts = tru
   const half = derived.check_half_proficiency;
   // a resource spent by starting a state (Rage) is shown on the state card, not as a separate Use button
   const stateKeys = new Set((states?.states || []).map((s) => s.resource_key).filter(Boolean));
-  const res = (state.resources || []).filter((r) => r.kind === 'feature' && r.active && !stateKeys.has(r.key));
+  const res = (state.resources || []).filter((r) => (r.kind === 'feature' || r.source_type === 'lineage') && r.active && !stateKeys.has(r.key));   // lineage counters too (Hungry Jaws)
   const facts = [
     !attackFacts ? '' : apa > 1 ? `<li><strong>${apa} attacks</strong> when you take the Attack action</li>` : '',
     attackFacts && crit < 20 ? `<li>Critical hit on <strong>${crit}–20</strong></li>` : '',
