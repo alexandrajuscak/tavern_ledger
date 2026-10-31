@@ -108,3 +108,13 @@ used count was lost with only a console warning. `js/transfer.js` now carries th
 counter. Tested (`gameplay_polish_ui_test.py`, 35/0): C29 coins identical after import, L12 one counter with the same use
 count, M23 the Magic Initiate choices and its 3 spells come back. Before this release, imported background feat choices had
 been dropped by the same `_store_feat_choices` bug.
+
+## 9. Deadlocks in the read cache (forward fix, migration `20261031000200`)
+
+| | |
+|---|---|
+| Observed | Production: 2 "deadlock detected" since the progressive release (the Postgres log itself is not readable through the database; `pg_stat_database.deadlocks`). |
+| Reproduced | Locally, concurrent COLD reads of one character by one viewer (a player on two devices, a prefetch overlapping the open, two smoke sessions of one player) with overlapping read lists: 5 deadlocks in 3 runs. Both requests upserted the same `tl_cache.character_reads` rows in a different order. `get_character_reads` caught the `40P01` per read, so the sheet got a failed read (and first waited up to the 1 s deadlock timeout). |
+| Not the cause | The suspected lock order of the per-character counter row: concurrent slots, rests, HP, ability scores, coins, resources and reads on one character produced 0 deadlocks. |
+| Fix | `tl_cache.put` takes a per-(character, viewer) advisory lock with try (never waits); a request that does not get it does not store (the cache is optional, its value is unaffected). Any failure of a cache write is swallowed. Rollback `rollback_cache_put_no_wait.sql` (exact). |
+| Test | `supabase/tests/cache_concurrency_test.sh`: 2/0 with the fix; with the old function (negative control) 1 failed (40P01 per-read errors). SQL suites unchanged (progressive 1,283/0, fluent 1,707/0, gameplay 70/0). |
