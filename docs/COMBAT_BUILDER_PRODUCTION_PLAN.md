@@ -1,6 +1,6 @@
-# Combat Builder and combined follow-up: production plan (prepared, NOT executed)
+# Combat Builder and combined follow-up: production plan (EXECUTED 2026-11-08, see COMBAT_BUILDER_PRODUCTION_RELEASE_REPORT.md)
 
-Nothing in these tasks touched production. This is ONE combined in-place release: the Combat Builder, the feat-removal fix,
+Executed in place on 2026-11-08 (commits aa0c2d1, e9ff238; [release report](COMBAT_BUILDER_PRODUCTION_RELEASE_REPORT.md)). Originally prepared while nothing touched production. This is ONE combined in-place release: the Combat Builder, the feat-removal fix,
 the source-aware ability rows, and the 2026-11-07 follow-up (final-total Initiative, Wild Shape overflow, active class
 options and Artificer infusions in Play, Herbs & Plants, potion details, per-item icons, safe item deletion). It follows
 [DEPLOYMENT_INPLACE_UPGRADE_RUNBOOK.md](DEPLOYMENT_INPLACE_UPGRADE_RUNBOOK.md) and the 2026-10-30 / 31 releases
