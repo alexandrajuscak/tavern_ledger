@@ -8,7 +8,8 @@ Spells (school icon, readiness chip), Inventory (empty slots folded), Build (Lev
 vitals, DM Space (Needs you first, never shown to a player), reduced motion and no horizontal overflow at 390 px.
 
 A synthetic user (ui-*@example.test, removed by run_browser_local.sh) owns the characters that are changed. The local demo
-accounts (scripts/local/seed_local_demo.py) are only read: Strict Wizard (progression locked), Showcase Druid (Wild Shape).
+accounts (scripts/local/seed_local_demo.py) are only read: Strict Wizard (progression locked), Showcase Paladin (spell cards).
+The Wild Shape checks use a synthetic Moon Druid the test transforms itself.
 Refuses non-local URLs; no remote traffic except the Supabase client library CDN.
 """
 import json
@@ -67,6 +68,12 @@ def main():
                   p_source_note=None, p_override_reason=None, p_notes=None)
     assert st == 200, (st, r)
     barb = u.character("UX Barbarian", [("barbarian-phb", 3)], strength=16, constitution=16)
+    # the test owns its Wild Shape state (2026-11-08): a synthetic Moon Druid put into Brown Bear form here, so UX19 / UX21
+    # never depend on the demo Showcase Druid's current manual form
+    druid = u.character("UX Moon Druid", [("druid-phb", 6, "druid-moon-phb")], strength=8, dexterity=14, constitution=14,
+                        intelligence=12, wisdom=16, charisma=10, hp_max=45, hp_current=45)
+    st, r = u.rpc("start_transformation", p_character=druid, p_creature="brown-bear", p_options={})
+    assert st == 200, (st, r)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -164,13 +171,25 @@ def main():
         m.page.screenshot(path=str(SHOTS / "ux-mobile-sheet.png"))
         m.close()
 
-        # ---- demo player (read only): lock, Wild Shape, spell cards, fonts ------------------------------------------------------
+        # ---- synthetic druid (owned by the test): Wild Shape on the home card and in the vitals ---------------------------------
+        w = Sheet(browser, u, tab="combat")
+        w.page.goto(f"{APP}#/")
+        check("UX19 home: an active Wild Shape is visible on the card",
+              w.wait(lambda: "Wild Shape: Brown Bear" in w.page.locator(f'.char-card[data-char="{druid}"]').inner_text()))
+        w.open(druid)
+        check("UX21 Wild Shape: the vitals show the form's HP first and the normal HP as protected",
+              w.wait(lambda: "is-form" in (w.page.locator("#hp-card").get_attribute("class") or "")
+                     and "Brown Bear" in w.page.locator("[data-ws-hp]").inner_text()
+                     and "protected" in w.page.locator("[data-ws-hpnote]").inner_text()
+                     and "Wild Shape: Brown Bear" in w.page.locator("#sheet-chips").inner_text()))
+        w.close()
+
+        # ---- demo player (read only): lock, spell cards, fonts ---------------------------------------------------------------------
         ctx, dp, derr, dfonts = demo_page(browser, "local-player@example.test", tab="features")
-        strict, druid, paladin = demo_id("Strict Wizard"), demo_id("Showcase Druid"), demo_id("Showcase Paladin")
+        strict, paladin = demo_id("Strict Wizard"), demo_id("Showcase Paladin")
         dp.goto(f"{APP}#/")
-        check("UX19 home: a locked character and an active Wild Shape are visible on the cards",
-              wait(dp, lambda: "Locked" in dp.locator(f'.char-card[data-char="{strict}"]').inner_text()
-                   and "Wild Shape: Brown Bear" in dp.locator(f'.char-card[data-char="{druid}"]').inner_text()))
+        check("UX19b home: a locked character is visible on the card",
+              wait(dp, lambda: "Locked" in dp.locator(f'.char-card[data-char="{strict}"]').inner_text()))
         dp.goto(f"{APP}#/c/{strict}")
         dp.locator('.tab[data-tab="features"]').click()
         check("UX20 locked progression: Level up is disabled and says why; the header shows the lock",
@@ -178,12 +197,6 @@ def main():
                    and "paused progression" in dp.locator("#level-up-slot").inner_text()
                    and dp.locator("[data-action=level-up]").count() == 0
                    and "Progression locked" in dp.locator("#sheet-chips").inner_text()))
-        dp.goto(f"{APP}#/c/{druid}")
-        check("UX21 Wild Shape: the vitals show the form's HP first and the normal HP as protected",
-              wait(dp, lambda: "is-form" in (dp.locator("#hp-card").get_attribute("class") or "")
-                   and "Brown Bear" in dp.locator("[data-ws-hp]").inner_text()
-                   and "protected" in dp.locator("[data-ws-hpnote]").inner_text()
-                   and "Wild Shape: Brown Bear" in dp.locator("#sheet-chips").inner_text()))
         dp.goto(f"{APP}#/c/{paladin}")
         dp.locator('.tab[data-tab="spells"]').click()
         first = dp.locator(".sp-card").first

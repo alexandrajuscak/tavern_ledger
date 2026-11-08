@@ -20,3 +20,7 @@ export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_8pUE0WNlOpKZAhm9jHAeZg_Y
 // Rollback of the frontend = 'off'.
 // A browser may override it for controlled testing with ?fluent=1 / ?fluent=0 (?fluent=default clears the override).
 export const FLUENT_READS = 'on';
+// Combat Builder (docs/COMBAT_BUILDER_ARCHITECTURE.md "Feature flag"): 'off' hides it; 'dm' shows it to campaign DMs and admins.
+// It never grants anything: every combat_* RPC checks the campaign DM role itself. A future 'players' value is reserved for
+// the player combat view (get_combat_player_view already exists). The first production release ships with 'off'.
+export const COMBAT_BUILDER = 'off';

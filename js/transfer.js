@@ -3,16 +3,16 @@
 // dice and so on. Bonuses (skills, saves, passives, initiative, to-hit) are
 // always calculated by the app and never stored.
 
-import { supabase } from './supabase.js?v=17';
-import { friendlyError } from './utils.js?v=17';
-import { importInventoryItems } from './inventory-api.js?v=17';
-import { setCharacterLineage } from './lineage-api.js?v=17';
-import { setCharacterBackground } from './background-api.js?v=17';
-import { currentPayload } from './background-ui.js?v=17';
-import { setCharacterClass, getClassSummary, setSlotState, saveResource, changeResource, importClassFeatures } from './class-api.js?v=17';
-import { saveSpellcastingSource, setCharacterSpell } from './spell-api.js?v=17';
-import { importFeats } from './feat-api.js?v=17';
-import { ABILITIES, SKILLS, CLASS_HIT_DIE, ACTIVATIONS, FEATURE_CATEGORIES, skillLevel, skillValue, dieSize } from './dnd.js?v=17';
+import { supabase } from './supabase.js?v=18';
+import { friendlyError } from './utils.js?v=18';
+import { importInventoryItems } from './inventory-api.js?v=18';
+import { setCharacterLineage } from './lineage-api.js?v=18';
+import { setCharacterBackground } from './background-api.js?v=18';
+import { currentPayload } from './background-ui.js?v=18';
+import { setCharacterClass, getClassSummary, setSlotState, saveResource, changeResource, importClassFeatures } from './class-api.js?v=18';
+import { saveSpellcastingSource, setCharacterSpell } from './spell-api.js?v=18';
+import { importFeats } from './feat-api.js?v=18';
+import { ABILITIES, SKILLS, CLASS_HIT_DIE, ACTIVATIONS, FEATURE_CATEGORIES, skillLevel, skillValue, dieSize } from './dnd.js?v=18';
 
 export const SCHEMA_VERSION = 1;
 

@@ -1,10 +1,15 @@
 // Homebrew item form: create, edit and "convert a legacy item". Progressive: basic fields, a section for the chosen
 // type, and an Advanced section. Validation here is only UX; the database RPCs are authoritative.
-import * as api from './inventory-api.js?v=17';
-import { $, $$, esc, openModal, confirmDialog } from './utils.js?v=17';
-import { icon } from './icons.js?v=17';
+import * as api from './inventory-api.js?v=18';
+import { $, $$, esc, openModal, confirmDialog } from './utils.js?v=18';
+import { icon } from './icons.js?v=18';
+import { iconPickerHTML } from './item-icon-gallery.js?v=18';
 
-const KINDS = ['weapon', 'armor', 'gear', 'tool', 'ammunition', 'potion', 'scroll', 'magic_item'];
+const KINDS = ['weapon', 'armor', 'gear', 'tool', 'ammunition', 'potion', 'scroll', 'magic_item', 'herbs_plants'];
+const PLANT_PROPS = [['alchemical', 'Alchemical'], ['medicinal', 'Medicinal'], ['poisonous', 'Poisonous'], ['edible', 'Edible']];
+const USE_ACTIONS = [['', '—'], ['action', 'Action'], ['bonus_action', 'Bonus action'], ['reaction', 'Reaction'], ['minute', '1 minute or more'], ['special', 'Special']];
+const listText = (a) => (Array.isArray(a) ? a.join(', ') : '');
+const listOf = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
 const DICE = /^([1-9][0-9]?d(4|6|8|10|12|20|100)([+-][0-9]{1,3})?|[0-9]{1,3})$/;
 const EFFECT_DICE = /^[1-9][0-9]?d[0-9]{1,3}$/;
 const VIS_LABEL = { official: 'Official', private: 'My homebrew', campaign: 'Campaign homebrew' };
@@ -22,6 +27,7 @@ export function openHomebrewForm(o) {
   const it = o.initial?.item || {};
   const cont = o.initial?.container || null;
   const fx = o.initial?.effect || null;
+  const det = it.details || {};
   const requestId = (crypto.randomUUID && crypto.randomUUID()) || fallbackUuid();
   const edit = o.mode === 'edit';
   const canChangeVisibility = !edit || it.is_mine;
@@ -108,6 +114,36 @@ export function openHomebrewForm(o) {
             ${field('pack_size', 'Pieces per pack', input('pack_size', 'number', it.pack_size ?? 1, 'min="1" max="1000" step="1"'))}
           </div>
         </fieldset>
+        <fieldset class="hb-section hb-details" data-for="herbs_plants"><legend>Herbs &amp; Plants (all optional)</legend>
+          <div class="hb-row">
+            ${field('environment', 'Environment', input('environment', 'text', det.environment, 'maxlength="120" placeholder="Damp forest floor"'))}
+            ${field('region', 'Region', input('region', 'text', det.region, 'maxlength="120"'))}
+            ${field('shelf_life', 'Shelf life', input('shelf_life', 'text', det.shelf_life, 'maxlength="200" placeholder="About a month once picked"'))}
+          </div>
+          <div class="hb-checks" role="group" aria-label="Plant properties">
+            ${PLANT_PROPS.map(([k, l]) => `<label><input type="checkbox" name="plant_prop" value="${k}" ${(det.properties || []).includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}
+          </div>
+          ${field('harvesting', 'Harvesting notes', `<textarea id="${fid('harvesting')}" name="harvesting" rows="2" maxlength="1000">${esc(det.harvesting || '')}</textarea>`)}
+          <p class="muted small">A herb needs only a name. Nothing here is automated; a mechanical use belongs in "Use effect" (mark it consumable).</p>
+        </fieldset>
+        <fieldset class="hb-section hb-details" data-for="potion"><legend>Potion details (all optional)</legend>
+          <div class="hb-row">
+            ${field('doses', 'Doses', input('doses', 'number', det.doses, 'min="1" max="100" step="1"'))}
+            ${field('use_action', 'Use', `<select id="${fid('use_action')}" name="use_action">${USE_ACTIONS.map(([k, l]) => `<option value="${k}" ${det.use_action === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+            ${field('saving_throw', 'Saving throw', input('saving_throw', 'text', det.saving_throw, 'maxlength="60" placeholder="CON DC 12"'))}
+            ${field('potion_duration', 'Duration', input('potion_duration', 'text', det.duration, 'maxlength="100"'))}
+          </div>
+          ${field('effect_text', 'Effect (text)', `<textarea id="${fid('effect_text')}" name="effect_text" rows="2" maxlength="1000">${esc(det.effect_text || '')}</textarea>`, 'A reminder only. A structured healing or damage effect goes in "Use effect".')}
+          ${field('ingredients', 'Ingredients (comma separated)', input('ingredients', 'text', listText(det.ingredients), 'maxlength="1200"'))}
+        </fieldset>
+        <details class="hb-crafting quiet-details" ${det.ingredient_tags || det.recipe_refs || det.preparation ? 'open' : ''}><summary>Crafting notes (for a future crafting system)</summary>
+          <div class="hb-row">
+            ${field('ingredient_tags', 'Ingredient tags (comma separated)', input('ingredient_tags', 'text', listText(det.ingredient_tags), 'maxlength="500" placeholder="calming, silver"'))}
+            ${field('recipe_refs', 'Recipe references (comma separated)', input('recipe_refs', 'text', listText(det.recipe_refs), 'maxlength="1000"'))}
+          </div>
+          ${field('preparation', 'Preparation notes', `<textarea id="${fid('preparation')}" name="preparation" rows="2" maxlength="1000">${esc(det.preparation || '')}</textarea>`)}
+        </details>
+        ${iconPickerHTML('icon_key', it.icon_key, { legend: 'Icon' })}
         <fieldset class="hb-section" data-for="effect"><legend>Use effect</legend>
           <div class="hb-row">
             ${field('effect_type', 'Effect', `<select id="${fid('effect_type')}" name="effect_type"><option value="">No automatic effect</option>${['healing', 'damage', 'buff', 'condition', 'cast_spell', 'other'].map((x) => `<option value="${x}" ${fx?.effect_type === x ? 'selected' : ''}>${x.replace('_', ' ')}</option>`).join('')}</select>`)}
@@ -209,6 +245,20 @@ export function openHomebrewForm(o) {
       is_consumable: f.is_consumable.checked, stackable: f.stackable.checked,
     };
     if (canChangeVisibility) def.campaign_id = vis === 'campaign' ? f.campaign_id.value : null;
+    def.icon_key = form.querySelector('input[name="icon_key"]:checked')?.value || null;
+    // details: only the fields of the chosen type are sent (values left in a hidden section never reach the item)
+    const details = { ingredient_tags: listOf(f.ingredient_tags.value), recipe_refs: listOf(f.recipe_refs.value), preparation: f.preparation.value.trim() || null };
+    if (kind === 'herbs_plants') {
+      Object.assign(details, { environment: f.environment.value.trim() || null, region: f.region.value.trim() || null, harvesting: f.harvesting.value.trim() || null,
+        shelf_life: f.shelf_life.value.trim() || null, properties: $$('input[name="plant_prop"]:checked', form).map((x) => x.value) });
+    }
+    if (kind === 'potion') {
+      const doses = num(f.doses.value);
+      if (doses != null && (!Number.isInteger(doses) || doses < 1 || doses > 100)) errors.doses = 'Doses are a whole number from 1 to 100.';
+      Object.assign(details, { doses, use_action: f.use_action.value || null, saving_throw: f.saving_throw.value.trim() || null,
+        duration: f.potion_duration.value.trim() || null, effect_text: f.effect_text.value.trim() || null, ingredients: listOf(f.ingredients.value) });
+    }
+    def.details = Object.fromEntries(Object.entries(details).filter(([, v]) => v != null && !(Array.isArray(v) && !v.length)));
     const stats = {};
     if (kind === 'weapon') {
       const props = $$('input[name="prop"]:checked', form).map((x) => x.value);
@@ -330,7 +380,7 @@ export function openHomebrewForm(o) {
       if (!touched) { // sensible defaults for the new type until the user sets these flags themselves
         const consumable = ['potion', 'scroll', 'ammunition'].includes(e.target.value);
         f.is_consumable.checked = consumable;
-        f.stackable.checked = consumable;
+        f.stackable.checked = consumable || e.target.value === 'herbs_plants';
       }
     }
     if (['is_consumable', 'stackable'].includes(e.target.name)) touched = true;

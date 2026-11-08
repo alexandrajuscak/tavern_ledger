@@ -8,7 +8,8 @@ end $$;
 
 create schema if not exists auth;
 create table if not exists auth.users (
-  id uuid primary key, email text, raw_user_meta_data jsonb not null default '{}'::jsonb, aud text, role text);
+  id uuid primary key, email text, raw_user_meta_data jsonb not null default '{}'::jsonb, aud text, role text,
+  instance_id uuid, created_at timestamptz default now(), updated_at timestamptz default now());   -- columns the newer SQL suites insert
 create or replace function auth.uid() returns uuid language sql stable as $$
   select nullif(coalesce(current_setting('request.jwt.claim.sub', true),
                          (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')), '')::uuid

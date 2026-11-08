@@ -90,3 +90,75 @@ nothing about a hosted deployment.
 - **Home card stats** (max HP, AC) still read the derived stats per card, six at a time, cached per character version.
 - **Feature flag:** `FLUENT_READS` in js/config.js; `?fluent=0` per browser forces the legacy path. The legacy code path and its
   64-binding Realtime channel remain in this release as the rollback; they are removed only after production monitoring.
+
+## Added by the Combat Builder (2026-11-06; docs/COMBAT_BUILDER_ARCHITECTURE.md)
+
+**Unsupported combat automation (by design; the DM decides):**
+- no attack, saving throw or damage resolution;
+- no Resistance / Immunity / Vulnerability arithmetic (shown as reminders);
+- conditions are reminders except the documented Initiative modes and the concentration notice;
+- no automatic spell-to-effect mapping (concentration links are made by hand);
+- no "Delay" action (not in either SRD);
+- the optional 2014 tie roll-off is not automated;
+- no automatic CR estimate for homebrew.
+
+**Character data:**
+- Passive Perception of player characters is calculated from the derived stats and the stored skill proficiency. A
+  proficiency granted only by an item or background through the proficiency resolver may be missing; the sheet stays
+  authoritative.
+- Companions are not added automatically; use a typed-in combatant.
+
+**Difficulty:** 2024 only (SRD 5.2.1 XP budget). SRD 5.1 has no encounter difficulty table, so 2014 encounters show
+"not available".
+
+**Catalog / licensing:** 73 SRD 5.2.1 stat blocks (a focused set; the parser reads 327 of the 330); SRD 5.1 creatures as
+before. Non-SRD monsters only as DM homebrew.
+
+**Player view:** the read model `get_combat_player_view` exists and is tested, but there is no player combat screen yet.
+
+**Sheet HP buttons need a connection:** Damage and Heal on the character sheet are now one atomic server call
+(`apply_character_hp`). Offline they refuse ("Could not reach the server. Nothing was changed") instead of queuing; a
+typed HP value still saves and queues as before.
+
+**Mobile:** full stat blocks are in the detail drawer; long encounters (20+ combatants) scroll in one column below
+600 px.
+
+**Not in scope (future):** battle map, tokens, movement, line of sight, VTT features.
+
+**Local environment:** the full ruleset text of SRD conditions is summarized (project-authored), not reproduced.
+
+## Follow-up 2026-11-07 (feat removal, ability sources)
+
+- **Ability Score Improvement above 20:** effect bonuses (class ASIs, feats, items) are added after the 20-cap and capped only
+  at 30, so an ASI on a base of 19 gives 21 (the rules cap an ASI at 20; some items may exceed it). Needs per-source caps in
+  `_derived_stats_core`; not changed because it alters effective scores. Local data: 0 characters affected.
+- **Feat saving-throw proficiency** (Resilient and similar) is shown as automated on the feat card, but the derived saves and the
+  proficiency resolver do not apply it; mark the save on the sheet manually until fixed.
+- **Orphan inactive feat resources** left by feat removals before 20261107 are not cleaned retroactively (inactive, never shown).
+- **Source-granted feats** are changed at their source (background, lineage, ASI choice); there is no DM override that removes
+  only the feat and keeps the source.
+- **Combat Builder mobile header:** on 390 px the encounter header and the notes take about 40 % of the screen before the
+  initiative list (Next stays docked at the bottom). Unchanged in this follow-up.
+- **Combat Initiative modifier** follows the sheet only until Initiative is entered or rolled; a rolled Initiative is kept for
+  the whole combat (rolled once, as in the rules).
+- **Combat Builder live refresh** of a linked character covers tables with a revision trigger (feats, classes and class choices, lineage, background, proficiencies, equipment, inventory). Infusions, active states (Rage …), background choices and item modifiers are picked up when the encounter is reopened.
+
+## Combined follow-up release (2026-11-07)
+
+- **Wild Shape duration** is tracked by wall clock. A form past its duration still takes damage as shown (then ends); a heal
+  or correction on it ends it and changes nothing (the DM re-applies to the normal form). Instant death, form resistances and
+  concentration stay reminders. No 2024 Druid exists in the catalog.
+- **Undo** of a Combat Builder damage that ended a Wild Shape form is refused (correct the HP by hand).
+- **Active class options** in Play are reminders unless the option was already automated; Favored Enemy, Natural Explorer
+  and Dragon Ancestor stay on Build. Option counters are matched to their option by name (resource reads carry no option id).
+- **Artificer**: a character whose item holds an active infusion cannot be deleted directly (the managed-modifier guard refuses
+  the cascaded delete); end the infusion first. Pre-existing, found during this release, not changed.
+- **Herbs & Plants / potion details and crafting notes** are text only; no crafting, harvesting or ingredient consumption.
+- **Item icons**: gallery only (no uploads); an icon key unknown to an older browser falls back to the category icon.
+- **Permanent delete** refuses anything with inventory history, even after the entries were removed (archive instead).
+- The read-cache revision is bumped once by the item and class-option migrations: the first open of each character after the
+  release is a cold read.
+- **Shared monster groups**: a total typed for one member always sets the whole group; there is no UI to split an existing
+  group (add copies with "Each rolls" for individual Initiative).
+- **Expired-form heal in the Combat Builder** records no HP event (nothing was applied); a retry with the same request id is
+  therefore not deduplicated and, since the form has ended, would heal the normal form.

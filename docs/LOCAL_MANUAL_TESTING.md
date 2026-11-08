@@ -363,3 +363,81 @@ Developer tools → Network (filter `rest/v1`), throttling "Fast 4G" or 150 ms.
 
 Automated: `supabase/tests/browser/fluent_read_ui_test.py` (32 checks), `supabase/tests/fluent_read_tests.sql` (1,707 checks),
 benchmark `supabase/tests/browser/fluency_benchmark.py`.
+
+## 21. Combat Builder (2026-11-06)
+
+Sign in as `local-dm@example.test` (the DM of Local Demo Campaign). If you want to keep the demo data unchanged, create
+your own test campaign first: encounters belong to a campaign, and HP changes on linked characters are real.
+
+1. The top bar shows **Combat** beside DM Space. Signed in as the player, the link is missing and `#/combat` goes home.
+2. **Combat → New encounter.** Choose the campaign and "Campaign default"; the dialog says which ruleset that is.
+3. **Add party:** the campaign's characters are pre-ticked. The Initiative modifiers match the sheets.
+4. **Add monsters:**
+   - search "goblin" and add 3 × Goblin Warrior (one group roll) and 1 × Goblin (SRD 5.1); the badge "2014 stat block"
+     appears;
+   - filter Legendary + 2024 to see 4 monsters, and add the Adult Red Dragon hidden and "in its lair";
+   - star a favorite.
+5. Type the players' Initiative values with one tie, then **Roll all monsters**. **Start combat** shows the tie review;
+   change the order and accept.
+6. Round 1 shows the highest Initiative as the current turn (gold border, ▶, "CURRENT TURN"). Press **N** to move on.
+   A double click on Next moves once.
+7. Select a goblin: type 4 and press Enter (the preview shows 10 → 6). Type 20 and press Enter: Defeated. **Undo**
+   brings it back.
+8. Open a hero's sheet in a second window as the player. The DM's quick damage (−) changes the sheet within a second;
+   the sheet's Damage button changes the tracker.
+9. Add **Poisoned** for 2 rounds, then Advantage and Disadvantage on "Next attack": the chip says "(both: normal)". Add
+   **Concentration** (Bless), then damage the hero: "CON save DC 10". **Failure** ends it.
+10. Dragon: Show stat block, Spend 1 Legendary use, **Reveal to players**.
+11. **Pause**: Next is disabled. **Resume**: the same turn.
+12. Narrow the window to a phone (DevTools 390 px): one column, sticky End turn, the detail opens as a drawer.
+13. Library → **New homebrew creature**: Quick mode. Publishing without to-hit and damage shows friendly errors; after
+    fixing, it publishes and appears as Homebrew. Add it during the combat with Initiative 12.
+14. **Finish**: review the lasting effects (choose "Move to the character sheet" for one), then the summary. **Run again
+    (duplicate)** creates a fresh prepared copy.
+
+## 22. Feat removal and ability sources (2026-11-07)
+
+Sign in as `local-player@example.test` / `local-dev-password` (or a character of your own outside a campaign).
+
+1. **Abilities:** a card with a bonus shows **Base** (the input), **Score N** and one row per source ("+1 Fighter: ASI",
+   "+1 Lineage: …"); with two sources "Bonuses from sources: +2". There is no "= N" anywhere. Change the base: the score says
+   "updating…" for a moment, then the new value; the rows stay.
+2. **Remove a feat you added:** Build → Feats → **Remove…** → the dialog lists exactly what changes (e.g. "Maximum HP: 48 → 40").
+   Escape cancels and returns focus; **Remove feat** removes it once (try a double click).
+3. **Granted feats:** a background, lineage or Ability Score Improvement feat shows "Granted by …" and **Change background… /
+   Change lineage choice… / Change choice…** instead of Remove. Change choice… jumps to the ASI choice.
+4. **Campaign rules:** in a campaign that needs approval the button reads **Request removal…** and ends in "Ask your DM"; on a
+   locked character there is no Remove, only an explanation.
+5. **Two windows:** keep the same character open in a second window (or as the DM): a removal appears there without a reload.
+6. **Combat Builder:** as `local-dm@example.test`, with a character in a running encounter, change that character's feats or
+   DEX on the sheet: the tracker's HP maximum / AC / passives follow without a reload; a rolled Initiative stays.
+
+## Combined follow-up: Initiative, Wild Shape overflow, class options, infusions, herbs, item icons and deletion (2026-11-07)
+
+Sign in as `local-dm@example.test` / `local-dev-password` (DM) and, in a private window, `local-player@example.test`.
+
+**Initiative (Combat → an encounter in preparation)**
+1. The column reads **Final Initiative**; the modifier column says "(reference)". Player rows have no Roll button.
+2. Click the first player's field, type `17`, press **Enter**: it saves 17 (not 17 + modifier) and jumps to the next missing
+   player; after the last one the focus goes to **Start combat**.
+3. A monster row: **Auto roll** → Roll (shows "d20 12 + 2"); switch to **Manual total** → type `14` → Enter: stays 14.
+4. A goblin group: Roll one goblin → all share the roll; switch to Manual and type `11` on one → all three show 11.
+5. Reload: the values and the Manual rows come back. Open the encounter in a second window: typed values appear there.
+6. Phone width (390 / 360): one card per combatant, the field is easy to tap, no sideways scrolling.
+7. Start; open a combatant → Initiative → **Correct** → a value and a reason → it moves; the history lists the reason.
+
+**Wild Shape overflow**: a Druid in Wild Shape in the encounter (form 20 HP, normal 30): type 20 → "the form ends; no damage
+carries over" (normal stays 30). Again with 21 → preview "only the excess 1 reaches normal HP (30 → 29)"; after Enter the
+toast says "… form took 21 damage. The form ended, and 1 excess damage was applied to …". On the sheet the normal HP shows 29
+at once. A form whose duration is over shows "Duration over" in the tracker; damage still hits the form first.
+
+**Class options in Play** (player): Showcase Warlock → Play: Pact of the Blade under Actions, Thirsting Blade under Free and
+special (tag "reminder"), Devil's Sight under Passive and reminders, Eldritch Smite only once (under Attacks). An Artificer
+with infusions: Play → **Infused items** ("Enhanced Weapon · on Mace"); Inventory → badge **Infused: Enhanced Weapon** on the
+Mace; nothing new in Spells.
+
+**Herbs, potions, icons, deletion** (DM, on a character of the DM or in DM Space): Inventory → Add item → Create homebrew →
+Type **Herbs & Plants**: only the herb section shows; pick Flower, an environment, Medicinal, an icon from the gallery →
+Create: the row shows that icon and the filter **Herbs & Plants** appears; the item dialog lists the details. Type **Potion**:
+doses, use, effect text, ingredients. Add item → search an unused custom item → **Delete…** → the button unlocks only after
+typing the exact name. Try **Delete…** on an item that is in an inventory: you are offered **Archive** instead.

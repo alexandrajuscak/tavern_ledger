@@ -153,3 +153,20 @@ view). The page never scrolls sideways.
   - `.ac-button` is at least 28 × 36 px.
 - **Home card loading mark:** `.cc-wait` ("…", `aria-label="loading"`) until the authoritative maximum HP and AC arrive.
 - **Dialogs:** a dialog without a field focuses itself (`.modal[tabindex=-1]`).
+
+## Combat Builder components (2026-11-06)
+
+| Component | Where | Notes |
+|---|---|---|
+| Encounter card | Combat Home | Title link, campaign · ruleset · counts (· Round N), status pill (Prepared / In combat / Paused / Finished), Open / Resume / View summary, Duplicate, Archive / Restore |
+| Initiative table | Builder | Order arrows (▲▼, labelled), combatant (avatar, name, source, CR, "2014 stat block" badge, "joins in round N"), modifier, Initiative input + Roll + d20 shown, group, hidden, surprised, ready. Below 600 px each row becomes a card with the Initiative field first |
+| Tie review | Start | Per tie group: the default order with ▲ to change it; "Accept order and start" |
+| Top bar | Live | Kicker (campaign · rules), title, **Round** block, **Current turn** (name, position, elapsed time), connection dot, Pause / Resume, Reminders, History, Help, Finish. Icon-only buttons below 600 px keep their `aria-label` |
+| Turn notes | Live | Expired effects, rounds left, save reminders, Legendary available, round start, lair / reinforcement reminders (Done), concentration-at-risk (End concentration), immunities |
+| Participant row | Live | A button with a full accessible name (name, kind, Initiative, HP, state, current turn, hidden) + the quick −/+ buttons |
+| Quick HP popover | Row | A number field: Enter applies, Escape cancels, a live preview, focus returns to the button |
+| Detail panel / drawer | Live | Header, stat line (HP, AC with applied modifiers, Initiative, Speed, Passive Perception), HP control (amount, Damage, Heal, Temp HP, Correct…, preview), concentration with pending checks (Success / Failure), effects list (Remove), Condition / Effect / Advantage / Disadvantage / Concentration, Reaction toggle, Legendary pips and spend buttons, notes, Open sheet, Hide/Reveal, Mark defeated / Restore, Skip its turns, Rename, Remove, Stat block (on demand). Below 900 px it is a bottom drawer with a close button |
+| Effect dialog | Live | Tabs Condition / Custom effect / Concentration; only the fields of the chosen duration and options are shown |
+| Monster Library | Dialog / page | Search, CR range, type, size, source, rules, favorites, legendary; recent; result list (CR, AC, HP, rules / Homebrew badge, legendary crown, ☆ favorite); preview with the Add form (how many, group or each rolls, average or rolled HP, name, joins in round, Initiative when joining a running combat, hidden, in lair) |
+| Homebrew editor | Dialog | Quick / Full stat block tabs, sections that appear only when relevant, errors list, live preview, Save draft / Check / Publish |
+| Summary | Finished | Stat tiles, participants table, carried and kept effects, DM notes, major events, history |

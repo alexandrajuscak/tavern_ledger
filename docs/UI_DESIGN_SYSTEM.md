@@ -161,3 +161,36 @@ The visual language is unchanged. The pass fixed:
 - toast behaviour.
 
 See docs/V6_PRODUCT_HARDENING_REVIEW.md.
+
+## Combat Builder (2026-11-06)
+
+The DM's encounter workspace (`css/combat.css`, every class prefixed `cb-`, since the sheet already owns
+`.combat-bar` / `.combat-grid`) uses the same tokens as the rest of the app. It must feel like a fantasy encounter table,
+not an admin dashboard, and be readable at a glance under time pressure.
+
+- **Type.**
+  - Cinzel (`--font-display-medieval`) is used **only** for: the encounter title, section titles, the round number, the
+    Initiative numbers, the big stat values in the detail panel, and creature names in stat blocks.
+  - Inter is used for every control, status word, chip and table cell.
+  - Buttons never use the display font.
+- **Current turn.** It is unmistakable and never colour-only:
+  - a 2 px gold border and a warm gold gradient on the row;
+  - a ▶ arrow;
+  - a gold "CURRENT TURN" pill;
+  - `aria-current="step"`, and "current turn" in the row's accessible name.
+- **Selected row.** A blue inset ring, so it is never confused with the current turn.
+- **HP states.** The sheet's words and colours: Healthy (green bar), Bloodied ≤ 50 % (amber), Critical ≤ 25 % and
+  Down / Defeated (red). Temporary HP is the blue segment plus "+N". Defeated monsters are struck through and skipped.
+- **Kinds.** The "PC" pill is blue; the "Monster" pill is red-tinted. Avatars are the portrait (PCs) or the creature
+  icon on a tinted disc.
+- **Chips.**
+  - Conditions are violet-tinted with the condition icon; custom effects are teal.
+  - Advantage is green, Disadvantage red, "Normal (both)" neutral.
+  - DM-only effects have a dashed rose border and the screen-reader text "(hidden from players)".
+  - Remaining rounds are shown in a muted suffix.
+- **Restraint.** Rows show at most 4 effect chips (+N). The quick −/+ buttons appear on hover, focus, the selected row
+  and the current row, and always on touch screens. Everything else is in the detail panel.
+- **Dock.** A sticky bottom bar holds Previous, Undo (labelled with what it undoes), Effect, Skip, and the primary gold
+  **End turn · Next** (≥ 46 px high).
+- **Stat blocks.** A dark card with a deep-red top rule. Sections fold: Actions start open, the rest fold in the compact
+  panel version. The SRD 5.2.1 attribution is in small muted text under every SRD stat block.

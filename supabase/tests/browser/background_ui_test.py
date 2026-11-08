@@ -82,11 +82,12 @@ def main():
               and "Dice set" in ctext and "Savage Attacker" in ctext and "not applied automatically" in ctext, ctext[:600])
 
         s.tab("stats")
-        s.wait(lambda: "+2 background" in (page.locator('[data-derived="abnote:str"]').text_content() or ""))
-        note = page.locator('[data-derived="abnote:str"]').text_content()
+        # source-aware rows since 2026-11-07 (docs/ABILITY_SCORE_SOURCE_MODEL.md): "+2 Background: Soldier" and "Score 17", never "= 17"
+        s.wait(lambda: "Background" in (page.locator('[data-ab-srcs="str"]').text_content() or ""))
+        note = (page.locator('[data-ab-srcs="str"]').text_content() or "") + " | " + (page.locator('[data-ab-eff="str"]').text_content() or "")
         dot = page.locator("[data-action=cycle-skill][data-k=intimidation]")
-        check("BU9 Stats: STR shows '+2 background = 17'; Intimidation is proficient from Soldier (background)",
-              "+2 background = 17" in note and "Soldier (background)" in (dot.get_attribute("title") or ""), (note, dot.get_attribute("title")))
+        check("BU9 Stats: STR shows '+2 Background' and 'Score 17' (no '= 17'); Intimidation is proficient from Soldier (background)",
+              "+2" in note and "Background" in note and "17" in note and "= 17" not in note and "Soldier (background)" in (dot.get_attribute("title") or ""), (note, dot.get_attribute("title")))
         check("BU10 the proficiency list names Soldier as the source of the dice set",
               "Soldier" in page.locator("#specific-profs [data-prof-item=dice-set]").inner_text())
 
@@ -111,7 +112,7 @@ def main():
             u.rpc("get_character_background", p_character=ch)[1].get("characteristics", {}))))
         s.tab("stats")
         check("BU14 the Soldier increase is gone with the background change (STR back to 15, no background part)",
-              s.wait(lambda: "background" not in (page.locator('[data-derived="abnote:str"]').text_content() or "")))
+              s.wait(lambda: "Background" not in (page.locator('[data-ab-srcs="str"]').text_content() or "")))
 
         s.tab("features")
         card.locator("[data-action=bg-choose]").click()

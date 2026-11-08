@@ -81,4 +81,12 @@ echo "== fluent read architecture: one request per open, tab bundles, coalesced 
 (cd supabase/tests/browser && "$PY" fluent_read_ui_test.py) || RC=1
 echo "== gameplay polish: icons, coin calculator, Hungry Jaws counter, Magic Initiate spells, type-aware DM item editor"
 (cd supabase/tests/browser && "$PY" gameplay_polish_ui_test.py) || RC=1
+echo "== Combat Builder: navigation, builder, library, initiative, turns, HP, effects, Realtime, homebrew, responsive, a11y"
+(cd supabase/tests/browser && "$PY" combat_builder_ui_test.py) || RC=1
+echo "== Combat Builder API: authorization matrix, RLS, player-safe read model, change log"
+"$PY" supabase/tests/api/combat_api_test.py || RC=1
+echo "== Feat removal and ability sources: review dialog, source-granted feats, governance, Realtime, ability rows, Combat Builder follow-through"
+(cd supabase/tests/browser && "$PY" feat_removal_ui_test.py) || RC=1
+echo "== Combined follow-up: final-total Initiative, Wild Shape overflow, class options and infusions in Play, herbs, icons, deletion"
+(cd supabase/tests/browser && "$PY" combined_followup_ui_test.py) || RC=1
 exit $RC

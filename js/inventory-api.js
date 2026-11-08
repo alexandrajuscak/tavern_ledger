@@ -1,7 +1,7 @@
 // Inventory data access. The ONLY module that talks to Supabase about items, inventories and equipment.
 // Reads come from views (RLS applies: they are security_invoker), every change goes through an RPC.
 // Function names follow the database; where they differ the mapping is written next to the function.
-import { supabase } from './supabase.js?v=17';
+import { supabase } from './supabase.js?v=18';
 
 // ---- Errors -----------------------------------------------------------------------------------
 
@@ -42,6 +42,7 @@ const ERROR_RULES = [
   ['validation', /container must be in the same inventory/i, 'The container must be in the same inventory.'],
   ['validation', /already linked/i, 'This item is already linked to the catalog.'],
   ['not_found', /unknown catalog item|unknown item/i, 'That catalog item does not exist.'],
+  ['not_found', /23503|foreign key/i, 'That item definition was just deleted or changed. The list was refreshed; nothing was added.'],
   ['not_found', /not found|P0002|PGRST116/i, 'This item no longer exists. The inventory was refreshed.'],
   ['session', /jwt expired|invalid jwt|PGRST301|JWSError/i, 'Your session has expired. Sign in again; nothing was changed.'],
   ['authorization', /not allowed|permission denied|row-level security|42501|JWT/i, 'You are not allowed to change this inventory. Nothing was changed.'],
@@ -54,6 +55,8 @@ const ERROR_RULES = [
 export function normalizeError(err) {
   if (err instanceof InventoryError) return err;
   const text = `${err?.message || ''} ${err?.code || ''} ${err?.details || ''}`;
+  // "in use: archive instead" and DM-only content rules are written for users (custom SQLSTATEs): show them as they are
+  if (['TLUSE', 'TLDMO', 'TLDIS'].includes(err?.code) && err.message) return new InventoryError('validation', err.message, err);
   const hit = ERROR_RULES.find(([, re]) => re.test(text));
   // Validation messages raised by the homebrew / inventory RPCs (SQLSTATE 22023) are written for users: show them as they are.
   if (!hit && err?.code === '22023' && err.message) return new InventoryError('validation', err.message, err);
@@ -176,7 +179,8 @@ export const CATALOG_COLUMNS = 'id, name, kind_id, kind_name, category_id, categ
   + 'visibility, is_mine, can_edit, archived_at, description, data_source_id, '
   + 'weapon_group, damage_dice, damage_type_id, versatile_damage, is_ranged, range_type, range_normal, range_max, weapon_ammo_type_id, '
   + 'reload, misfire, weapon_properties, base_ac, ac_bonus, dex_modifier_mode, dex_cap, strength_requirement, stealth_disadvantage, '
-  + 'is_shield, ammo_type_id, pack_size, capacity_weight_lb, capacity_volume_cuft, weightless_contents, extradimensional';
+  + 'is_shield, ammo_type_id, pack_size, capacity_weight_lb, capacity_volume_cuft, weightless_contents, extradimensional, '
+  + 'icon_key, details';   // 20261107000300 (deploy the migration before this frontend)
 
 const detailCache = new Map();
 
@@ -323,6 +327,16 @@ export async function updateHomebrewItem(itemId, definition, stats = {}) {
 
 export async function archiveHomebrewItem(itemId) {
   const res = await rpc('archive_homebrew_item', { p_item: itemId });
+  invalidateCatalogItems([itemId]);
+  return res;
+}
+
+/** Would a permanent delete be allowed? Lists what uses the definition (docs/CUSTOM_ITEM_DELETION.md). */
+export const previewItemDeletion = (itemId) => rpc('preview_item_deletion', { p_item: itemId });
+
+/** Permanent delete of an UNUSED custom item; the server rechecks every dependency under the item lock. */
+export async function deleteCustomItem(itemId, confirmName) {
+  const res = await rpc('delete_custom_item', { p_item: itemId, p_confirm_name: confirmName });
   invalidateCatalogItems([itemId]);
   return res;
 }

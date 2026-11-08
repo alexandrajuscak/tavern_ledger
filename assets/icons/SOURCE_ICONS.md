@@ -218,3 +218,18 @@ Copied from `../icons/` (originals untouched). All 512x512 transparent PNG. Prev
 |---|---|---|
 | damage-types/multiple.webp | storm (1).png | Spell deals several damage types (Multi-damage) |
 | damage-types/choose.webp | tarot-card.png | Caster chooses one damage type (Choose damage) |
+
+## plants/ and two potions (added 2026-11-07, same family, from ../icons/)
+
+| File | Original | Use |
+|---|---|---|
+| plants/herb.webp | plants.png | Herb sprig |
+| plants/leaf.webp | grass.png | Leaf / grass |
+| plants/flower.webp | flower.png | Flower |
+| plants/wildflowers.webp | flower2.png | Wildflowers |
+| plants/mushroom.webp | mushroom.png | Mushroom / fungus |
+| plants/seed.webp | plant.png | Seed head |
+| plants/berry.webp | plant2.png | Berries |
+| plants/root.webp | thorn.png | Root / thorny vine |
+| potions/flask.webp | potion.png | Flask |
+| potions/bottle.webp | drink.png | Bottle |

@@ -21,6 +21,7 @@ FOLDERS = {
     'items': ('item', '{}', 'inventory.generic'),
     'movement': ('movement', '{}', 'action.speed'),
     'portraits': ('portrait', '{}', 'identity.generic'),
+    'plants': ('plant', '{}', 'item.mortar-pestle'),
     'potions': ('potion', '{} potion', 'item.consumables'),
     'spell-schools': ('spell.school', '{} school', 'spell.school.generic'),
     'ui': ('ui', '{}', 'generic'),
@@ -33,6 +34,8 @@ LABELS = {   # names that read badly when derived from the file name
     'dm.dm-grant': 'DM grant', 'item.spell-scroll': 'Spell scroll', 'item.amulet-gem': 'Amulet', 'item.tome-sealed': 'Sealed tome',
     'item.ink-and-quill': 'Ink and quill', 'item.mortar-pestle': 'Mortar and pestle', 'slot.main-hand': 'Main hand slot',
     'slot.off-hand': 'Off hand slot',
+    'potion.flask': 'Flask', 'potion.bottle': 'Bottle', 'plant.herb': 'Herb sprig', 'plant.wildflowers': 'Wildflowers',
+    'plant.berry': 'Berries', 'plant.root': 'Root or thorny vine',
 }
 # semantic aliases: key -> (target key, label)
 ALIASES = {
@@ -54,6 +57,7 @@ ALIASES = {
     'build.next': ('ui.build', 'Next steps'), 'build.class': ('ui.abilities', 'Classes'), 'build.class-features': ('ui.feat', 'Class features'),
     'build.lineage': ('ui.lineage', 'Lineage'), 'build.background': ('ui.background', 'Background'), 'build.feat': ('ui.feat', 'Feats'),
     'build.reminders': ('ui.notes', 'Reminders'), 'build.own-features': ('ui.custom-content', 'Your own features'),
+    'inventory.herbs': ('plant.herb', 'Herbs & Plants'), 'inventory.potion': ('potion.generic', 'Potion'),
     'inventory.weapon': ('item.weapons', 'Weapon'), 'inventory.armor': ('item.armor', 'Armor'), 'inventory.shield': ('slot.shield', 'Shield'),
 }
 FALLBACK_OF = {'build.lineage': 'identity.generic', 'build.background': 'identity.generic'}

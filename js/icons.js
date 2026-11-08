@@ -2,8 +2,8 @@
 // icon() is decorative (alt="") unless a label is given, and every caller shows the meaning in text or an accessible name.
 // Every icon goes through the registry (js/icon-registry.js): semantic key -> asset, label, fallback. No other module builds
 // asset paths. A name may be a semantic key ("spell.damage.fire") or the older asset name ("damage-types/fire").
-import { esc } from './utils.js?v=17';
-import { ICON_REGISTRY } from './icon-registry.js?v=17';
+import { esc } from './utils.js?v=18';
+import { ICON_REGISTRY } from './icon-registry.js?v=18';
 
 const BASE = 'assets/icons';
 const GENERIC = 'generic';
@@ -88,6 +88,7 @@ export const TIMING_ICONS = { action: 'ui.attack', bonus_action: 'ui.bonus-actio
 export const ITEM_ICONS = {
   all: 'ui.inventory', weapon: 'inventory.weapon', weapons: 'inventory.weapon', armor: 'inventory.armor', consumable: 'item.consumables',
   consumables: 'item.consumables', magic: 'item.magic', ammunition: 'item.ammunition', tool: 'item.tools', tools: 'item.tools',
-  gear: 'item.gear', container: 'item.containers', containers: 'item.containers', potion: 'potion.healing', scroll: 'item.spell-scroll',
+  gear: 'item.gear', container: 'item.containers', containers: 'item.containers', potion: 'potion.healing', potions: 'potion.generic', scroll: 'item.spell-scroll',
+  herbs: 'plant.herb', herbs_plants: 'plant.herb',
   wand: 'item.wand', ring: 'slot.ring', mount: 'item.mount', vehicle: 'item.vehicle', firearm: 'item.firearm',
 };

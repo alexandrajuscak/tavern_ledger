@@ -91,12 +91,24 @@ echo "== Wild Shape concurrency"
 bash supabase/tests/wild_shape_concurrency_test.sh "$NAME" || exit 1
 echo "== governance / change request concurrency"
 bash supabase/tests/governance_concurrency_test.sh "$NAME" || exit 1
+echo "== feat removal (20261107000100): authorization, governance, locks, dependent mechanics, source-granted feats, preview"
+psqlx -At < supabase/tests/feat_removal_tests.sql | grep -E "^(FAILED|TOTAL)"
+psqlx -At < supabase/tests/feat_removal_tests.sql | grep -q "^TOTAL .*, 0 failed" || { echo "FAILED  feat_removal_tests.sql"; exit 1; }
+echo "== feat removal concurrency"
+DB="$NAME" bash supabase/tests/feat_removal_concurrency_test.sh 8 || exit 1
+echo "== combined follow-up (20261107000200-400): final-total Initiative, Wild Shape overflow, Herbs & Plants, icons, deletion"
+psqlx < supabase/seed/combat_monsters.sql >/dev/null   # SRD monsters for the Initiative suite (idempotent seed)
+for t in combat_initiative_tests wild_shape_damage_tests items_herbs_icons_tests; do
+  out=$(psqlx -At < supabase/tests/$t.sql 2>&1 | grep -E "^(FAILED|TOTAL)|ERROR")
+  echo "$out"
+  echo "$out" | grep -q "^TOTAL .*, 0 failed" || { echo "FAILED  $t.sql"; exit 1; }
+done
 echo "== rollback of the class catalog content and the 20261017* migrations"
 if psqlx < supabase/rollback/rollback_class_engine_extensions.sql >/dev/null 2>&1; then echo "FAILED  rollback_class_engine_extensions.sql ran while official content exists"; exit 1; fi
 echo "PASSED  rollback_class_engine_extensions.sql refuses to run while official class content exists"
 psqlx < supabase/rollback/rollback_class_catalog.sql
 # the 20261017* migrations, newest first (one rollback each; same list as run_supabase_local.sh)
-for rb in rollback_derived_stats_items_lookup rollback_v62_hardening rollback_feat_backfill rollback_derived_stats_performance rollback_dm_read_models rollback_hidden_dm_data rollback_dm_content rollback_feat_catalog rollback_change_requests rollback_campaign_governance rollback_wild_shape_engine rollback_backgrounds rollback_proficiency_resolver rollback_rest_report_fix rollback_infusions_and_attunement rollback_creatures_and_transformations rollback_martial_engine_extensions rollback_class_setup_flow rollback_hybrid_caster_extensions rollback_spells_ux rollback_spellcasting_class_extensions rollback_class_page_read_model rollback_class_engine_extensions; do
+for rb in rollback_class_option_activation rollback_items_herbs_icons_deletion rollback_combat_initiative_wild_shape rollback_feat_removal rollback_combat_builder_functions rollback_combat_builder_schema rollback_derived_stats_items_lookup rollback_v62_hardening rollback_feat_backfill rollback_derived_stats_performance rollback_dm_read_models rollback_hidden_dm_data rollback_dm_content rollback_feat_catalog rollback_change_requests rollback_campaign_governance rollback_wild_shape_engine rollback_backgrounds rollback_proficiency_resolver rollback_rest_report_fix rollback_infusions_and_attunement rollback_creatures_and_transformations rollback_martial_engine_extensions rollback_class_setup_flow rollback_hybrid_caster_extensions rollback_spells_ux rollback_spellcasting_class_extensions rollback_class_page_read_model rollback_class_engine_extensions; do
   psqlx < "supabase/rollback/$rb.sql"
 done
 [ "$(q "select count(*) from public.class_features where content_scope = 'official'")" = 0 ] \

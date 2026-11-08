@@ -2,10 +2,11 @@
 // type, the lifecycle actions (save draft, validate, preview, publish, new version, archive, restore, duplicate, delete) and a
 // preview of what players will see. The definition is validated and materialized by the database (_dm_try / _dm_materialize).
 
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=17';
-import * as dm from './dm-api.js?v=17';
-import { icon } from './icons.js?v=17';
-import { spellIconHTML } from './spell-icons.js?v=17';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=18';
+import * as dm from './dm-api.js?v=18';
+import { icon } from './icons.js?v=18';
+import { spellIconHTML } from './spell-icons.js?v=18';
+import { iconPickerHTML } from './item-icon-gallery.js?v=18';
 
 export const TYPE = {
   spell: { icon: icon('dm/spell'), label: 'Spell' }, item: { icon: icon('dm/item'), label: 'Item' }, feat: { icon: icon('dm/feat'), label: 'Feat' },
@@ -23,7 +24,10 @@ const CR = ['0', '0.125', '0.25', '0.5', ...Array.from({ length: 20 }, (_, i) =>
 const crLabel = (v) => ({ 0.125: '1/8', 0.25: '1/4', 0.5: '1/2' }[v] || String(v));
 
 // ---- schemas -------------------------------------------------------------------------------------------------------------
-const HOMEBREW_KINDS = ['weapon', 'armor', 'tool', 'gear', 'ammunition', 'potion', 'scroll', 'magic_item'];
+const HOMEBREW_KINDS = ['weapon', 'armor', 'tool', 'gear', 'ammunition', 'potion', 'scroll', 'magic_item', 'herbs_plants'];
+// item details sent per type (_item_details refuses the fields of another type)
+const DETAIL_KEYS = { common: ['ingredient_tags', 'recipe_refs', 'preparation'], herbs_plants: ['environment', 'region', 'harvesting', 'properties', 'shelf_life'],
+  potion: ['doses', 'use_action', 'effect_text', 'saving_throw', 'duration', 'ingredients'] };
 // field: [path, label, kind, extra]; kind: text | area | num | sel | check | multi | rows
 const textFields = [
   ['summary', 'Short summary (players see it in lists)', 'text', { max: 400 }],
@@ -78,7 +82,8 @@ function schemaFor(type, ref) {
     case 'item': return [
       // the types a homebrew item can have (_write_homebrew); mounts and vehicles are catalog-only
       { title: 'Item', fields: [['definition.item.kind_id', 'Type', 'sel', { options: ref.itemKinds.filter((k) => HOMEBREW_KINDS.includes(k.id)).map((k) => [k.id, k.name]) }],
-        ['definition.item.category_id', 'Category (weapons and armor)', 'text', { datalist: ['simple-melee', 'simple-ranged', 'martial-melee', 'martial-ranged', 'light-armor', 'medium-armor', 'heavy-armor', 'shield', 'wondrous-item', 'ring', 'wand', 'staff', 'rod'] }],
+        ['definition.item.category_id', 'Category (weapons, armor, herbs)', 'text', { datalist: ['simple-melee', 'simple-ranged', 'martial-melee', 'martial-ranged', 'light-armor', 'medium-armor', 'heavy-armor', 'shield', 'wondrous-item', 'ring', 'wand', 'staff', 'rod',
+          'plant-herb', 'plant-flower', 'plant-root', 'plant-fungus', 'plant-seed', 'plant-leaf', 'plant-fruit-berry', 'plant-bark', 'plant-resin', 'plant-material', 'plant-other'] }],
         ['definition.item.rarity_id', 'Rarity', 'sel', { options: [['', '—'], ...ref.rarities.map((r) => [r.id, r.name])] }],
         ['definition.item.is_magic', 'Magical', 'check'], ['definition.item.requires_attunement', 'Requires attunement', 'check'],
         ['definition.item.is_consumable', 'Consumable', 'check'], ['definition.item.stackable', 'Stackable', 'check'],
@@ -93,6 +98,18 @@ function schemaFor(type, ref) {
         ['definition.stats.armor.stealth_disadvantage', 'Stealth disadvantage', 'check']] },
       { title: 'Ammunition', for: 'ammunition', fields: [['definition.stats.ammunition.ammo_type_id', 'Ammunition type (required)', 'sel', { options: [['', '—'], ...(ref.ammoTypes || []).map((a) => [a.id, a.name])] }],
         ['definition.stats.ammunition.pack_size', 'Pieces per pack', 'num']] },
+      { title: 'Herbs & Plants (all optional)', for: 'herbs_plants', fields: [['definition.item.details.environment', 'Environment', 'text', { max: 120 }],
+        ['definition.item.details.region', 'Region', 'text', { max: 120 }], ['definition.item.details.shelf_life', 'Shelf life', 'text', { max: 200 }],
+        ['definition.item.details.properties', 'Properties', 'multi', { options: [['alchemical', 'Alchemical'], ['medicinal', 'Medicinal'], ['poisonous', 'Poisonous'], ['edible', 'Edible']] }],
+        ['definition.item.details.harvesting', 'Harvesting notes', 'area', { max: 1000 }]] },
+      { title: 'Potion details (all optional)', for: 'potion', fields: [['definition.item.details.doses', 'Doses', 'num'],
+        ['definition.item.details.use_action', 'Use', 'sel', { options: [['', '—'], ['action', 'Action'], ['bonus_action', 'Bonus action'], ['reaction', 'Reaction'], ['minute', '1 minute or more'], ['special', 'Special']] }],
+        ['definition.item.details.saving_throw', 'Saving throw', 'text', { max: 60 }], ['definition.item.details.duration', 'Duration', 'text', { max: 100 }],
+        ['definition.item.details.effect_text', 'Effect (text, a reminder)', 'area', { max: 1000 }],
+        ['definition.item.details.ingredients', 'Ingredients (comma separated)', 'text', { list: true, max: 1200 }]] },
+      { title: 'Crafting notes and icon', fields: [['definition.item.details.ingredient_tags', 'Ingredient tags (comma separated)', 'text', { list: true, max: 500 }],
+        ['definition.item.details.recipe_refs', 'Recipe references (comma separated)', 'text', { list: true, max: 1000 }],
+        ['definition.item.details.preparation', 'Preparation notes', 'area', { max: 1000 }], ['definition.item.icon_key', 'Icon', 'icon']] },
       { title: 'Hidden from players (DM only)', dm: true, fields: [['definition.hidden.unidentified_name', 'Name while unidentified', 'text'],
         ['definition.hidden.unidentified_description', 'Description while unidentified', 'area'], ['definition.hidden.curse', 'Curse (stays secret until you reveal it)', 'area'],
         ['definition.hidden.properties', 'Secret properties (reveal them one by one)', 'rows', { row: [['key', 'Key', 'text'], ['label', 'Name', 'text'], ['text', 'What it does', 'text']] }]] },
@@ -184,6 +201,7 @@ function fieldHTML([path, label, kind, x = {}], model, prefix = '') {
   switch (kind) {
     case 'area': return `<label class="field ${x.dm ? 'dm-only-field' : ''}" for="${id}"><span>${esc(label)}</span><textarea id="${id}" name="${esc(name)}" rows="3" maxlength="${x.max || 4000}">${esc(v ?? '')}</textarea></label>`;
     case 'num': return `<label class="field field-num" for="${id}"><span>${esc(label)}</span><input id="${id}" type="number" step="any" name="${esc(name)}" value="${esc(v ?? '')}" data-num></label>`;
+    case 'icon': return iconPickerHTML(name, v, { legend: label });
     case 'check': return `<label class="check-field"><input type="checkbox" name="${esc(name)}" ${v ? 'checked' : ''} data-bool><span>${esc(label)}</span></label>`;
     case 'sel': return `<label class="field" for="${id}"><span>${esc(label)}</span><select id="${id}" name="${esc(name)}" ${x.number ? 'data-num' : ''}>${x.options.map(([ov, ol]) =>
       `<option value="${esc(ov)}" ${String(v ?? '') === String(ov) ? 'selected' : ''}>${esc(ol)}</option>`).join('')}</select></label>`;
@@ -210,6 +228,7 @@ function readForm(form, type, base) {
   const model = { definition: {} };
   $$('[name]', form).forEach((el) => {
     const n = el.name;
+    if (el.type === 'radio') { if (el.checked) set(model, n, el.value || undefined); return; }   // '' = category default (sent as null below)
     if (el.dataset.multi !== undefined) {
       const cur = get(model, n) || [];
       if (el.checked) cur.push(el.value);
@@ -229,6 +248,14 @@ function readForm(form, type, base) {
     if (kind !== 'armor') delete d.stats.armor;
     if (kind !== 'ammunition') delete d.stats.ammunition;
     if (!Object.keys(d.stats).length) delete d.stats;
+  }
+  if (type === 'item' && d.item) {
+    // details of the chosen type only (values left in a hidden Herbs / Potion section never reach the item); an emptied icon is null
+    const kind = d.item.kind_id;
+    const keep = [...DETAIL_KEYS.common, ...(DETAIL_KEYS[kind] || [])];
+    const det = Object.fromEntries(Object.entries(d.item.details || {}).filter(([k, v]) => keep.includes(k) && v != null && v !== '' && !(Array.isArray(v) && !v.length)));
+    if (Object.keys(det).length) d.item.details = det; else delete d.item.details;
+    if (!d.item.icon_key) d.item.icon_key = null;
   }
   // the coin select always has a value: without a cost it must not be sent ("Cost needs both an amount and a coin")
   if (type === 'item' && d.item && d.item.cost_value == null) delete d.item.cost_unit;
@@ -306,6 +333,24 @@ export function previewHTML(type, p, player) {
 }
 
 // ---- the editor --------------------------------------------------------------------------------------------------------------
+/** Typed-name confirmation for a permanent delete; resolves to the typed name or null. */
+function askName(name) {
+  return new Promise((resolve) => {
+    let done = false;
+    const m = openModal({
+      title: `Delete ${name}?`,
+      body: `<p>Nothing uses this item yet. Deleting removes every version for good and cannot be undone.</p>
+        <label class="field"><span>Type the item name to confirm</span><input data-n autocomplete="off"></label>`,
+      footer: '<button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn btn-bad" data-ok disabled>Delete for good</button>',
+      onClose: () => { if (!done) resolve(null); },
+    });
+    const inp = $('[data-n]', m.el); const ok = $('[data-ok]', m.el);
+    inp.addEventListener('input', () => { ok.disabled = inp.value.trim() !== name; });
+    ok.addEventListener('click', () => { done = true; resolve(inp.value.trim()); m.close(); });
+    inp.focus();
+  });
+}
+
 /** Open the editor of one content item (or create a new one: content = {content_type, campaign_id}). */
 export async function openContentEditor({ content, campaignId, onChanged, onAssign }) {
   const ref = await dm.getEditorReference();
@@ -345,6 +390,7 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
       ${c && st === 'archived' ? '<button type="button" class="btn" data-ce-act="restore">Restore</button>' : ''}
       ${c && c.published_version_id && st !== 'archived' ? '<button type="button" class="btn btn-bad" data-ce-act="archive">Archive</button>' : ''}
       ${c && !c.published_version_id ? '<button type="button" class="btn btn-bad" data-ce-act="delete">Delete draft</button>' : ''}
+      ${c && type === 'item' && c.published_version_id && !(usage?.characters) && !(usage?.stash_items) ? '<button type="button" class="btn btn-bad" data-ce-act="delete-unused">Delete (unused)…</button>' : ''}
       <button type="button" class="btn btn-ghost" data-close>Close</button>`;
     $$('.multi-opts[data-max]', m.el).forEach(limitMulti);
     showTypeSections();
@@ -413,6 +459,12 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
           const n = c.usage?.characters || 0;
           if (!(await confirmDialog(`Archive “${c.name}”? It can no longer be assigned.${n ? ` The ${n} character(s) that have it keep it.` : ''}`, { okLabel: 'Archive', danger: true }))) break;
           c = await dm.archiveContent(c.id); toast('Archived.'); onChanged?.(); break;
+        }
+        case 'delete-unused': {
+          const typed = await askName(c.name);
+          if (typed == null) break;
+          await dm.deleteUnusedItem(c.id, typed);
+          toast('Item deleted.'); onChanged?.(); m.close(); return;
         }
         case 'delete':
           if (!(await confirmDialog('Delete this draft for good?', { okLabel: 'Delete', danger: true }))) break;

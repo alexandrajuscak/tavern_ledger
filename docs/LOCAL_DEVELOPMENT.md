@@ -308,3 +308,74 @@ another port than 5173. Use that when your own frontend server is running.
 * The catalog integrity report is read only:
   `docker exec -i supabase_db_tavern_ledger psql -U postgres -qAt < supabase/tests/catalog_integrity_report.sql`
   Every check should be 0. The last line counts old audit rows that are now filtered on read.
+
+## Combat Builder (20261106)
+
+- **Migrations.** `20261106000100_combat_builder_schema.sql` and `20261106000200_combat_builder_functions.sql`, then the
+  seed `supabase/seed/combat_monsters.sql` (idempotent):
+  `Get-Content supabase\seed\combat_monsters.sql -Raw | docker exec -i supabase_db_tavern_ledger psql -U postgres -q`.
+  Without the seed the Monster Library shows only SRD 5.1 and homebrew.
+- **Regenerating the seed.** `python scripts/data-migration/combat_monsters_srd521.py` (`--check` fails if stale;
+  `--extract <srd text>` refreshes `data/raw/srd_5.2.1/monster_blocks.txt` from the SRD PDF text).
+- **Flag.** `js/config.js` `COMBAT_BUILDER = 'dm'` shows the **Combat** link to DMs; `'off'` hides it.
+- **Tests:**
+  - `supabase/tests/combat_builder_tests.sql` (179 checks, rolled back);
+  - `supabase/tests/combat_concurrency_test.sh`;
+  - `supabase/tests/combat_query_plans.sql`;
+  - `supabase/tests/api/combat_api_test.py`;
+  - `supabase/tests/browser/combat_builder_ui_test.py`, `combat_perf_probe.py`.
+  The browser and API suites need `API_URL`, `ANON_KEY`, `SERVICE_ROLE_KEY` and `APP_URL`, like the other suites; the
+  full runner sets them.
+- **Rollback.** `supabase/rollback/rollback_combat_builder_functions.sql`, then `rollback_combat_builder_schema.sql`.
+- **Windows reserved ports.** If `supabase start` fails with "ports are not available … 54322 … access permissions",
+  Windows (WinNAT / Hyper-V) has reserved a range that covers 54321–54329. Check with
+  `netsh int ipv4 show excludedportrange protocol=tcp`. To fix it, an **administrator** PowerShell runs
+  `net stop winnat; net start winnat`, then `start-local.bat`. The local data volume is not affected.
+
+## Standard and shifted ports (2026-11-06 / 07)
+
+| | Standard (`supabase/config.toml`) | Shifted (temporary, scratch copy of the config) |
+|---|---|---|
+| API (Kong) | 54321 | 55321 |
+| Database | 54322 | 55322 |
+| Studio | 54323 | 55323 |
+| Mailpit | 54324 | 55324 |
+| Analytics | 54327 | 55327 |
+| Shadow / pooler | 54320 / 54329 | 55320 / 55329 |
+
+Windows (WinNAT / Hyper-V) can reserve the 543xx range for itself; check with
+`netsh interface ipv4 show excludedportrange protocol=tcp`. If `54301–54400` (or `54201–54300`) is listed, the database
+container cannot bind 54322. Fix, in an **administrator** PowerShell: `net stop winnat; net start winnat`, then
+`stop-local.bat` / `start-local.bat` (volume-preserving). Both configurations use the same `project_id` (`tavern_ledger`) and
+therefore the **same Docker volume** (`supabase_db_tavern_ledger`): never `db reset`, never `stop --no-backup`. Tests must
+target one stack explicitly (`API_URL`, `APP_URL` and the `tavern-ledger:local-supabase` localStorage override the browser
+tests set); the frontend on 5173 reads `js/config.local.js`, which `start-local.bat` writes for the standard port.
+
+## Feat removal and ability sources (20261107)
+
+`20261107000100_feat_removal.sql` replaces `remove_character_feat` and `set_character_feat_choices` (same signatures), adds
+`preview_character_feat_removal` and two Realtime revision triggers on the feat tables. Rollback:
+`supabase/rollback/rollback_feat_removal.sql` (no data change). Rules: [FEAT_REMOVAL.md](FEAT_REMOVAL.md); ability display:
+[ABILITY_SCORE_SOURCE_MODEL.md](ABILITY_SCORE_SOURCE_MODEL.md). Tests: `feat_removal_tests.sql` (also in `run_local.sh`),
+`feat_removal_concurrency_test.sh`, `browser/feat_removal_ui_test.py` (in `run_browser_local.sh`).
+
+## Combined follow-up release (2026-11-07)
+
+- Ports: still the **shifted** stack (Windows keeps TCP 54201–54400 excluded): API `http://127.0.0.1:55321`, DB `55322`,
+  Studio `55323`, Mailpit `55324`. `js/config.local.js` (git-ignored) temporarily points at `55321`; `start-local.ps1`
+  rewrites it with the standard `54321` once the ports are free (admin: `net stop winnat` / `net start winnat`, then
+  `..\.tools\supabase-2.118.0\supabase.exe stop --project-id tavern_ledger` and `start-local.bat`; volumes are kept).
+- New migrations (apply with `start-local.ps1 -ApplyMigrations` on a standard stack, or psql on the shifted one):
+  `20261107000200_combat_initiative_wild_shape.sql`, `20261107000300_items_herbs_icons_deletion.sql`,
+  `20261107000400_class_option_activation.sql` (idempotent catalog patch).
+- New tests: `supabase/tests/wild_shape_damage_tests.sql`, `combat_initiative_tests.sql`, `items_herbs_icons_tests.sql`,
+  `lock_order_concurrency_test.sh`, `item_deletion_concurrency_test.sh`, `supabase/tests/browser/combined_followup_ui_test.py`.
+- Browser test cleanup (`isolation.py`) now sets `tavern.managed_modifier` so synthetic characters with infused items can be
+  removed.
+- **Migration history drift (local only).** Ten migrations are applied to the local database but not recorded in
+  `supabase_migrations.schema_migrations` (they were applied with psql on the shifted stack): `20261030000100`,
+  `20261030000200`, `20261031000100`, `20261031000200`, `20261106000100`, `20261106000200`, `20261107000100`,
+  `20261107000200`, `20261107000300`, `20261107000400`. Before using `start-local.ps1 -ApplyMigrations` (`supabase migration up
+  --local`) after returning to the standard ports, record them, otherwise it would try to run them again:
+  `..\.tools\supabase-2.118.0\supabase.exe migration repair --local --status applied 20261030000100 20261030000200 20261031000100 20261031000200 20261106000100 20261106000200 20261107000100 20261107000200 20261107000300 20261107000400`.
+  Production is unaffected (it is pushed from its own recorded history).

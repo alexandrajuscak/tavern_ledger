@@ -1,7 +1,7 @@
-import { supabase, announceGovernance } from './supabase.js?v=17';
-import { toast, friendlyError } from './utils.js?v=17';
-import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=17';
-import { fetchView } from './read-layer.js?v=17';
+import { supabase, announceGovernance } from './supabase.js?v=18';
+import { toast, friendlyError } from './utils.js?v=18';
+import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=18';
+import { fetchView } from './read-layer.js?v=18';
 
 export const state = {
   session: null,
@@ -242,6 +242,15 @@ function refuseWrite(table, id, patch, error) {
   window.dispatchEvent(new CustomEvent('tavern:save-refused', { detail: { table, id, patch, error } }));
 }
 
+/** One atomic HP change on the server (docs/COMBAT_BUILDER_ARCHITECTURE.md "Hit points"): damage | heal | temp | set.
+ *  The sheet buttons and the Combat Builder use it, so a change made in one place is never overwritten by a stale value
+ *  from the other. The result carries the values after the change (`after`, or `wild_shape` while a form is active). */
+export async function applyCharacterHp(id, op, amount, reason = null) {
+  const { data, error } = await supabase.rpc('apply_character_hp', { p_character: id, p_op: op, p_amount: amount, p_reason: reason });
+  if (error) throw Object.assign(new Error(friendlyError(error, 'Hit points were not changed.')), { code: error.code, raw: error });
+  return data;
+}
+
 export async function deleteRow(table, id) {
   saver.discard(table, id);
   check(await supabase.from(table).delete().eq('id', id));
@@ -371,7 +380,7 @@ window.addEventListener('beforeunload', (e) => {
 
 // ---- Realtime ---------------------------------------------------------------
 
-const CHILD_TABLES = ['inventory_items', 'character_equipment', 'character_proficiencies', 'character_lineages', 'character_lineage_choices', 'character_backgrounds', 'character_transformations', 'character_spellcasting_sources', 'character_spells', 'character_classes', 'character_spell_slot_state', 'character_temporary_spell_slots', 'character_resources', 'character_feature_choices', 'character_optional_features', 'notes', 'spell_slots', 'feature_trackers', 'features', 'attacks', 'spells'];
+const CHILD_TABLES = ['inventory_items', 'character_equipment', 'character_proficiencies', 'character_lineages', 'character_lineage_choices', 'character_backgrounds', 'character_transformations', 'character_spellcasting_sources', 'character_spells', 'character_classes', 'character_spell_slot_state', 'character_temporary_spell_slots', 'character_resources', 'character_feature_choices', 'character_optional_features', 'character_feats', 'character_feat_choices', 'notes', 'spell_slots', 'feature_trackers', 'features', 'attacks', 'spells'];
 
 // A DELETE event carries only the primary key (RLS), and DELETE cannot be filtered server-side, so every open sheet receives
 // the deletes of every character. Where the key holds no character_id, the subscription learns which keys belong to its
@@ -380,7 +389,7 @@ const CHILD_TABLES = ['inventory_items', 'character_equipment', 'character_profi
 const KEY_ONLY_DELETE = {
   character_classes: ['id'], character_feature_choices: ['id'], character_proficiencies: ['id'], character_resources: ['id'],
   character_spellcasting_sources: ['id'], character_spells: ['id'], character_temporary_spell_slots: ['id'], inventory_items: ['id'],
-  character_optional_features: ['character_class_id', 'unlock_id'],
+  character_optional_features: ['character_class_id', 'unlock_id'], character_feats: ['id'],
 };
 const keyOf = (table, row) => KEY_ONLY_DELETE[table].map((k) => row?.[k]).join('|');
 

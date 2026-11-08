@@ -1,8 +1,8 @@
 // Feat catalog and character feats (docs/FEATS.md, FEAT_DATA_MODEL.md): wrappers around the RPCs of 20261019000300 plus the
 // small reference lists the choice editors need. No feat rule is evaluated here.
 
-import { supabase } from './supabase.js?v=17';
-import { friendlyError } from './utils.js?v=17';
+import { supabase } from './supabase.js?v=18';
+import { friendlyError } from './utils.js?v=18';
 
 export class FeatError extends Error {
   constructor(message, raw) {
@@ -31,6 +31,8 @@ export const assignFeat = (characterId, versionId, choices = {}, { sourceType = 
   rpc('assign_character_feat', { p_character: characterId, p_version: versionId, p_choices: choices, p_source_type: sourceType,
                                  p_source_note: note, p_override_reason: overrideReason, p_notes: notes });
 export const removeFeat = (characterFeatId, reason = null) => rpc('remove_character_feat', { p_character_feat: characterFeatId, p_reason: reason });
+/** What removing a directly assigned feat would change (executed and rolled back on the server; docs/FEAT_REMOVAL.md). */
+export const previewFeatRemoval = (characterFeatId) => rpc('preview_character_feat_removal', { p_character_feat: characterFeatId });
 export const setFeatChoices = (characterId, grantKey, choices) => rpc('set_character_feat_choices', { p_character: characterId, p_grant_key: grantKey, p_choices: choices });
 export const setFeatNotes = (characterFeatId, notes) => rpc('set_character_feat_notes', { p_character_feat: characterFeatId, p_notes: notes });
 export const exportFeats = (characterId) => rpc('export_character_feats', { p_character: characterId });

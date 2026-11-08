@@ -1,12 +1,13 @@
 // Inventory tab: summary, equipment slots, item list, item detail and the catalog picker.
 // All data comes from inventory-api.js; after every change the authoritative state is re-read from the server
 // (no client-side simulation of splits, merges or quantities).
-import * as api from './inventory-api.js?v=17';
-import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=17';
-import { openHomebrewForm } from './homebrew-form.js?v=17';
-import { isAnyDM } from './store.js?v=17';
-import { icon, ITEM_ICONS } from './icons.js?v=17';
-import { sectionHead } from './section.js?v=17';
+import * as api from './inventory-api.js?v=18';
+import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=18';
+import { openHomebrewForm } from './homebrew-form.js?v=18';
+import { galleryIcon } from './item-icon-gallery.js?v=18';
+import { isAnyDM } from './store.js?v=18';
+import { icon, ITEM_ICONS } from './icons.js?v=18';
+import { sectionHead } from './section.js?v=18';
 
 const CATEGORIES = [
   ['all', 'All', () => true],
@@ -14,6 +15,8 @@ const CATEGORIES = [
   ['armor', 'Armor', (r) => r.kind_id === 'armor'],
   ['consumables', 'Consumables', (r) => r.is_consumable],
   ['magic', 'Magic', (r) => r.is_magic],
+  ['potions', 'Potions', (r) => r.kind_id === 'potion'],
+  ['herbs', 'Herbs & Plants', (r) => r.kind_id === 'herbs_plants'],
   ['ammunition', 'Ammunition', (r) => r.kind_id === 'ammunition'],
   ['tools', 'Tools', (r) => r.kind_id === 'tool'],
   ['gear', 'Gear', (r) => r.kind_id === 'gear'],
@@ -24,8 +27,20 @@ const SLOT_ICONS = {
   head: 'equipment-slots/head', neck: 'equipment-slots/neck', cloak: 'equipment-slots/cloak', hands: 'equipment-slots/hands', belt: 'items/gear',
   feet: 'equipment-slots/legs', ring_1: 'equipment-slots/ring', ring_2: 'equipment-slots/ring', focus: 'equipment-slots/focus',
 };
+const DETAIL_LABELS = [['environment', 'Environment'], ['region', 'Region'], ['properties', 'Properties'], ['harvesting', 'Harvesting'],
+  ['shelf_life', 'Shelf life'], ['doses', 'Doses'], ['use_action', 'Use'], ['effect_text', 'Effect'], ['saving_throw', 'Saving throw'],
+  ['duration', 'Duration'], ['ingredients', 'Ingredients'], ['ingredient_tags', 'Ingredient tags'], ['recipe_refs', 'Recipes'], ['preparation', 'Preparation']];
+/** Optional item details (Herbs & Plants, Potions, crafting notes): text only, nothing automated. */
+function itemDetailsHTML(d) {
+  const x = d?.details || {};
+  const rows = DETAIL_LABELS.filter(([k]) => x[k] != null && x[k] !== '' && !(Array.isArray(x[k]) && !x[k].length))
+    .map(([k, l]) => `<div><dt>${l}</dt><dd>${esc(Array.isArray(x[k]) ? x[k].join(', ') : String(x[k]).replace('_', ' '))}</dd></div>`);
+  return rows.length ? `<dl class="inv-item-details small">${rows.join('')}</dl>` : '';
+}
 /** Category icon of an inventory row (kind first, then magic / container). */
-const itemIcon = (r, ui) => (/shield/.test(r.category_id || '') ? 'equipment-slots/shield' : null) || ITEM_ICONS[r.kind_id] || (r.is_magic ? ITEM_ICONS.magic : ui?.isContainer?.(r) ? ITEM_ICONS.containers : ITEM_ICONS.gear);
+// 1. the item's own gallery icon (items.icon_key), 2. the category default, 3. the generic icon (icons.js fallback chain)
+const itemIcon = (r, ui) => galleryIcon(r.icon_key || ui?.detail?.(r)?.icon_key) || (/shield/.test(r.category_id || '') ? 'equipment-slots/shield' : null)
+  || ITEM_ICONS[r.kind_id] || (r.is_magic ? ITEM_ICONS.magic : ui?.isContainer?.(r) ? ITEM_ICONS.containers : ITEM_ICONS.gear);
 const LOW_AMMO = 10;
 const PAGE_SIZE = 50;
 const fmtWeight = (w) => `${Math.round(Number(w || 0) * 100) / 100} lb`;
@@ -77,7 +92,7 @@ export function mountInventory(el, opts) {
   const canStack = (r) => !r.equipped && !isLegacy(r) && r.stackable;
   const reviewOf = (r) => (s.review.get(r.id) || []);
   const needsEquipReview = (r) => !r.equipped && reviewOf(r).some((x) => EQUIP_REVIEW.includes(x.category));
-  const ui = { isContainer };
+  const ui = { isContainer, detail };
 
   function compatibleSlots(r) {
     if (isLegacy(r) || !s.lookups) return [];
@@ -370,7 +385,7 @@ export function mountInventory(el, opts) {
           </div>
         </div>
         <div class="inv-filters" role="tablist" aria-label="Item categories">
-          ${CATEGORIES.map(([k, l]) => `<button type="button" role="tab" class="inv-chip" data-inv="filter" data-filter="${k}" aria-selected="${s.filter === k}">${icon(ITEM_ICONS[k] || 'ui/inventory', { size: 18 })}${l}<span class="count">${counts[k]}</span></button>`).join('')}
+          ${CATEGORIES.filter(([k]) => !['potions', 'herbs'].includes(k) || counts[k] || s.filter === k).map(([k, l]) => `<button type="button" role="tab" class="inv-chip" data-inv="filter" data-filter="${k}" aria-selected="${s.filter === k}">${icon(ITEM_ICONS[k] || 'ui/inventory', { size: 18 })}${l}<span class="count">${counts[k]}</span></button>`).join('')}
         </div>
         <div class="inv-list">${body}</div>
       </section>`;
@@ -392,7 +407,9 @@ export function mountInventory(el, opts) {
     if (d?.weightless_contents) b.push('<span class="badge" title="Contents do not count toward carried weight">Weightless</span>');
     if (s.containers.get(r.id)?.over_capacity) b.push('<span class="badge inv-b-warn">Over capacity</span>');
     if (r.is_quest_item) b.push('<span class="badge">Quest item</span>');
-    if (r.modifier_ids?.length) b.push(...r.modifier_ids.map((m) => `<span class="badge inv-b-magic">${esc(m.replace(/-plus-/, ' +').replace(/^\w/, (c) => c.toUpperCase()))}</span>`));
+    const inf = opts.getInfused?.()?.get(r.id);   // an Artificer infusion on this item (get_character_infusions)
+    if (inf) b.push(`<span class="badge inv-b-magic inv-b-infused" title="Artificer Infusion${inf.attunement ? (inf.attuned ? ', attuned' : ', needs attunement') : ''}">${icon('item.magic', { size: 14 })}Infused: ${esc(inf.label)}</span>`);
+    if (r.modifier_ids?.length) b.push(...r.modifier_ids.filter((m) => !(inf && m.startsWith('infusion-'))).map((m) => `<span class="badge inv-b-magic">${esc(m.replace(/-plus-/, ' +').replace(/^\w/, (c) => c.toUpperCase()))}</span>`));
     return b.filter(Boolean).join(' ');
   }
 
@@ -668,6 +685,7 @@ export function mountInventory(el, opts) {
       wide: true,
       body: `
         <div class="inv-detail-badges">${badgesHTML(r)}</div>
+        ${itemDetailsHTML(d)}
         ${r.custom_name ? `<p class="muted small">Custom name of <b>${esc(r.name)}</b>.</p>` : ''}
         ${propsHTML(r)}
         ${d?.description ? `<p class="inv-desc">${esc(d.description)}</p>` : ''}
@@ -944,6 +962,47 @@ export function mountInventory(el, opts) {
   }
 
   // ---- catalog picker -------------------------------------------------------------------------------------------
+  /** Permanent delete of an unused custom definition: preview (what uses it), then the exact name as confirmation. */
+  async function deleteDefinition(item) {
+    let p;
+    try { p = await api.previewItemDeletion(item.id); } catch (raw) { toast(api.normalizeError(raw).message, 'bad'); return false; }
+    if (!p.deletable) {
+      const why = (p.reasons || []).join(', ');
+      if (p.official) { toast('Official items are never deleted.', 'bad'); return false; }
+      if (p.dm_content_id) { toast('This item is managed in DM Space: delete or archive it there.', 'bad', 6000); return false; }
+      if (!p.archived && await confirmDialog(`${item.name} is in use${why ? ` (${why})` : ''}. It cannot be deleted. Archive it instead? It can no longer be added; every existing entry keeps working.`, { okLabel: 'Archive', danger: true })) {
+        try { await api.archiveHomebrewItem(item.id); toast(`Archived ${item.name}.`); return true; } catch (raw) { toast(api.normalizeError(raw).message, 'bad'); }
+      } else if (p.archived) toast(`${item.name} is in use${why ? ` (${why})` : ''} and stays archived.`, 'info', 6000);
+      return false;
+    }
+    return new Promise((resolve) => {
+      const dm = openModal({
+        title: `Delete ${item.name}?`,
+        body: `<p>Nothing uses this definition. Deleting it cannot be undone.</p>
+          <label class="field"><span>Type the item name to confirm</span><input data-confirm-name autocomplete="off" aria-describedby="del-hint"></label>
+          <p class="muted small" id="del-hint">${esc(item.name)}</p>`,
+        footer: '<button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn btn-bad" data-ok disabled>Delete for good</button>',
+        onClose: () => resolve(false),
+      });
+      const inp = $('[data-confirm-name]', dm.el);
+      const ok = $('[data-ok]', dm.el);
+      inp.addEventListener('input', () => { ok.disabled = inp.value.trim() !== item.name; });
+      inp.focus();
+      ok.addEventListener('click', async () => {
+        ok.disabled = true;
+        try {
+          await api.deleteCustomItem(item.id, inp.value.trim());
+          toast(`Deleted ${item.name}.`, 'good');
+          resolve(true);
+          dm.close();
+        } catch (raw) {
+          toast(api.normalizeError(raw).message, 'bad', 6000);
+          ok.disabled = false;
+        }
+      });
+    });
+  }
+
   function openCatalogPicker({ linkRow = null } = {}) {
     const L = s.lookups;
     const f = { search: linkRow ? linkRow.name : '', kindId: '', categoryId: '', rarityId: '', magic: '', sourceBookId: '', visibility: '' };
@@ -998,7 +1057,8 @@ export function mountInventory(el, opts) {
             ${linkRow
               ? '<button type="button" class="btn btn-sm btn-gold" data-pick>Compare…</button>'
               : `<input type="number" min="1" step="1" value="1" inputmode="numeric" aria-label="Quantity of ${esc(c.name)}" data-qty>
-                 <button type="button" class="btn btn-sm btn-gold" data-pick>Add</button>`}
+                 <button type="button" class="btn btn-sm btn-gold" data-pick>Add</button>
+                 ${c.can_edit && c.visibility !== 'official' && isAnyDM() ? `<button type="button" class="btn btn-sm btn-ghost" data-del aria-label="Delete ${esc(c.name)} for good">Delete…</button>` : ''}`}
           </div>`).join('');
       }
       more.hidden = st.loading || st.rows.length >= st.total;
@@ -1036,6 +1096,12 @@ export function mountInventory(el, opts) {
     more.addEventListener('click', () => loadPage(false));
     results.addEventListener('click', async (e) => {
       if (e.target.closest('[data-create-empty]')) { m.close(); openCreateHomebrew(f.search.trim()); return; }
+      const del = e.target.closest('[data-del]');
+      if (del) {
+        const item = st.rows.find((r) => r.id === del.closest('[data-id]').dataset.id);
+        if (item && await deleteDefinition(item)) { st.rows = st.rows.filter((r) => r.id !== item.id); st.total = Math.max(0, st.total - 1); renderResults(); }
+        return;
+      }
       const b = e.target.closest('[data-pick]');
       if (!b || b.disabled) return;
       const box = b.closest('[data-id]');

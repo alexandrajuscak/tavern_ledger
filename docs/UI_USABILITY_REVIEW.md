@@ -106,3 +106,34 @@ the earlier ability blocks again inside its own section frame. Details: `docs/UI
 - **Headings:** there is one heading voice (gold Cinzel), so sections are easy to tell apart; functional headings are
   quieter.
 - **Inventory:** the inventory status reads in seconds (4 metric cards). Coins has an Edit action that focuses the gold field.
+
+## Combat Builder (2026-11-06)
+
+What was checked at the table pace a DM needs:
+
+- **Understanding the state in seconds.**
+  - The round is the largest number on screen.
+  - The current combatant appears twice: top bar and highlighted row.
+  - Every row shows Initiative, HP and state, AC, and the main conditions.
+- **Accidental clicks.**
+  - Next is guarded by the turn revision and a request id. A double click moves one turn (browser test T1), and a stale
+    window gets "The turn already moved…".
+  - Damage is guarded the same way (H2).
+  - Destructive actions ask first: remove a combatant, clear Initiative, delete a draft, finish combat.
+  - Every recent change has **Undo**.
+  - **Previous** takes back a turn and asks before putting effect clocks back.
+- **Under pressure.** Keyboard shortcuts (N, P, D, H, C, A, F, U, arrows, Escape) never fire while typing. Enter applies
+  damage; Shift+Enter heals.
+- **Touch.** The dock buttons are ≥ 44 px (A2). Quick −/+ buttons are always visible on touch screens. The detail panel
+  is a drawer on tablets and phones.
+- **No horizontal page scroll** at 1920 / 1366 / 1024 / 820 / 390 / 360 px (R checks). The 390 px builder turns the
+  Initiative table into cards, so the Initiative field is never off-screen.
+
+Issues found in the visual review and fixed in this task:
+- the table's hidden header labels widened the page at 390 px;
+- the top bar overflowed at 360 px with Combat + DM Space;
+- icon-only buttons on phones had no accessible name;
+- the turn announcement was lost on re-render;
+- the effect dialog did not close after Apply (a stale event reference).
+
+Details in [COMBAT_BUILDER_VISUAL_REVIEW.md](COMBAT_BUILDER_VISUAL_REVIEW.md).

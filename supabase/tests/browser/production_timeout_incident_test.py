@@ -90,7 +90,7 @@ def run(t):
         FLUENT = page.evaluate("() => window.__tavernLedgerReadPath?.path === 'fluent'")
         # fluent read path: one sheet = 2 bindings (characters row + character_revisions INSERT) + 2 of the request bar;
         # a derived refresh is a coalesced get_character_reads request; a reconnect is one reconciliation read
-        SUBS_ALL, SUBS_CHAR = (4, 4) if FLUENT else (66, 45)
+        SUBS_ALL, SUBS_CHAR = (4, 4) if FLUENT else (72, 49)   # legacy +6 since 20261107: character_feats / _choices (2 filtered + 1 DELETE each)
         REFRESH = HEAVY | {"get_character_reads"} if FLUENT else HEAVY
         heavy_of = lambda rows: sum(1 for r in rows if r["name"] in REFRESH)
 
@@ -106,7 +106,7 @@ def run(t):
         check("25 one Supabase client per page", page.evaluate("globalThis.__tavernLedgerClients") == 1,
               page.evaluate("globalThis.__tavernLedgerClients"))
         check("26 one Realtime WebSocket per page", net.ws == 1, net.ws)
-        # one sheet = 64 bindings (43 filtered on the character + 21 DELETE without filter) + 2 of the request bar
+        # one sheet = 70 bindings (47 filtered on the character + 23 DELETE without filter) + 2 of the request bar
         # the server removes the previous sheet's subscriptions asynchronously: wait for the steady state
         wait_until(lambda: subs_for(pl.id) == SUBS_ALL, 15)
         n_sub, n_all = subs_for(pl.id, chars["A"]), subs_for(pl.id)
@@ -383,7 +383,7 @@ def run(t):
         # 10/30 sign-out: reads stop, channels are removed
         go(page, chars["C"], wait=False)
         page.wait_for_timeout(300)
-        page.evaluate("async () => { const m = await import('./js/supabase.js?v=17'); await m.supabase.auth.signOut(); }")
+        page.evaluate("async () => { const m = await import('./js/supabase.js?v=18'); await m.supabase.auth.signOut(); }")
         page.wait_for_selector("input[name=email]", timeout=15000)
         check("30 sign-out removes every Realtime subscription of the user", wait_until(lambda: subs_for(pl.id) == 0, 15), subs_for(pl.id))
         check("10 sign-out: no sheet is rendered afterwards", page.locator(".sheet-root").count() == 0)

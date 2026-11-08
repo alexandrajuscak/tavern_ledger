@@ -258,8 +258,8 @@ def main():
         page.locator(".modal [data-ws-confirm]").click()
         check("WSU52 the favorite quick button transforms into the Wolf after the review", s.wait(lambda: (form_row(moon) or {}).get("creature_id") == "wolf"))
         s.tab("stats")
-        check("WSU53 the Stats tab shows the form's physical scores in the notes (Wolf form, your score 10)",
-              s.wait(lambda: "Wolf form (your score 10)" in txt('[data-derived="abnote:str"]')), txt('[data-derived="abnote:str"]'))
+        check("WSU53 the Stats tab shows the form's physical scores in the notes (Wolf form, character base score 10)",
+              s.wait(lambda: "Wolf form · character base score 10" in txt('[data-derived="abnote:str"]')), txt('[data-derived="abnote:str"]'))
         s.tab("combat")
         page.locator(f"{act} [data-action=tf-end]").click()
         page.wait_for_selector(".modal [data-ok]")

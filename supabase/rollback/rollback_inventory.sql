@@ -10,6 +10,22 @@
 -- =============================================================================
 begin;
 
+-- Combat Builder (20261106000100 / 20261106000200): its tables (policies, triggers, the publication entry go with them) and
+-- functions; tl_cache.combat_skip goes with the tl_cache schema below. combat_wild_shape_heal (Wild Shape) is older and stays
+-- until its own feature is dropped below.
+drop table if exists public.combat_changes, public.combat_events, public.combat_reminders, public.combat_effects, public.combat_participants,
+  public.combat_statblocks, public.combat_encounters, public.combat_monster_favorites, public.combat_conditions, public.creature_legendary_actions,
+  public.combat_monsters cascade;
+do $$
+declare f record;
+begin
+  for f in select p.oid::regprocedure as sig from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
+             and (p.proname like '\_combat\_%' or (p.proname like 'combat\_%' and p.proname <> 'combat_wild_shape_heal')
+                  or p.proname in ('apply_character_hp', 'get_combat_player_view')) loop
+    execute format('drop function if exists %s cascade', f.sig);
+  end loop;
+end $$;
+
 -- gameplay polish (20261031000100): coin transaction and lineage counter sync (the two patched functions go with their tables)
 drop function if exists public.adjust_character_coins(uuid, text, jsonb, jsonb), public._lineage_resources_trigger() cascade;
 drop function if exists public._sync_lineage_resources(uuid) cascade;

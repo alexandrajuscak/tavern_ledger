@@ -2,10 +2,10 @@
 // and the choice editors of every feat grant (direct, background, lineage, Ability Score Improvement). The server resolves
 // grants, prerequisites, effects, spells and resources (get_character_feats); this module only displays and edits choices.
 
-import { $, $$, esc, toast, openModal, confirmDialog, filtersOpenAttr } from './utils.js?v=17';
-import { icon } from './icons.js?v=17';
-import { sectionHead } from './section.js?v=17';
-import { getFeatCatalog, getFeatDetail, getCharacterFeats, assignFeat, removeFeat, setFeatChoices, setFeatNotes, getChoiceReference, getSpellOptions } from './feat-api.js?v=17';
+import { $, $$, esc, toast, openModal, filtersOpenAttr, friendlyError } from './utils.js?v=18';
+import { icon } from './icons.js?v=18';
+import { sectionHead } from './section.js?v=18';
+import { getFeatCatalog, getFeatDetail, getCharacterFeats, assignFeat, removeFeat, previewFeatRemoval, setFeatChoices, setFeatNotes, getChoiceReference, getSpellOptions } from './feat-api.js?v=18';
 
 const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const CATEGORY = { origin: 'Origin', general: 'General', fighting_style: 'Fighting Style', epic_boon: 'Epic Boon', other: 'Other' };
@@ -16,6 +16,15 @@ const SOURCE_ICON = { background: 'ui/background', lineage: 'ui/lineage', class:
 // feats grouped by where they come from (docs/UX_INFORMATION_ARCHITECTURE_AUDIT.md S10)
 const SOURCE_GROUP = { background: 'From your background', lineage: 'From your lineage', class: 'From your class (Ability Score Improvement)',
   direct: 'Chosen feats', approved_request: 'Chosen feats', import: 'Chosen feats', dm_grant: 'Granted by your DM', campaign_reward: 'Campaign rewards' };
+// a feat that a source grants is changed at that source, never removed on its own (docs/FEAT_REMOVAL.md)
+const GRANTED = {
+  background: ['Granted by your background.', 'To change it, choose another background or change its feat choice.', 'Change background…', 'bg-choose'],
+  lineage: ['Granted by your lineage.', 'To change it, change the lineage or its feat choice.', 'Change lineage choice…', 'lineage-choose'],
+  class: ['Granted by an Ability Score Improvement of your class.', 'To change it, change that choice in Class features.', 'Change choice…', null],
+};
+// who may remove a directly assigned feat now (the server decides again; this only labels the action)
+const REMOVAL_NOTE = { locked: 'Feats are locked for this character: your DM can unlock or change them.',
+  dm_only: 'Only your DM can remove feats in this campaign.' };
 const PREREQ = { satisfied: ['✓', 'Prerequisites met'], unsatisfied: ['✗', 'Prerequisites not met'], unresolved: ['?', 'Check with your DM'] };
 
 export const featBadgesHTML = (f) => `
@@ -34,7 +43,7 @@ const prereqHTML = (p, text) => {
 };
 
 // ---- the Feats card --------------------------------------------------------------------------------------------------------
-export function featsCardHTML(state, { editable = true } = {}) {
+export function featsCardHTML(state, { editable = true, removal = 'allow' } = {}) {
   if (!state) return `${sectionHead({ id: 'feats-card-title', icon: 'build.feat', title: 'Feats' })}<p class="muted small">Loading feats…</p>`;
   const list = state.feats || [];
   const open = state.open_choices || 0;
@@ -42,24 +51,47 @@ export function featsCardHTML(state, { editable = true } = {}) {
   ${sectionHead({ id: 'feats-card-title', icon: 'build.feat', title: 'Feats', count: list.length || '',
     desc: open ? `<span class="feat-open-badge" title="Open feat choices">${open} open choice${open === 1 ? '' : 's'}</span>` : 'Grouped by where each feat comes from.',
     action: editable ? '<button type="button" class="btn btn-sm" data-feat="add" data-focus-key="feat-add">+ Add feat</button>' : '' })}
-  ${list.length ? featGroupsHTML(list, editable)
+  ${list.length ? featGroupsHTML(list, editable, removal)
     : '<p class="empty">No feats yet. Backgrounds, lineages and Ability Score Improvements can grant them too.</p>'}
   ${(state.placeholders || []).length ? `<p class="small muted">Recorded by name only (not in the feat catalog): ${esc(state.placeholders.map((p) => p.value).join(', '))}.
     Choose the exact feat again to apply its rules.</p>` : ''}
   ${(state.warnings || []).map((w) => `<p class="small warn">${esc(w.code === 'duplicate_feat' ? `${w.feat_id} is granted ${w.count} times but can be taken only once.` : w.code)}</p>`).join('')}`;
 }
 
-function featGroupsHTML(list, editable) {
+function featGroupsHTML(list, editable, removal) {
   const groups = new Map();
   for (const g of list) {
     const k = SOURCE_GROUP[g.source_type] || 'Other feats';
     groups.set(k, [...(groups.get(k) || []), g]);
   }
   return [...groups].map(([k, gs]) => `<h3 class="feat-group-title tl-sub-title">${esc(k)} <span class="count">${gs.length}</span></h3>
-    <div class="feat-list">${gs.map((g) => featEntryHTML(g, editable)).join('')}</div>`).join('');
+    <div class="feat-list">${gs.map((g) => featEntryHTML(g, editable, removal)).join('')}</div>`).join('');
 }
 
-function featEntryHTML(g, editable) {
+/** Where a source-granted feat is changed: the class choice key of an ASI grant ('asi:<row>:<unlock>:<choice>'). */
+const asiChoiceKey = (g) => { const p = String(g.grant_key || '').split(':'); return p[0] === 'asi' && p.length >= 4 ? `${p[2]}:${p[3]}` : ''; };
+
+function grantedHTML(g, f, editable) {
+  const x = GRANTED[g.source_type];
+  if (!x || g.character_feat_id) return '';
+  const [why, how, btn, action] = x;
+  const key = asiChoiceKey(g);
+  const what = btn.replace('…', '');
+  const button = !editable ? '' : action
+    ? `<button type="button" class="btn btn-xs" data-action="${action}" data-focus-key="feat-src:${esc(g.grant_key)}" aria-label="${esc(`${what} (this changes ${f.name})`)}">${esc(btn)}</button>`
+    : key ? `<button type="button" class="btn btn-xs" data-feat="source" data-choice="${esc(key)}" data-focus-key="feat-src:${esc(g.grant_key)}" aria-label="${esc(`Change the Ability Score Improvement choice that grants ${f.name}`)}">${esc(btn)}</button>` : '';
+  return `<p class="small feat-granted" data-feat-granted="${esc(g.source_type)}"><span class="feat-granted-why">${esc(why)}</span> ${esc(how)} ${button}</p>`;
+}
+
+function removalHTML(g, f, removal) {
+  if (!g.character_feat_id) return '';
+  if (REMOVAL_NOTE[removal]) return `<span class="small muted feat-rm-note" data-feat-rm-note>${esc(REMOVAL_NOTE[removal])}</span>`;
+  const request = removal === 'request';
+  return `<button type="button" class="btn btn-xs btn-ghost feat-rm" data-feat="remove" data-cf="${esc(g.character_feat_id)}" data-name="${esc(f.name)}"
+    data-focus-key="feat-rm:${esc(g.character_feat_id)}" aria-label="${esc(`${request ? 'Request removal of' : 'Remove'} feat ${f.name}`)}">${request ? 'Request removal…' : 'Remove…'}</button>`;
+}
+
+function featEntryHTML(g, editable, removal = 'allow') {
   const f = g.feat || {};
   const auto = (g.effects || []).filter((e) => e.active && e.automation !== 'informational' && e.effect_type !== 'informational');
   const info = (g.effects || []).filter((e) => e.effect_type === 'informational');
@@ -72,6 +104,7 @@ function featEntryHTML(g, editable) {
     <p class="small feat-source">${icon(SOURCE_ICON[g.source_type] || 'ui/feat', { size: 18 })}${esc(g.source_label)}${g.parameter ? ` · ${esc(g.parameter)}` : ''}
       ${g.active ? '' : `<span class="feat-b feat-b-off">Inactive: ${esc(g.inactive_reason === 'lineage_changed' ? 'lineage changed' : g.inactive_reason === 'feature_inactive' ? 'its class feature is not active' : g.inactive_reason || 'inactive')}</span>`}</p>
     ${f.summary ? `<p class="feat-summary">${esc(f.summary)}</p>` : ''}
+    ${grantedHTML(g, f, editable)}
     ${g.prerequisite?.status && g.prerequisite.status !== 'satisfied' ? prereqHTML(g.prerequisite, f.prerequisite_text) : ''}
     ${g.prerequisite_override ? `<p class="small muted">Prerequisite waived by the DM: ${esc(g.prerequisite_override.reason)}</p>` : ''}
     ${g.open_choices ? `<p class="feat-open">${g.open_choices} choice${g.open_choices === 1 ? '' : 's'} still open${pending.length ? ' — those effects wait for them' : ''}.
@@ -88,7 +121,7 @@ function featEntryHTML(g, editable) {
       ${(g.choices || []).length ? `<button type="button" class="btn btn-xs" data-feat="choices" data-grant="${esc(g.grant_key)}">Choices</button>` : ''}
       <button type="button" class="btn btn-xs" data-feat="details" data-version="${esc(f.id)}">Details</button>
       ${g.character_feat_id ? `<button type="button" class="btn btn-xs" data-feat="notes" data-cf="${esc(g.character_feat_id)}">Notes</button>
-        <button type="button" class="btn btn-xs btn-ghost" data-feat="remove" data-cf="${esc(g.character_feat_id)}" data-name="${esc(f.name)}">Remove</button>` : ''}
+        ${removalHTML(g, f, removal)}` : ''}
     </div>` : ''}
     ${g.notes ? `<p class="small feat-notes">${esc(g.notes)}</p>` : ''}
   </article>`;
@@ -376,10 +409,8 @@ export function attachFeatHandlers(root, { getCharacterId, getState, onChanged }
         });
         break;
       }
-      case 'remove':
-        if (!(await confirmDialog(`Remove ${b.dataset.name}? Only what this feat gave is removed.`, { danger: true, okLabel: 'Remove' }))) return;
-        try { await removeFeat(b.dataset.cf); toast('Feat removed.'); onChanged?.(); } catch (err) { if (err.code !== 'TLAPR') toast(err.message, 'bad'); }
-        break;
+      case 'remove': openRemoveFeat({ characterFeatId: b.dataset.cf, name: b.dataset.name, onChanged }); break;
+      case 'source': revealChoice(b.dataset.choice); break;
       default:
     }
   });
@@ -388,6 +419,90 @@ export function attachFeatHandlers(root, { getCharacterId, getState, onChanged }
     pickListening = true;
     document.addEventListener('click', onPickFeat);   // also inside modals (the lineage picker)
   }
+}
+
+// ---- removal (docs/FEAT_REMOVAL.md) ------------------------------------------------------------------------------------
+const ABBR = { STR: 'Strength', DEX: 'Dexterity', CON: 'Constitution', INT: 'Intelligence', WIS: 'Wisdom', CHA: 'Charisma' };
+const shown = (x) => (x == null ? 'none' : typeof x === 'object' ? JSON.stringify(x) : String(x));
+
+/** The server's simulated diff as a consequence list: "Maximum HP: 48 → 40", "Removed: Spells: Shield (…)". */
+export function removalDiffHTML(diff) {
+  const items = [];
+  for (const d of diff || []) {
+    const label = ABBR[d.label] ? `${ABBR[d.label]} score` : d.label;
+    if (d.kind === 'changed') {
+      items.push(`<li>${esc(label)}: ${esc(shown(d.before))} <span aria-hidden="true">→</span><span class="sr-only">changes to</span> ${esc(shown(d.after))}</li>`);
+    } else {
+      (d.removed || []).forEach((x) => items.push(`<li><span class="feat-rm-minus" aria-hidden="true">−</span><span class="sr-only">Removed:</span> ${esc(label)}: ${esc(shown(x))}</li>`));
+      (d.added || []).forEach((x) => items.push(`<li><span aria-hidden="true">+</span><span class="sr-only">Added:</span> ${esc(label)}: ${esc(shown(x))}</li>`));
+    }
+  }
+  return items.length ? `<ul class="feat-rm-list" data-rf-diff>${items.join('')}</ul>` : '<p class="small muted" data-rf-diff>No other value of the sheet changes.</p>';
+}
+
+const ABSENT = (err) => err?.code === 'P0002' || err?.raw?.hint === 'feat_absent';
+
+/** Review dialog: source, exact consequences (server simulation), governance, then Remove feat / Request removal. */
+async function openRemoveFeat({ characterFeatId, name, onChanged }) {
+  const m = openModal({ title: `Remove feat: ${name}`,
+    body: `<div data-rf-body><p class="muted" role="status">Checking what removing ${esc(name)} changes…</p></div><p class="small" data-rf-status role="status" aria-live="polite"></p>`,
+    footer: '<button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn btn-bad" data-rf-ok disabled>Remove feat</button>' });
+  const ok = $('[data-rf-ok]', m.el);
+  const status = $('[data-rf-status]', m.el);
+  let pv = null;
+  try { pv = await previewFeatRemoval(characterFeatId); } catch (err) {
+    if (ABSENT(err)) { m.close(); toast(err.message, 'info'); onChanged?.(); return; }
+    // an older server without the preview: the plain statement of what is removed
+    $('[data-rf-body]', m.el).innerHTML = `<p>Remove <strong>${esc(name)}</strong>? Only what this feat gave is removed; the same spell or proficiency from another source stays.</p>`;
+  }
+  const request = pv?.decision === 'approval_required';
+  if (pv) {
+    $('[data-rf-body]', m.el).innerHTML = `
+      <p><strong>${esc(pv.feat_name || name)}</strong> <span class="muted">· ${esc(pv.source_label || 'Feat')}</span></p>
+      ${pv.ok ? `<h3 class="feat-rm-h">What changes</h3>${removalDiffHTML(pv.diff)}
+        <p class="small muted">Only what this feat gave is removed: its choices, spells, uses and bonuses. The same spell, proficiency or bonus from another source stays. Current HP is never raised; it is lowered only if it is above the new maximum.</p>
+        ${request ? `<p class="callout" data-rf-request>Feat changes need your DM's approval in this campaign: this sends a removal request. Nothing changes until your DM approves it.</p>`
+          : '<p class="small" data-rf-permanent>This is permanent. You can add the feat again later and make its choices again.</p>'}`
+        : `<p class="gov-error" role="alert" data-rf-refused>${esc(friendlyError({ message: pv.message || '' }, 'This feat cannot be removed now.'))}</p>`}`;
+    if (!pv.ok) ok.hidden = true;
+    ok.textContent = request ? 'Request removal' : 'Remove feat';
+  }
+  if (m.el.dataset.closing || !m.el.isConnected) return;   // cancelled while the preview loaded
+  ok.disabled = false;
+  if (!ok.hidden) ok.focus();
+  let busy = false;
+  ok.addEventListener('click', async () => {
+    if (busy) return;                  // one request per dialog: a double click applies once
+    busy = true;
+    ok.disabled = true;
+    if (request) m.close();            // the campaign's "Ask your DM" dialog opens for the refused call (request-ui)
+    else status.textContent = 'Removing…';
+    try {
+      await removeFeat(characterFeatId);
+      m.close();
+      toast(`Feat removed: ${pv?.feat_name || name}.`, 'good');
+      onChanged?.();
+    } catch (err) {
+      if (err.code === 'TLAPR') return;
+      if (ABSENT(err)) { m.close(); toast(err.message, 'info'); onChanged?.(); return; }
+      if (request) { toast(err.message, 'bad'); return; }
+      status.setAttribute('role', 'alert');
+      status.textContent = `${err.message} Nothing was removed.`;
+      busy = false;
+      ok.disabled = false;
+    }
+  });
+}
+
+/** "Change choice…" of an ASI-granted feat: open that choice in Class features and move focus into it. */
+function revealChoice(key) {
+  const wrap = key && document.querySelector(`[data-cf-choice-wrap="${CSS.escape(key)}"]`);
+  if (!wrap) { toast('Open Class features to change this choice.', 'info'); return; }
+  for (let a = wrap.parentElement; a; a = a.parentElement) if (a.tagName === 'DETAILS') a.open = true;
+  const change = $('details.cf-change', wrap);
+  if (change) change.open = true;
+  wrap.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  ($('input[name="asi-mode"]:checked', wrap) || $('summary, input, select, button', wrap))?.focus({ preventScroll: true });
 }
 
 // "Choose a feat…" buttons of ASI and lineage choices write the picked version into their form field

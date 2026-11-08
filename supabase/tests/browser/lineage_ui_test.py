@@ -156,12 +156,14 @@ def main():
         check("8 the subtitle uses the lineage name", wait_until(lambda: "Halfling · Stout" in page.locator(".char-sub").inner_text()),
               page.locator(".char-sub").inner_text())
         tab("stats")
-        expect(page.locator('[data-derived="abnote:dex"]')).to_have_text(re.compile(r"\+2 lineage = 16"), timeout=10000)
+        # source-aware rows since 2026-11-07 (docs/ABILITY_SCORE_SOURCE_MODEL.md): "+2 Lineage: …" and "Score 16", never "= 16"
+        expect(page.locator('[data-ab-srcs="dex"]')).to_contain_text(re.compile(r"\+2\s+Lineage"), timeout=10000)
+        expect(page.locator('[data-ab-eff="dex"]')).to_contain_text("16", timeout=10000)
         stats = page.locator("#lineage-stats").inner_text()
         check("9 derived values update: DEX +2 note, Small, walk 25 ft, Halfling language, poison resistance, listed advantages",
               "Small" in stats and "Walk 25 ft" in stats and "Halfling" in stats and "Poison" in stats and "frightened" in stats, stats)
         check("10 the stored base DEX input still shows the entered 14",
-              page.locator('input[aria-label="Dexterity score (base)"]').input_value() == "14")
+              page.locator('input[aria-label="Dexterity base score"]').input_value() == "14")
         tab("combat")
         check("11 the speed tile notes the lineage speed", "25 ft (lineage)" in page.locator("#speed-note").inner_text(),
               page.locator("#speed-note").inner_text())
@@ -203,7 +205,8 @@ def main():
               card.locator("[data-lineage-unresolved]").count() == 0 and "Observant" in card.inner_text() and "Insight" in card.inner_text(),
               card.inner_text())
         tab("stats")
-        expect(page.locator('[data-derived="abnote:wis"]')).to_have_text(re.compile(r"\+2 lineage = 14"), timeout=10000)
+        expect(page.locator('[data-ab-srcs="wis"]')).to_contain_text(re.compile(r"\+2\s+Lineage"), timeout=10000)
+        expect(page.locator('[data-ab-eff="wis"]')).to_contain_text("14", timeout=10000)
         dot = page.locator('[data-action=cycle-skill][data-k=insight]')
         check("17 a lineage skill proficiency shows on the skill dot (with its origin)",
               "from-lineage" in (dot.get_attribute("class") or "") and "lineage" in (dot.get_attribute("title") or ""),
@@ -242,7 +245,7 @@ def main():
         page.locator(".modal [data-ok]").click()
         expect(card).to_contain_text("No lineage selected", timeout=10000)
         tab("stats")
-        expect(page.locator('[data-derived="abnote:wis"]')).to_have_text("", timeout=10000)
+        expect(page.locator('[data-ab-srcs="wis"]')).to_have_text("", timeout=10000)
         check("21 removing the lineage restores the stored values and keeps the old race text",
               "No lineage selected" in page.locator("#lineage-stats").inner_text() or "No lineage" in page.locator("#lineage-stats").inner_text())
         tab("combat")

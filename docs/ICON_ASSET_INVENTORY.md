@@ -397,3 +397,63 @@ same status. Since the school-only spell icon correction (2026-10-22) no view dr
 | `ui.spellbook` | `ui/spellbook` | yes | 96x96 | ok | Spellbook | `generic` | unused |
 | `ui.temp-hp` | `ui/temp-hp` | yes | 96x96 | ok | Temporary hit points | `generic` | sheet.js |
 | `ui.warning` | `ui/warning` | yes | 96x96 | ok | Warning | `generic` | unused |
+
+## Combat Builder (2026-11-06)
+
+**Reused from the registry:**
+- `action.initiative`, `action.concentration`, `action.damage`, `action.heal`, `ui.temp-hp`, `ui.reaction`, `ui.condition`;
+- `ui.abilities` (PC avatar fallback), `dm.creature`, `creature.dragon`, `creature.bear-head`, `dm.campaign`;
+- the condition icons through `conditionIcon()`. Deafened, Exhaustion, Incapacitated, Prone and Unconscious fall back to
+  `condition.generic-effect`.
+
+**New: project-authored inline SVG line glyphs** in `js/combat-icons.js`:
+- drawn for Tavern Ledger, private-table use, no third-party source;
+- no files, no runtime URL;
+- `currentColor`, 24 × 24 viewBox;
+- decorative (`aria-hidden`) unless given a label.
+
+| Key | Concept |
+|---|---|
+| `swords` | Combat Builder (top-bar link, page kicker) |
+| `round` | round / "Normal (both)" advantage state |
+| `next`, `prev` | Next / Previous turn, Skip |
+| `adv`, `dis` | Advantage (double up chevron) / Disadvantage (double down chevron) |
+| `hidden`, `shown` | hidden from players / reveal |
+| `crown` | Legendary Actions, legendary filter |
+| `shield` | Armor Class on rows |
+| `heart` | form HP (Wild Shape) on rows |
+| `pause`, `play` | Pause / Resume / Start |
+| `flag` | Finish, finished summary |
+| `undo` | Undo |
+| `plus` | add |
+| `bolt` | turn notes, ties |
+| `skull` | Mark defeated |
+| `bell` | reminders |
+| `history` | history |
+| `wifi_off` | offline |
+| `help` | keyboard shortcuts |
+
+The Tavern Ledger logo is not used as a combat icon. No emoji are used. The top-bar link repeats the `swords` path
+inline in `index.html`.
+
+## Added 2026-11-07: plants and two potion containers (custom item icons)
+
+Same illustrated family, copied from the project's own icon pool `../icons/` (originals untouched; 512 px PNG copies in
+`../icons_curated/plants/`), converted to 96 × 96 WebP like the other assets. Registered by `scripts/local/build_icon_registry.py`
+(new folder `plants`, prefix `plant.`, fallback `item.mortar-pestle`).
+
+| Asset | Source file | Registry key | Label | Use |
+|---|---|---|---|---|
+| plants/herb.webp | plants.png | plant.herb (alias inventory.herbs) | Herb sprig | Herbs & Plants default, gallery |
+| plants/leaf.webp | grass.png | plant.leaf | Leaf | gallery |
+| plants/flower.webp | flower.png | plant.flower | Flower | gallery |
+| plants/wildflowers.webp | flower2.png | plant.wildflowers | Wildflowers | gallery |
+| plants/mushroom.webp | mushroom.png | plant.mushroom | Mushroom | gallery |
+| plants/seed.webp | plant.png | plant.seed | Seed | gallery |
+| plants/berry.webp | plant2.png | plant.berry | Berries | gallery |
+| plants/root.webp | thorn.png | plant.root | Root or thorny vine | gallery |
+| potions/flask.webp | potion.png | potion.flask | Flask | gallery |
+| potions/bottle.webp | drink.png | potion.bottle | Bottle | gallery |
+
+Resin uses the existing `item.crystal`; ingredient the existing `item.mortar-pestle`. New alias `inventory.potion` →
+`potion.generic` (Potions filter). The registry change is additive (12 keys added, none changed).

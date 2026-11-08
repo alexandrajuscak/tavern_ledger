@@ -56,7 +56,9 @@ def residue():
       union all select 'campaigns', count(*) from public.campaigns where id in {SYN_CAMPS}
       union all select 'characters', count(*) from public.characters where owner_id in {SYN_USERS} or campaign_id in {SYN_CAMPS}
       union all select 'items', count(*) from public.items where owner_id in {SYN_USERS}
-      union all select 'dm_content', count(*) from public.dm_content where campaign_id in {SYN_CAMPS} or author_id in {SYN_USERS}"""
+      union all select 'dm_content', count(*) from public.dm_content where campaign_id in {SYN_CAMPS} or author_id in {SYN_USERS}
+      union all select 'combat_encounters', count(*) from public.combat_encounters where campaign_id in {SYN_CAMPS}
+      union all select 'combat_monster_favorites', count(*) from public.combat_monster_favorites where user_id in {SYN_USERS}"""
     return {k: int(v) for k, v in (line.split("|") for line in psql(q).splitlines()) if int(v)}
 
 
@@ -64,8 +66,11 @@ def cleanup():
     """Remove every synthetic row in dependency order (restrictive foreign keys first). Returns what was removed."""
     before = residue()
     psql(f"""begin;
+      -- infused items: their modifiers are managed by Infuse Item and refuse a cascaded delete unless the managed flag is set
+      set local tavern.managed_modifier = '1';
       delete from public.characters where owner_id in {SYN_USERS} or campaign_id in {SYN_CAMPS};
       delete from public.dm_content where campaign_id in {SYN_CAMPS} or author_id in {SYN_USERS};
+      delete from public.combat_encounters where campaign_id in {SYN_CAMPS};   -- participants, effects, history, change log cascade
       delete from public.campaigns where id in {SYN_CAMPS};
       delete from public.items where owner_id in {SYN_USERS};
       delete from public.feat_versions where owner_id in {SYN_USERS};

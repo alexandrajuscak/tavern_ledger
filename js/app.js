@@ -1,20 +1,21 @@
-import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=17';
+import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=18';
 import {
   state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
   loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
   updateProfile, listCharacters, listCharacterBadges, createCharacter, loadBundle, loadCharacterView, saver,
-} from './store.js?v=17';
-import { getDerivedStats, getProficiencies } from './inventory-api.js?v=17';
-import { icon, classIcon, iconSrc } from './icons.js?v=17';
-import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=17';
-import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=17';
-import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=17';
-import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=17';
-import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=17';
-import { openLineagePicker } from './lineage-ui.js?v=17';
-import { getCharacterLineage } from './lineage-api.js?v=17';
-import { openAddClass } from './class-setup.js?v=17';
-import { getClassSummary } from './class-api.js?v=17';
+} from './store.js?v=18';
+import { getDerivedStats, getProficiencies } from './inventory-api.js?v=18';
+import { icon, classIcon, iconSrc } from './icons.js?v=18';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=18';
+import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=18';
+import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=18';
+import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=18';
+import { mountCombat, unmountCombat, combatEnabled } from './combat.js?v=18';
+import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=18';
+import { openLineagePicker } from './lineage-ui.js?v=18';
+import { getCharacterLineage } from './lineage-api.js?v=18';
+import { openAddClass } from './class-setup.js?v=18';
+import { getClassSummary } from './class-api.js?v=18';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders
@@ -76,6 +77,7 @@ async function handleSession(session) {
     cacheClearPrefix('list', 'bundle:', 'cardstats:');   // the session ended (here, in another tab, or expired): no user data stays
     unmountSheet();
     unmountDmSpace();
+    unmountCombat();
     $('#topbar').hidden = true;
     renderAuth();
     return;
@@ -126,6 +128,7 @@ function route() {
 
   const charMatch = hash.match(/^#\/c\/([0-9a-f-]{36})$/i);
   unmountDmSpace();
+  unmountCombat();
   if (charMatch) return openCharacter(charMatch[1], token);
 
   unmountSheet();
@@ -133,6 +136,11 @@ function route() {
   if (dmMatch) {
     if (!isAnyDM()) { window.location.hash = '#/'; return undefined; }
     return mountDmSpace(app, { section: dmMatch[1] || 'overview', id: dmMatch[2] || null });
+  }
+  const combatMatch = hash.match(/^#\/combat(?:\/(e|library))?(?:\/([0-9a-f-]{36}))?$/i);
+  if (combatMatch) {
+    if (!combatEnabled() || !isAnyDM()) { window.location.hash = '#/'; return undefined; }   // the server refuses non-DMs anyway
+    return mountCombat(app, { section: combatMatch[1] === 'e' ? 'encounter' : combatMatch[1] === 'library' ? 'library' : 'home', id: combatMatch[2] || null });
   }
   if ((hash === '#/campaigns' || hash === '#/players') && isAdmin()) return renderCampaigns(token);
   return renderList(token);
@@ -493,6 +501,8 @@ function updateBadges() {
   badge.hidden = !isAnyDM();
   const dmLink = $('#dm-link');
   if (dmLink) dmLink.hidden = !isAnyDM();
+  const combatLink = $('#combat-link');
+  if (combatLink) combatLink.hidden = !(isAnyDM() && combatEnabled());
   $('#user-name').textContent = state.profile.display_name || state.profile.email;
 }
 

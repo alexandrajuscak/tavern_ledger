@@ -4,55 +4,56 @@ import {
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   ACTIVATIONS, ACTIVATION_BY_KEY, CASTING_TIMES, CONDITIONS, CONDITION_BY_NAME,
   weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js?v=17';
+} from './dnd.js?v=18';
 import {
-  saver, insertRow, deleteRow, deleteCharacter, subscribeCharacter, subscribeCharacterFluent, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
-} from './store.js?v=17';
-import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=17';
-import { openCoinCalculator, wallet as coinWallet } from './coins.js?v=17';
-import { mountInventory } from './inventory-ui.js?v=17';
-import { exportCharacter, downloadJson } from './transfer.js?v=17';
-import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups } from './inventory-api.js?v=17';
+  saver, insertRow, deleteRow, deleteCharacter, applyCharacterHp, subscribeCharacter, subscribeCharacterFluent, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
+} from './store.js?v=18';
+import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=18';
+import { openCoinCalculator, wallet as coinWallet } from './coins.js?v=18';
+import { mountInventory } from './inventory-ui.js?v=18';
+import { exportCharacter, downloadJson } from './transfer.js?v=18';
+import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups } from './inventory-api.js?v=18';
 import { backgroundCardHTML, openBackgroundPicker, openBackgroundEquipment, openReplaceDuplicate, saveCharacteristics, rollCharacteristic,
-  removeBackground } from './background-ui.js?v=17';
-import { getCharacterBackground } from './background-api.js?v=17';
-import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=17';
-import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=17';
+  removeBackground } from './background-ui.js?v=18';
+import { getCharacterBackground } from './background-api.js?v=18';
+import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=18';
+import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=18';
 import {
   acNote, openAcBreakdown, equippedWeaponsHTML, trackWeaponDetails, toolsHTML, specificProficienciesHTML,
   openProficiencyManager, equipmentNotes,
-} from './derived-ui.js?v=17';
-import { openLevelUp } from './levelup.js?v=17';
-import { mountGovernance } from './request-ui.js?v=17';
-import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=17';
-import { fluentEnabled, beginReadScope, endReadScope, seedReads, prefetchDomain, readNow, knownRevision, noteRevisions, awaitSeed } from './read-layer.js?v=17';
-import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=17';
-import { exportFeats } from './feat-api.js?v=17';
-import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=17';
-import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=17';
-import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=17';
+} from './derived-ui.js?v=18';
+import { openLevelUp } from './levelup.js?v=18';
+import { mountGovernance } from './request-ui.js?v=18';
+import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=18';
+import { fluentEnabled, beginReadScope, endReadScope, seedReads, prefetchDomain, readNow, knownRevision, noteRevisions, awaitSeed } from './read-layer.js?v=18';
+import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=18';
+import { exportFeats } from './feat-api.js?v=18';
+import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=18';
+import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=18';
+import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=18';
 import {
   emptyFilters, filtersHTML, readFilter, sourcesHTML, spellbookListHTML, openSpellDetail, openAddSpell, openSourceEditor, rememberSpellSections,
-} from './spell-ui.js?v=17';
+} from './spell-ui.js?v=18';
 import {
   getClassSummary, getSpellSlots, getClassCatalog, expendStandardSlot, restoreStandardSlot, expendPactSlot, restorePactSlot,
   setSlotState, setCharacterClass, shortRest, longRest, getClassFeatures, getResources, exportClassFeatures, useTemporarySlot,
   restoreTemporarySlot, getStartingEquipmentState, getStartingEquipment, getStates,
-} from './class-api.js?v=17';
-import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=17';
-import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=17';
-import { openStartingEquipment } from './class-setup.js?v=17';
+} from './class-api.js?v=18';
+import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=18';
+import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=18';
+import { openStartingEquipment } from './class-setup.js?v=18';
 import {
   companionsHTML, openAddCompanion, changeCompanionHp, removeCompanionConfirm,
-} from './creature-ui.js?v=17';
-import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=17';
-import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=17';
+} from './creature-ui.js?v=18';
+import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=18';
+import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=18';
+import { selectedOptions, optionCardHTML, reminderListHTML, infusionsPlayHTML, optionSpellsHTML, infusedItemMap } from './active-features.js?v=18';
 import {
   featuresPanelHTML, featureSummaryHTML, restoreDrafts, resourceListHTML, attachFeatureHandlers, hydrateSpellChoices, restResourceLines, restResultText, restSummaryHTML,
   riderDiceRange, statesHTML, glanceHTML,
-} from './feature-ui.js?v=17';
-import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=17';
-import { sectionHTML, sectionHead } from './section.js?v=17';
+} from './feature-ui.js?v=18';
+import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=18';
+import { sectionHTML, sectionHead } from './section.js?v=18';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -70,6 +71,7 @@ let sheetFluent = false;
 let inventoryDeferred = false;
 let serverChar = null;       // the character row as last stored on the server (bundle, Realtime): what a remote UPDATE changed
 let inventory = null; // inventory-ui controller
+let lastInfusedSig = '[]';
 let governance = null; // request-ui controller: lock banner, pending changes, approval requests
 let featState = null;   // get_character_feats: every feat grant with its source, choices, effects, spells and resources
 let featSeq = 0;
@@ -444,7 +446,7 @@ function afterChange(table) {
   refreshHp();
   refreshViews();
   if (table === 'spells' || table === 'features') refreshCombat();
-  if (table === 'characters') { refreshCharacterBits(); inventory?.render(); }
+  if (table === 'characters') { refreshCharacterBits(); inventory?.render(); renderAbilitySources(); }
   if (table === 'feature_trackers' || table === 'spell_slots') refreshPips();
   cacheLater();
 }
@@ -505,7 +507,7 @@ async function loadFeats() {
     const r = await loadCharacterFeats(C().id);
     if (my !== featSeq || !root) return;
     featState = r;
-    rerender('#feats-card', featsCardHTML(featState, { editable: !ctx?.readOnly }));
+    rerender('#feats-card', featsCardHTML(featState, { editable: !ctx?.readOnly, removal: featRemovalPolicy() }));
     renderSheetChips();
   } catch (err) { console.warn('Feats unavailable:', err.message); }
 }
@@ -517,6 +519,7 @@ function featsChanged() {
   loadSpellbook();
   loadClasses();
 }
+const scheduleFeatsChanged = debounce(featsChanged, 300);
 
 async function loadLineage() {
   if (!B) return;
@@ -664,11 +667,24 @@ async function tfApplied(r, { quiet = false } = {}) {
   loadDerived();
   scheduleClasses();                 // resources (uses) and slots
   const res = r.result;
+  // the excess of a form that dropped to 0 changed the normal HP on the server: show it now (no wait for Realtime), so a later
+  // save of the character row can never write the old value back
+  if (res?.normal_hp_after != null && r.character_id === C().id) {
+    const c = C();
+    const patch = { hp_current: res.normal_hp_after, hp_temp: Math.max(0, (c.hp_temp || 0) - (res.normal_temp_absorbed || 0)) };
+    serverChar = { ...serverChar, ...patch };
+    Object.assign(c, patch);
+    syncInputs('characters', c.id);
+    afterChange('characters');
+  }
   let msg = '';
-  if (res?.expired) msg = 'The Wild Shape duration was over: you are back in your normal form.';
-  else if (res?.ended && res.carryover != null && res.reason !== 'manual') {
-    msg = `The form drops to 0 HP and Wild Shape ends.${res.carryover ? ` ${res.carryover} damage carries over to your normal form (${res.normal_hp_before} → ${res.normal_hp_after}).` : ''}`;
-  } else if (!quiet && r.active) msg = `You are a ${r.active.name}.`;
+  if (res?.expired && res.applied === false) msg = 'The Wild Shape duration was over: you are back in your normal form. Nothing was changed.';
+  else if (res?.ended && res.reason === 'zero_hp') {
+    msg = `The form takes ${res.amount} damage, drops to 0 HP and Wild Shape ends.${res.carryover ? ` The excess ${res.carryover} damage carries over to your normal form (${res.normal_hp_before} → ${res.normal_hp_after}).` : ' No damage carries over.'}`;
+  } else if (res?.ended && res.reason === 'expired' && res.applied === true) {   // damage results only (heal / ability on an expired form fall through)
+    msg = `The form takes ${res.amount} damage (${res.form_hp_after} HP left). Its duration was over, so Wild Shape ends now; your normal HP is unchanged.`;
+  } else if (res?.expired) msg = 'The Wild Shape duration was over: you are back in your normal form.';
+  else if (!quiet && r.active) msg = `You are a ${r.active.name}.`;
   if (msg) announceWs(msg, res?.ended ? 'bad' : 'good');
 }
 
@@ -690,7 +706,7 @@ async function tfMutation(key, call, message) {
     if (!B || busy !== tfBusy || C().id !== id) return null;
     await tfApplied(r, { quiet: true });
     const msg = typeof message === 'function' ? message(r) : message;
-    if (msg && !(r.result?.ended && r.result?.carryover != null)) announceWs(msg);
+    if (msg && !r.result?.ended && !r.result?.expired) announceWs(msg);
     return r;
   } catch (err) {
     if (B && busy === tfBusy && C().id === id) { toast(err.message, 'bad'); scheduleTransform(); }
@@ -878,6 +894,10 @@ function renderClasses() {
   put('#class-resources', resourceListHTML(classResources, { editable }));
   put('#class-feature-summary', featureSummaryHTML(classFeatures));
   put('#combat-groups', combatGroupsHTML());
+  put('#play-infusions-slot', infusionsPlayHTML(infusionState));
+  put('#option-spells', optionSpellsHTML(selectedOptions(classFeatures, classResources).spell));
+  const infSig = JSON.stringify([...infusedItemMap(infusionState)]);
+  if (infSig !== lastInfusedSig) { lastInfusedSig = infSig; inventory?.render?.(); }   // infused-item badges follow the infusion read (only on change)
   put('#sheet-avatar', avatarHTML());
   hydrateSpellChoices(root);
   renderStrip();
@@ -950,6 +970,72 @@ async function lineageChanged(res) {
   await loadDerived();   // refreshes the subtitle, abilities, speed, skills … through renderDerived
 }
 
+// ---- ability score sources (docs/ABILITY_SCORE_SOURCE_MODEL.md) -------------------------------------------------------------
+// The card's input is the editable BASE score. Each source row shows only its own contribution ("+1 Fighter: ASI"), never a
+// resulting total; the effective score comes from the server (derived.abilities[k].score) and is shown only while the server
+// computed it from the base that is on screen now. While an edited base is saving or being re-read it says "updating".
+const signedN = (n) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`);
+const shortSource = (name) => String(name || 'Effect').replace(/Ability Score Improvement/g, 'ASI').replace(/^Feat: (.+)$/, '$1 (feat)');
+
+/** The contributions of one ability, in the server's order of application: lineage, background, override, bonuses. */
+export function abilitySourceRows(x, { backgroundName = '' } = {}) {
+  if (!x) return [];
+  const rows = [];
+  const capped = (bonus, applied) => (applied < bonus ? ` (${applied ? `${signedN(applied)} applied` : 'none applied'}: max 20)` : '');
+  if (!x.lineage_included && x.lineage_bonus) {
+    const names = (x.lineage_sources || []).map((l) => l.source_name).filter(Boolean);
+    rows.push({ n: x.lineage_bonus, kind: 'lineage', name: `Lineage${names.length ? `: ${names.join(', ')}` : ''}`, note: capped(x.lineage_bonus, x.lineage_applied || 0) });
+  }
+  if (x.background_bonus) {
+    rows.push({ n: x.background_bonus, kind: 'background', name: `Background${backgroundName ? `: ${backgroundName}` : ''}`, note: capped(x.background_bonus, x.background_applied || 0) });
+  }
+  for (const e of x.sources || []) {
+    if (e.effect_type === 'ability_override') rows.push({ set: Number(e.value), kind: 'override', name: e.source_name || 'Effect' });
+    else rows.push({ n: Number(e.value) || 0, kind: /^Feat: /.test(e.source_name || '') ? 'feat' : 'effect', name: e.source_name || 'Effect' });
+  }
+  return rows;
+}
+
+function abilitySourcesHTML(a, x) {
+  const rows = abilitySourceRows(x, { backgroundName: derived?.background?.name || '' });
+  if (!rows.length) return '';
+  const li = rows.map((r) => {
+    const amount = r.set != null ? `Sets to ${r.set}` : signedN(r.n);
+    const sr = r.set != null ? `${a.name} set to ${r.set} by ${r.name}` : `${signedN(r.n)} ${a.name} from ${r.name}`;
+    return `<li data-ab-source="${esc(r.kind)}" title="${esc(sr + (r.note || ''))}"><span aria-hidden="true"><span class="ab-src-n">${esc(amount)}</span> ${esc(shortSource(r.name))}${esc(r.note || '')}</span><span class="sr-only">${esc(sr + (r.note || ''))}</span></li>`;
+  });
+  const additive = rows.filter((r) => r.set == null);
+  const total = additive.length > 1 ? additive.reduce((t, r) => t + r.n, 0) : null;
+  return `<ul class="ab-srcs" aria-label="${esc(a.name)} bonuses from sources">${li.join('')}${total != null
+    ? `<li class="ab-src-total" data-ab-source="total"><span aria-hidden="true">Bonuses from sources: ${esc(signedN(total))}</span><span class="sr-only">Bonuses to ${esc(a.name)} from sources: ${esc(signedN(total))} in total</span></li>` : ''}</ul>`;
+}
+
+/** Source rows + effective score of every ability card; cheap and idempotent (also runs on every local edit). */
+function renderAbilitySources() {
+  if (!root || !B) return;
+  for (const a of ABILITIES) {
+    const x = derived?.abilities?.[a.key];
+    const card = $(`#ability-cards [data-ability="${a.key}"]`, root);
+    if (!card) continue;
+    const fresh = !!x && Number(C()[a.col]) === Number(x.base);       // the server's numbers belong to the base on screen
+    const inForm = x?.form_score != null;
+    const eff = !x || inForm ? '' : !fresh ? 'updating…' : x.score !== x.base ? String(x.score) : '';
+    const effEl = $(`[data-ab-eff="${a.key}"]`, card);
+    if (effEl) {
+      const label = !eff ? '' : fresh ? `${a.name} score ${x.score} (base ${x.base} plus the sources below)` : `${a.name} score updating`;
+      if (effEl.dataset.v !== eff) {
+        effEl.dataset.v = eff;
+        effEl.innerHTML = eff ? `<span aria-hidden="true">${fresh ? `Score <strong>${esc(eff)}</strong>` : 'Score updating…'}</span><span class="sr-only">${esc(label)}</span>` : '';
+      }
+    }
+    card.toggleAttribute('data-eff', !!eff);
+    card.toggleAttribute('data-stale', !!x && !fresh && !inForm);
+    const srcEl = $(`[data-ab-srcs="${a.key}"]`, card);
+    const html = inForm ? '' : abilitySourcesHTML(a, x);
+    if (srcEl && srcEl.__html !== html) { srcEl.__html = html; srcEl.innerHTML = html; }
+  }
+}
+
 /** Update only the derived bits in place; a re-rendered block keeps keyboard focus (stable data-focus-key). */
 function renderDerived(startedAt = 0) {
   if (!root || !derived) return;
@@ -974,14 +1060,9 @@ function renderDerived(startedAt = 0) {
     set(`abform:${a.key}`, x?.form_score != null ? String(x.form_score) : '');
     set(`absrc:${a.key}`, !inForm ? '' : x?.form_score != null ? 'From form' : 'Retained from character');
     $$(`#ability-cards [data-ability="${a.key}"]`, root).forEach((el) => { el.dataset.src = !inForm ? '' : x?.form_score != null ? 'form' : 'retained'; });
-    if (x?.form_score != null) { set(`abnote:${a.key}`, `${x.form_name} form (your score ${x.base})`); continue; }
-    const items = x ? x.score - x.base - (x.lineage_applied || 0) - (x.background_applied || 0) : 0;
-    const parts = [];
-    if (x?.lineage_applied) parts.push(`+${x.lineage_applied} lineage`);
-    if (x?.background_applied) parts.push(`+${x.background_applied} background`);
-    if (items) parts.push(`${items > 0 ? '+' : ''}${items} items`);
-    set(`abnote:${a.key}`, parts.length ? `${parts.join(', ')} = ${x.score}` : '');
+    set(`abnote:${a.key}`, x?.form_score != null ? `${x.form_name} form · character base score ${x.base}` : '');
   }
+  renderAbilitySources();
   const keep = (sel, html) => {
     const el = $(sel, root);
     if (!el || el.__html === html) return;
@@ -993,6 +1074,7 @@ function renderDerived(startedAt = 0) {
   };
   keep('#equipped-weapons', equippedWeaponsHTML(derived));
   keep('#feature-attacks', featureAttacksHTML());
+  keep('#combat-groups', combatGroupsHTML());   // attack riders decide which option cards are not repeated
   keep('#class-features', featuresPanelHTML(classFeatures, { editable: !ctx?.readOnly, derived, states: classStates }));
   keep('#combat-states', playGlanceHTML());
   $$('[data-play-ready]', root).forEach((el) => { el.hidden = !playGlanceHTML(); });
@@ -1177,6 +1259,16 @@ function refreshCharacterBits() {
 
 /** Governance state of this character (request-ui onState): lock, decisions, open requests. Null until loaded / ungoverned. */
 let govState = null;
+
+/** How removing a directly assigned feat behaves now: 'allow' | 'request' | 'dm_only' | 'locked' (labels only). */
+function featRemovalPolicy() {
+  const g = govState?.gov;
+  if (!g || g.is_dm) return 'allow';
+  if (LOCKED_MODES.has(g.lock_mode)) return 'locked';
+  const d = g.decisions?.['choice.feat'];
+  if (d === 'dm_only' || d === 'disabled') return 'dm_only';
+  return d === 'approval_required' ? 'request' : 'allow';
+}
 
 const LOCKED_MODES = new Set(['progression_locked', 'build_locked', 'fully_locked', 'archived']);
 const LOCK_CHIP = { progression_locked: 'Progression locked', build_locked: 'Build locked', fully_locked: 'Locked by the DM', archived: 'Archived' };
@@ -1373,10 +1465,13 @@ function statsHTML() {
       <div class="ab-left">
         <span class="ability-name">${a.name}</span>
         <span class="ability-mod" data-derive="mod:${a.key}"></span>
-        ${numInput('characters', c, a.col, 'ability-score', `min="1" max="30" aria-label="${a.name} score (base)"`)}
+        <span class="ab-base-cap" aria-hidden="true">Base</span>
+        ${numInput('characters', c, a.col, 'ability-score', `min="1" max="30" aria-label="${a.name} base score" title="Base score: what you rolled or bought. Bonuses from sources are added on top."`)}
+        <span class="ab-eff" data-ab-eff="${a.key}"></span>
         <span class="ab-score-pill ab-form-score" data-derived="abform:${a.key}" aria-label="${a.name} score in this form"></span>
         <small class="ab-src" data-derived="absrc:${a.key}"></small>
         <small class="ab-note" data-derived="abnote:${a.key}"></small>
+        <div class="ab-srcs-wrap" data-ab-srcs="${a.key}"></div>
       </div>
       <ul class="prof-list ab-list" aria-label="${a.name} saving throw and skills">
         <li class="save-row">
@@ -1609,9 +1704,13 @@ const spellCard = (s) =>
 function combatGroupsHTML() {
   lastCombatSignature = combatSignature();
   const empty = [];
+  const opts = selectedOptions(classFeatures, classResources);   // Invocations, Metamagic, maneuvers, ... with a catalog timing
+  // an option already shown as an attack rider (Eldritch Smite under Attacks) is not repeated as a card
+  const riders = new Set((derived?.attack_riders || []).map((r) => String(r.name || '').toLowerCase()));
+  for (const k of Object.keys(opts)) opts[k] = opts[k].filter((x) => !riders.has(x.name.toLowerCase()));
   const groups = ['action', 'bonus_action', 'reaction', 'special'].map((key) => {
     const { feats, spells } = groupItems(key);
-    const items = [...classActions(key).map(classActionHTML), ...feats.map(featureCard), ...spells.map(spellCard)].join('');
+    const items = [...classActions(key).map(classActionHTML), ...(opts[key] || []).map(optionCardHTML), ...feats.map(featureCard), ...spells.map(spellCard)].join('');
     if (!items) { if (key !== 'special') empty.push(GROUP_TITLES[key].toLowerCase()); return key === 'action' ? actionBasicsHTML() : ''; }
     return `
       <section class="combat-group group-${key}" aria-labelledby="cg-${key}">
@@ -1621,12 +1720,14 @@ function combatGroupsHTML() {
       </section>`;
   }).join('');
   const passive = groupItems('passive').feats;
+  const reminders = opts.passive || [];
   return `${groups}
     ${empty.length > 1 || (empty.length === 1 && empty[0] !== 'actions') ? `<p class="calm-note">No special ${empty.filter((x) => x !== 'actions').join(' or ')} from your features yet.
       Features and spells that use them appear here automatically.</p>` : ''}
-    <details class="combat-group passive-group" ${passive.length ? '' : 'hidden'}>
-      <summary><span class="section-title">Your passive notes</span> <span class="count">${passive.length}</span>
+    <details class="combat-group passive-group" ${passive.length || reminders.length ? '' : 'hidden'} ${reminders.length ? 'open' : ''}>
+      <summary><span class="section-title">Passive and reminders</span> <span class="count">${passive.length + reminders.length}</span>
         <span class="hint">always on, nothing to activate</span></summary>
+      ${reminderListHTML(reminders)}
       <div class="entry-list">${passive.map(featureCard).join('')}</div>
     </details>`;
 }
@@ -1709,6 +1810,7 @@ function combatTabHTML() {
   </section>
 
   <div id="combat-groups">${combatGroupsHTML()}</div>
+  <div id="play-infusions-slot">${infusionsPlayHTML(infusionState)}</div>
 
   <section class="play-section" aria-labelledby="play-trackers">
     <div id="trackers-list" class="tracker-list">${trackersListHTML()}</div>
@@ -1897,6 +1999,7 @@ function spellsHTML() {
       action: '<button type="button" class="btn btn-sm btn-gold" data-action="spell-add" data-focus-key="spell-add">+ Add spell</button>' })}
     <details class="sp-filter-box"><summary>Search and filters</summary><div id="spellbook-filters"></div></details>
     <div id="spellbook-list">${spellbookListHTML(spellbook, spellFilters)}</div>
+    <div id="option-spells">${optionSpellsHTML(selectedOptions(classFeatures, classResources).spell)}</div>
   </section>
   <section class="tl-section" data-lineage-spells-card ${derived?.lineage_actions?.length ? '' : 'hidden'} aria-labelledby="lineage-abilities-title">
     ${sectionHead({ id: 'lineage-abilities-title', icon: 'build.lineage', title: 'Lineage abilities', desc: 'Lineage spells are in your spells.' })}
@@ -2037,7 +2140,7 @@ function featuresHTML() {
       <div id="background-card-body">${backgroundCardHTML(background, { editable: !ctx?.readOnly, legacyText: C().background })}</div>
     </section>
   </div>
-  <section class="tl-section feats-card" id="feats-card" aria-labelledby="feats-card-title">${featsCardHTML(featState, { editable: !ctx?.readOnly })}</section>
+  <section class="tl-section feats-card" id="feats-card" aria-labelledby="feats-card-title">${featsCardHTML(featState, { editable: !ctx?.readOnly, removal: featRemovalPolicy() })}</section>
   <details class="tl-section tl-section-fold" id="choices-card" ${pendingChoices().length ? 'open' : ''}>
     <summary>${sectionHead({ icon: 'build.reminders', variant: 'interface', title: 'Reminders', count: pendingChoices().length || '', desc: 'Choices you want to make later.' })}</summary>
     <div id="choices-list" class="choice-list">${choicesListHTML()}</div>
@@ -2309,7 +2412,10 @@ function rerenderList(table) {
 // Actions
 // -----------------------------------------------------------------------------
 
-function applyHp(sign) {
+// Damage / Heal: one atomic server change (apply_character_hp), so a DM's change in the Combat Builder and the player's
+// click can never overwrite each other; the sheet shows the server's values. A second click waits for the first.
+let hpBusy = false;
+async function applyHp(sign) {
   const input = $('#hp-amount', root);
   const amt = parseInt(input.value, 10);
   if (!amt || amt < 0) {
@@ -2322,21 +2428,33 @@ function applyHp(sign) {
     formHp(sign, amt, 'hp');
     return;
   }
+  if (hpBusy) return;
+  hpBusy = true;
   const c = C();
-  if (sign < 0) {
-    const absorbed = Math.min(c.hp_temp, amt);
-    setRow('characters', c, {
-      hp_temp: c.hp_temp - absorbed,
-      hp_current: Math.max(0, c.hp_current - (amt - absorbed)),
-    });
-    toast(`Took ${amt} damage${absorbed ? ` (${absorbed} from temporary HP)` : ''}: ${c.hp_current} / ${hpMax(c)}.`);
-  } else {
-    const patch = { hp_current: Math.min(hpMax(c), c.hp_current + amt) };
-    if (c.hp_current <= 0) Object.assign(patch, { death_successes: 0, death_failures: 0 });
-    setRow('characters', c, patch);
-    toast(`Healed ${amt}: ${c.hp_current} / ${hpMax(c)}.`, 'good');
+  const buttons = $$('[data-action="hp-damage"], [data-action="hp-heal"]', root);
+  buttons.forEach((b) => b.setAttribute('aria-busy', 'true'));
+  try {
+    await saver.flush();   // an HP value typed a moment ago is stored first, so the change starts from it
+    const r = await applyCharacterHp(c.id, sign < 0 ? 'damage' : 'heal', amt);
+    if (r?.form) {         // a Wild Shape form started elsewhere: the form took it (the server's result is announced)
+      await tfApplied(r.wild_shape, { quiet: true });
+      if (r.applied !== false && !r.wild_shape?.result?.ended) toast(sign < 0 ? `The form takes ${amt} damage.` : 'The form regains hit points.');
+    } else if (r?.after) {
+      const patch = { hp_current: r.after.hp, hp_temp: r.after.temp, death_successes: r.after.death_successes, death_failures: r.after.death_failures };
+      serverChar = { ...serverChar, ...patch };
+      Object.assign(c, patch);
+      syncInputs('characters', c.id);
+      afterChange('characters');
+      if (sign < 0) toast(`Took ${amt} damage${r.absorbed ? ` (${r.absorbed} from temporary HP)` : ''}: ${c.hp_current} / ${hpMax(c)}.`);
+      else toast(`Healed ${amt}: ${c.hp_current} / ${hpMax(c)}.`, 'good');
+    }
+    input.value = '';
+  } catch (err) {
+    toast(err.message || 'Hit points were not changed.', 'bad');
+  } finally {
+    hpBusy = false;
+    buttons.forEach((b) => b.removeAttribute('aria-busy'));
   }
-  input.value = '';
 }
 
 // Slots, Pact Magic, trackers, manual slots and resources are restored by the server in one transaction (short_rest_character /
@@ -2772,6 +2890,7 @@ const actions = {
 // -----------------------------------------------------------------------------
 
 function onInput(e) {
+  if (!B) return;                                            // the sheet was closed or is being replaced
   const el = e.target;
   if (el.dataset.sf === 'q' && readFilter(el, spellFilters)) { renderSpellbook(); return; }
   if (el.tagName === 'TEXTAREA' && el.classList.contains('autosize')) autoResize(el);
@@ -2794,6 +2913,7 @@ async function changePortrait(file) {
 }
 
 function onChange(e) {
+  if (!B) return;                                            // a refused save reloads the view; the blurred input still fires 'change'
   const el = e.target;
   if (el.dataset.sf && readFilter(el, spellFilters)) { renderSpellbook(); return; }
   if (el.dataset.classLevel) {
@@ -2924,6 +3044,13 @@ function derivedColumnChanged(nw) {
 function onRemote(table, event, nw, old) {
   if (!B || ctx?.readOnly) return;   // the cached copy shown while the same sheet reloads: the fresh read covers the change
   if (table === 'character_proficiencies') { scheduleDerived(); return; }
+  // a feat added, removed or re-chosen in another session (or by the DM / an approved request): feats, derived values,
+  // spells and class resources, exactly as after a local feat change
+  if (table === 'character_feats' || table === 'character_feat_choices') {
+    const rec = event === 'DELETE' ? old : nw;
+    if (!rec?.character_id || rec.character_id === C().id) scheduleFeatsChanged();
+    return;
+  }
   if (table === 'character_spells' || table === 'character_spellcasting_sources') {
     const rec = event === 'DELETE' ? old : nw;
     if (!rec?.character_id || rec.character_id === C().id) scheduleSpellbook();
@@ -3074,7 +3201,12 @@ export function mountSheet(container, bundle, options = {}) {
   if (!inventoryDeferred) mountInventoryPanel();
   // a change the campaign refuses is never saved: reload the sheet so it shows the stored values again
   governance = mountGovernance($('#gov-bar', root), { characterId: C().id, reload: () => ctx.reload?.(), onRefused: () => ctx.reload?.(),
-    onState: (st) => { govState = st; renderSheetChips(); } });
+    onState: (st) => {
+      const before = featRemovalPolicy();
+      govState = st;
+      renderSheetChips();
+      if (featState && featRemovalPolicy() !== before) rerender('#feats-card', featsCardHTML(featState, { editable: !ctx?.readOnly, removal: featRemovalPolicy() }));
+    } });
   watchVitals();
   trackWeaponDetails(root);
   unsubSaver = saver.onStatus((st) => { if (st === 'saved' && derivedDirty) { derivedDirty = false; scheduleDerived(); } });
@@ -3097,6 +3229,7 @@ function mountInventoryPanel() {
   inventory = mountInventory($('#inventory-app', root), {
     characterId: id,
     getCharacter: C,
+    getInfused: () => infusedItemMap(infusionState),
     userId: state.profile?.id,
     getCampaigns: myCampaigns,
     onRows: (rows) => {
