@@ -72,7 +72,7 @@ def run(t):
             page.wait_for_timeout(2500)
             m["rpc_on_open"] = len(rpcs)
             m["rpc_names_on_open"] = sorted({u.split("/rpc/")[1].split("?")[0] for u in rpcs})
-            m["channels"] = page.evaluate("async () => { const m = await import('./js/supabase.js?v=18'); return m.supabase.getChannels().map((c) => c.topic); }")
+            m["channels"] = page.evaluate("async () => { const m = await import('./js/supabase.js?v=19'); return m.supabase.getChannels().map((c) => c.topic); }")
             before = page.locator("[data-cb-current]").inner_text()
             t0 = time.time(); page.locator("[data-cb=next]").click()
             page.wait_for_function("(b) => document.querySelector('[data-cb-current]')?.textContent !== b", arg=before, timeout=60000); m["next_turn_ms"] = ms(t0)
@@ -119,7 +119,7 @@ def run(t):
             ok = ps.wait(lambda: ps.page.locator("#hp-card .hp-current").input_value() == want, 15000)
             lat.append(ms(t0) if ok else None)
         out["dm_plus_6_players_sheet_update_ms"] = lat
-        out["dm_plus_6_channels_per_dm_window"] = len(d.page.evaluate("async () => { const m = await import('./js/supabase.js?v=18'); return m.supabase.getChannels(); }"))
+        out["dm_plus_6_channels_per_dm_window"] = len(d.page.evaluate("async () => { const m = await import('./js/supabase.js?v=19'); return m.supabase.getChannels(); }"))
         print("dm+6", json.dumps(lat))
         for _, ps in players:
             ps.close()

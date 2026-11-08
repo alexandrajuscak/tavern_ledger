@@ -4,8 +4,8 @@
 // choice features (Eldritch Invocations, Metamagic, Fighting Style, Battle Master maneuvers, Hunter options, Pact Boon,
 // Fiendish Resilience) using the option's catalog timing (data.activation, migration 20261107000400), and the Artificer
 // infusions that are active on an item. Nothing is automated here: a reminder says so, and no Use button is invented.
-import { esc } from './utils.js?v=18';
-import { icon } from './icons.js?v=18';
+import { esc } from './utils.js?v=19';
+import { icon } from './icons.js?v=19';
 
 export const PLAY_TIMINGS = ['action', 'bonus_action', 'reaction', 'special'];
 const AUTOMATION = { automated: 'automatic', partially_automated: 'partly automatic', informational: 'reminder' };

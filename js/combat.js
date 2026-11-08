@@ -3,13 +3,13 @@
 // Every rule runs in the database (combat_* RPCs); this module renders, sends one mutation at a time per control, and patches
 // the view from the mutation's answer. One Realtime channel per open encounter (combat-api.js subscribeEncounter).
 
-import { supabase } from './supabase.js?v=18';
-import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=18';
-import * as api from './combat-api.js?v=18';
-import { icon, conditionIcon } from './icons.js?v=18';
-import { glyph } from './combat-icons.js?v=18';
-import { openMonsterLibrary, mountLibraryPage, openCreatureEditor, statblockHTML, crText } from './combat-library.js?v=18';
-import { COMBAT_BUILDER } from './config.js?v=18';
+import { supabase } from './supabase.js?v=19';
+import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=19';
+import * as api from './combat-api.js?v=19';
+import { icon, conditionIcon } from './icons.js?v=19';
+import { glyph } from './combat-icons.js?v=19';
+import { openMonsterLibrary, mountLibraryPage, openCreatureEditor, statblockHTML, crText } from './combat-library.js?v=19';
+import { COMBAT_BUILDER } from './config.js?v=19';
 
 /** Is the Combat Builder switched on for this browser (the server checks the DM role again on every call)? */
 export const combatEnabled = () => (COMBAT_BUILDER || 'off') !== 'off';

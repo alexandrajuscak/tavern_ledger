@@ -22,5 +22,5 @@ export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_8pUE0WNlOpKZAhm9jHAeZg_Y
 export const FLUENT_READS = 'on';
 // Combat Builder (docs/COMBAT_BUILDER_ARCHITECTURE.md "Feature flag"): 'off' hides it; 'dm' shows it to campaign DMs and admins.
 // It never grants anything: every combat_* RPC checks the campaign DM role itself. A future 'players' value is reserved for
-// the player combat view (get_combat_player_view already exists). The first production release ships with 'off'.
-export const COMBAT_BUILDER = 'off';
+// the player combat view (get_combat_player_view already exists). The first production release shipped with 'off' (2026-11-08) and was then enabled for DMs.
+export const COMBAT_BUILDER = 'dm';

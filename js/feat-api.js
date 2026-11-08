@@ -1,8 +1,8 @@
 // Feat catalog and character feats (docs/FEATS.md, FEAT_DATA_MODEL.md): wrappers around the RPCs of 20261019000300 plus the
 // small reference lists the choice editors need. No feat rule is evaluated here.
 
-import { supabase } from './supabase.js?v=18';
-import { friendlyError } from './utils.js?v=18';
+import { supabase } from './supabase.js?v=19';
+import { friendlyError } from './utils.js?v=19';
 
 export class FeatError extends Error {
   constructor(message, raw) {
