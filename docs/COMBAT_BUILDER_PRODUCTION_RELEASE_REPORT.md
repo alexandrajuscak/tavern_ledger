@@ -273,10 +273,18 @@ the new password; not in OneDrive, not in Git) and restrict it to your user:
 New-Item -ItemType Directory -Force "$env:USERPROFILE\.tavern-ledger" | Out-Null
 notepad "$env:USERPROFILE\.tavern-ledger\backup-db-url.txt"
 icacls "$env:USERPROFILE\.tavern-ledger\backup-db-url.txt" /inheritance:r /grant:r "$($env:USERNAME):(R,W)"
-$repo = "$env:USERPROFILE\OneDrive - SOFTIP, a.s\Dokumenty\DnD\tavern_ledger"
-schtasks /Create /TN "Tavern Ledger nightly backup" /SC DAILY /ST 04:00 /TR "powershell -NoProfile -ExecutionPolicy Bypass -File `"$repo\scripts\backup\nightly_backup.ps1`""
-schtasks /Create /TN "Tavern Ledger monthly restore rehearsal" /SC MONTHLY /D 1 /ST 05:00 /TR "powershell -NoProfile -ExecutionPolicy Bypass -File `"$repo\scripts\backup\nightly_backup.ps1`" -Rehearse"
+$script = "$env:USERPROFILE\OneDrive - SOFTIP, a.s\Dokumenty\DnD\tavern_ledger\scripts\backup\nightly_backup.ps1"
+$daily   = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$script`""
+$monthly = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$script`" -Rehearse"
+Register-ScheduledTask -TaskName 'Tavern Ledger nightly backup' -Action $daily -Trigger (New-ScheduledTaskTrigger -Daily -At 04:00)
+Register-ScheduledTask -TaskName 'Tavern Ledger restore rehearsal' -Action $monthly `
+  -Trigger (New-ScheduledTaskTrigger -Weekly -WeeksInterval 4 -DaysOfWeek Sunday -At 05:00)
 ```
+
+Validated without registering (2026-11-08): both action objects keep the quoted path (it contains spaces and a comma)
+intact, e.g. `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\…\tavern_ledger\scripts\backup\nightly_backup.ps1" -Rehearse`;
+the rehearsal runs every 4 weeks (the scheduled-task cmdlets have no monthly trigger). Check after a run:
+`Get-Content "$env:USERPROFILE\tavern-ledger-production-exports\nightly\*\STATUS.txt"`.
 
 The script keeps 14 daily and 6 monthly backups, writes `STATUS.txt` / `LAST_FAILURE.txt`, and needs Docker running.
 A dedicated read-only backup role was not created: a complete dump (roles, Auth, public) needs privileges beyond SELECT on
@@ -291,3 +299,12 @@ is used instead.
 - No hidden-data leak in the player-safe view or the tables (verified on production).
 - No secret committed; no capacity change (statement timeout, connections, Realtime pool, compute untouched).
 - No unexpected migration: the dry run and the push listed exactly the six release migrations; no migration repair on production.
+
+Combat Builder production release is deployed and monitoring.
+
+The next action for the user is:
+
+1. rotate the production database password;
+2. configure the nightly backup with the new password;
+3. run one real multiplayer combat session;
+4. review Supabase logs after the session.
