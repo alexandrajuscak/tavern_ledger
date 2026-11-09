@@ -143,8 +143,10 @@ def main():
     global SUPA, KEY, CONFIG_SRC
     SUPA, KEY, CONFIG_SRC = site_config()
     if CONFIG_SRC:
+        code = "\n".join(l for l in CONFIG_SRC.splitlines() if not l.lstrip().startswith("//"))   # the file's warning comments name them
         check("S-00 site config: production project, publishable key only, no service-role key, no local URL",
-              "service_role" not in CONFIG_SRC and "127.0.0.1" not in CONFIG_SRC and "localhost" not in CONFIG_SRC)
+              "service_role" not in code and "sb_secret_" not in code and "127.0.0.1" not in code and "localhost" not in code
+              and SUPA.startswith("https://") and SUPA.endswith(".supabase.co"))
         mg = re.search(r"CONTENT_MANAGEMENT = '([^']+)'", CONFIG_SRC)
         check("S-01 content management flag as expected", (mg and mg.group(1) != "off") == EXPECT_MGMT, mg.group(1) if mg else None)
     dm, pl, st_ = Api("dm"), Api("player"), Api("stranger")

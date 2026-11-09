@@ -27,4 +27,4 @@ export const COMBAT_BUILDER = 'dm';
 // DM content management (docs/CONTENT_MANAGEMENT.md): 'off' keeps the earlier Content Library buttons (Delete draft, Delete unused
 // item); 'on' adds the usage report, permanent delete of any unused custom content and "Duplicate official as homebrew". It never
 // grants anything: every content RPC checks the campaign DM / admin role itself. Rollback of the frontend = 'off'.
-export const CONTENT_MANAGEMENT = 'off';
+export const CONTENT_MANAGEMENT = 'on';
