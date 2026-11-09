@@ -235,16 +235,19 @@ begin
   perform pg_temp.ok('F10 its choice rows are gone', not exists (select 1 from public.character_feat_choices where character_id = ch and grant_key = 'cf:' || f));
   perform pg_temp.ok('F17 the Fighter''s own Constitution save proficiency stays',
     coalesce((public._derived_stats_full(ch) -> 'saving_throws' -> 'con' ->> 'class_proficient')::boolean, false));
-  -- Resilient (Wisdom): the feat's own save-proficiency effect goes with it. (Known, separate defect, docs/FEAT_REMOVAL.md:
-  -- the derived saves and the proficiency resolver do not apply a feat's save proficiency at all, so there is nothing else to undo.)
+  -- Resilient (Wisdom): the feat's own save proficiency goes with it. (The earlier defect, a feat's save proficiency never
+  -- applied by the derived saves, is fixed in 20261109000100; docs/FEAT_SYSTEM_AUDIT.md.)
   perform pg_temp.as_user(pl);
   f := pg_temp.assign(ch, 'resilient-2014', '{"ability": ["wis"]}');
+  -- (20261109000100: the effect is target 'save' + value_text 'wis' and the derived save IS proficient while the feat is held)
   n := (select count(*) from jsonb_array_elements(public.get_character_feats(ch) -> 'feats') g, jsonb_array_elements(g -> 'effects') e
-        where e ->> 'effect_type' = 'proficiency' and e ->> 'target' = 'wis' and (e ->> 'active')::boolean);
+        where e ->> 'effect_type' = 'proficiency' and e ->> 'target' = 'save' and e ->> 'value_text' = 'wis' and (e ->> 'active')::boolean)
+       + case when coalesce((public.get_character_derived_stats(ch) -> 'saving_throws' -> 'wis' ->> 'class_proficient')::boolean, false) then 10 else 0 end;
   perform public.remove_character_feat(f, null);
-  perform pg_temp.ok('F17b the feat''s Wisdom save-proficiency effect is gone with it', n = 1 and not exists (select 1
+  perform pg_temp.ok('F17b the feat''s Wisdom save proficiency (applied while held) is gone with it', n = 11 and not exists (select 1
     from jsonb_array_elements(public.get_character_feats(ch) -> 'feats') g, jsonb_array_elements(g -> 'effects') e
-    where e ->> 'effect_type' = 'proficiency' and e ->> 'target' = 'wis'), n::text);
+    where e ->> 'effect_type' = 'proficiency' and e ->> 'value_text' = 'wis')
+    and not coalesce((public.get_character_derived_stats(ch) -> 'saving_throws' -> 'wis' ->> 'class_proficient')::boolean, false), n::text);
   w0 := (select x from jsonb_array_elements(public.get_character_proficiencies(ch) -> 'saves') x where x ->> 'id' = 'con');
   perform pg_temp.ok('F17c the class Constitution save stays effective in the resolver', (w0 ->> 'effective')::boolean
     and w0 -> 'sources' @> '[{"kind": "class"}]', left(w0::text, 160));

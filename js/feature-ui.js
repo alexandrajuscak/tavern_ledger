@@ -3,11 +3,11 @@
 // get_character_class_features, get_character_resources, get_character_derived_stats and preview_character_class_change;
 // nothing here decides which feature is active, what a maximum is or whether a choice is valid.
 // No class-specific code: controls are derived from the choice definitions, groups from the feature categories.
-import { $, $$, esc, toast, openModal } from './utils.js?v=19';
-import { SKILLS } from './dnd.js?v=19';
-import * as api from './class-api.js?v=19';
-import { getSpellCatalog } from './spell-api.js?v=19';
-import { riderSlotButton } from './slot-actions.js?v=19';
+import { $, $$, esc, toast, openModal } from './utils.js?v=20';
+import { SKILLS } from './dnd.js?v=20';
+import * as api from './class-api.js?v=20';
+import { getSpellCatalog } from './spell-api.js?v=20';
+import { riderSlotButton } from './slot-actions.js?v=20';
 
 const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const AUTOMATION = {
@@ -415,7 +415,9 @@ export function glanceHTML(state, derived, editable, states, { attackFacts = tru
   const half = derived.check_half_proficiency;
   // a resource spent by starting a state (Rage) is shown on the state card, not as a separate Use button
   const stateKeys = new Set((states?.states || []).map((s) => s.resource_key).filter(Boolean));
-  const res = (state.resources || []).filter((r) => (r.kind === 'feature' || r.source_type === 'lineage') && r.active && !stateKeys.has(r.key));   // lineage counters too (Hungry Jaws)
+  // lineage counters too (Hungry Jaws) and a feat's own counters (a feat's free spell casts stay on the Spells tab)
+  const res = (state.resources || []).filter((r) => (r.kind === 'feature' || r.source_type === 'lineage' || (r.source_type === 'feat' && !r.spell_version_id))
+    && r.active && !stateKeys.has(r.key));
   const facts = [
     !attackFacts ? '' : apa > 1 ? `<li><strong>${apa} attacks</strong> when you take the Attack action</li>` : '',
     attackFacts && crit < 20 ? `<li>Critical hit on <strong>${crit}–20</strong></li>` : '',

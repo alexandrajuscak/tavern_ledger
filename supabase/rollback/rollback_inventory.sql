@@ -10,6 +10,9 @@
 -- =============================================================================
 begin;
 
+-- Active feature timing (20261109000200): a standalone presentation table without foreign keys, so no cascade removes it.
+drop table if exists public.catalog_play_timing;
+
 -- Combat Builder (20261106000100 / 20261106000200): its tables (policies, triggers, the publication entry go with them) and
 -- functions; tl_cache.combat_skip goes with the tl_cache schema below. combat_wild_shape_heal (Wild Shape) is older and stays
 -- until its own feature is dropped below.

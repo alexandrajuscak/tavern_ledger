@@ -3,13 +3,14 @@
 // Every rule runs in the database (combat_* RPCs); this module renders, sends one mutation at a time per control, and patches
 // the view from the mutation's answer. One Realtime channel per open encounter (combat-api.js subscribeEncounter).
 
-import { supabase } from './supabase.js?v=19';
-import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=19';
-import * as api from './combat-api.js?v=19';
-import { icon, conditionIcon } from './icons.js?v=19';
-import { glyph } from './combat-icons.js?v=19';
-import { openMonsterLibrary, mountLibraryPage, openCreatureEditor, statblockHTML, crText } from './combat-library.js?v=19';
-import { COMBAT_BUILDER } from './config.js?v=19';
+import { supabase } from './supabase.js?v=20';
+import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=20';
+import * as api from './combat-api.js?v=20';
+import { icon, conditionIcon } from './icons.js?v=20';
+import { glyph } from './combat-icons.js?v=20';
+import { openMonsterLibrary, mountLibraryPage, openCreatureEditor, statblockHTML, crText } from './combat-library.js?v=20';
+import { COMBAT_BUILDER } from './config.js?v=20';
+import { compactActiveFeaturesHTML, loadPlayTiming } from './active-features.js?v=20';
 
 /** Is the Combat Builder switched on for this browser (the server checks the DM role again on every call)? */
 export const combatEnabled = () => (COMBAT_BUILDER || 'off') !== 'off';
@@ -365,6 +366,13 @@ function refreshSummary(cid) {
   if (!cid || !charIds(data).includes(cid)) return;
   pendingSummary.add(cid);
   flushSummaries();
+  if (featureCache[cid]) refreshFeatures(cid);
+}
+const featureTimers = {};
+/** Re-read the shown active features of ONE character (per-character debounce; other characters are not touched). */
+function refreshFeatures(cid) {
+  clearTimeout(featureTimers[cid]);
+  featureTimers[cid] = setTimeout(() => { if (root && featureCache[cid]) loadFeatures(cid); }, 400);
 }
 
 /** Combat numbers of a participant: monsters from the snapshot / instance, characters from the sheet (derived stats).
@@ -836,9 +844,16 @@ function detailHTML(p) {
       <button type="button" class="btn btn-sm btn-ghost" data-cb="rename" data-id="${esc(p.id)}" ${p.kind === 'character' ? 'hidden' : ''}>Rename</button>
       <button type="button" class="btn btn-sm btn-bad" data-cb="remove" data-id="${esc(p.id)}">Remove</button>
     </div>
+    ${p.kind === 'character' && p.character_id ? `<section class="cb-dsec cb-af-sec"><h3 class="cb-dsec-title">Active features</h3><div data-cb-active-features="${esc(p.character_id)}">${
+      featureCache[p.character_id] ? compactActiveFeaturesHTML(featureCache[p.character_id])
+        : `<button type="button" class="btn btn-sm" data-cb="load-features" data-id="${esc(p.character_id)}">Show actions, reactions and uses</button>`}</div></section>` : ''}
     ${p.statblock_id ? `<section class="cb-dsec cb-statblock-sec"><h3 class="cb-dsec-title">Stat block</h3><div data-cb-statblock="${esc(p.statblock_id)}">${statblockCache[p.statblock_id] ? statblockHTML(statblockCache[p.statblock_id].snapshot, { compact: true }) : '<button type="button" class="btn btn-sm" data-cb="load-statblock" data-id="' + esc(p.statblock_id) + '">Show stat block</button>'}</div></section>` : ''}`;
 }
 const statblockCache = {};
+// linked characters' active features (class features and options, lineage traits, feats, uses): loaded on request with ONE
+// get_character_reads (server-cached per revision), re-read only for that character after one of its build changes
+const featureCache = {};
+const FEATURE_READS = ['get_character_class_features', 'get_character_resources', 'get_character_feats', 'get_character_lineage'];
 
 function charDefenses(d) {
   if (!d) return '';
@@ -1012,6 +1027,7 @@ async function onClick(ev) {
     case 'state': return mutate(`state:${id}`, () => api.setParticipantState(id, b.dataset.state), { after: b.dataset.state });
     case 'rename': return renameParticipant(id);
     case 'load-statblock': return loadStatblock(id);
+    case 'load-features': return loadFeatures(id);
     case 'ack': {
       const i = Number(b.dataset.i);
       notices.splice(i, 1);
@@ -1627,6 +1643,18 @@ async function renameParticipant(pid) {
   });
 }
 
+async function loadFeatures(cid) {
+  try {
+    const [{ data: res, error }, timing] = await Promise.all([
+      supabase.rpc('get_character_reads', { p_character: cid, p_reads: FEATURE_READS }), loadPlayTiming()]);
+    if (error) throw error;
+    const r = res?.reads || {};
+    featureCache[cid] = { classFeatures: r.get_character_class_features, classResources: r.get_character_resources,
+      feats: r.get_character_feats, lineage: r.get_character_lineage, timing };
+    if (root) repaint();
+  } catch (err) { toast('The active features could not be loaded.', 'bad'); console.warn('[combat features]', err?.message || err); }
+}
+
 async function loadStatblock(sid) {
   try {
     statblockCache[sid] = await api.getStatblock(sid);
@@ -1771,6 +1799,7 @@ function subscribe() {
     },
     revision: (row) => {
       if (BUILD_SOURCES.has(row.source_table)) { refreshSummary(row.character_id); return; }   // feats, classes, equipment …
+      if (row.source_table === 'character_resources' && featureCache[row.character_id]) { refreshFeatures(row.character_id); return; }   // uses spent
       if (row.source_table !== 'character_transformations') return;
       const p = data?.participants.find((x) => x.character_id === row.character_id);
       if (p) { refreshParticipants.add(p.id); flush(); }

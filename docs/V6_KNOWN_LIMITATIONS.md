@@ -132,8 +132,7 @@ typed HP value still saves and queues as before.
 - **Ability Score Improvement above 20:** effect bonuses (class ASIs, feats, items) are added after the 20-cap and capped only
   at 30, so an ASI on a base of 19 gives 21 (the rules cap an ASI at 20; some items may exceed it). Needs per-source caps in
   `_derived_stats_core`; not changed because it alters effective scores. Local data: 0 characters affected.
-- **Feat saving-throw proficiency** (Resilient and similar) is shown as automated on the feat card, but the derived saves and the
-  proficiency resolver do not apply it; mark the save on the sheet manually until fixed.
+- ~~Feat saving-throw proficiency (Resilient) not applied~~ — fixed 2026-11-09 (`20261109000100`, docs/FEAT_SYSTEM_AUDIT.md D2).
 - **Orphan inactive feat resources** left by feat removals before 20261107 are not cleaned retroactively (inactive, never shown).
 - **Source-granted feats** are changed at their source (background, lineage, ASI choice); there is no DM override that removes
   only the feat and keeps the source.

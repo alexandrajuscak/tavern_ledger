@@ -24,3 +24,7 @@ export const FLUENT_READS = 'on';
 // It never grants anything: every combat_* RPC checks the campaign DM role itself. A future 'players' value is reserved for
 // the player combat view (get_combat_player_view already exists). The first production release shipped with 'off' (2026-11-08) and was then enabled for DMs.
 export const COMBAT_BUILDER = 'dm';
+// DM content management (docs/CONTENT_MANAGEMENT.md): 'off' keeps the earlier Content Library buttons (Delete draft, Delete unused
+// item); 'on' adds the usage report, permanent delete of any unused custom content and "Duplicate official as homebrew". It never
+// grants anything: every content RPC checks the campaign DM / admin role itself. Rollback of the frontend = 'off'.
+export const CONTENT_MANAGEMENT = 'off';

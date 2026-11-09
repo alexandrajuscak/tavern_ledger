@@ -1,8 +1,8 @@
 // DM Space data (docs/DM_SPACE.md): campaigns, overview, party, the custom content library and its lifecycle, assignment and
 // hidden information. Every function is a DM-only RPC that checks the campaign role itself (20261019000400-000600).
 
-import { supabase } from './supabase.js?v=19';
-import { friendlyError } from './utils.js?v=19';
+import { supabase } from './supabase.js?v=20';
+import { friendlyError } from './utils.js?v=20';
 
 export class DmError extends Error {
   constructor(message, raw) {
@@ -49,6 +49,10 @@ export const duplicateContent = (id, campaignId = null) => rpc('duplicate_dm_con
 export const deleteContent = (id) => rpc('delete_dm_content', { p_content: id });
 /** Permanent delete of a published item that nothing uses (all versions; rechecked on the server). */
 export const deleteUnusedItem = (id, confirmName) => rpc('delete_unused_dm_item', { p_content: id, p_confirm_name: confirmName });
+// content management (20261109000300, docs/CONTENT_MANAGEMENT.md)
+export const getContentUsage = (id) => rpc('get_dm_content_usage', { p_content: id });
+export const deleteUnusedContent = (id, confirmName) => rpc('delete_unused_dm_content', { p_content: id, p_confirm_name: confirmName });
+export const duplicateOfficial = (type, ref, campaignId) => rpc('duplicate_official_as_homebrew', { p_type: type, p_ref: ref, p_campaign: campaignId });
 export const assignContent = (id, characterIds, mode, options = {}) =>
   rpc('dm_assign_content', { p_content: id, p_characters: characterIds, p_mode: mode, p_options: options });
 

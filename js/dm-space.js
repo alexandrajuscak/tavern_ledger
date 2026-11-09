@@ -2,13 +2,13 @@
 // Approvals, Party, Content (custom content library + editors), Assign, Hidden, Rules (governance and content policy), Audit.
 // Visible only to campaign DMs and admins; every read and write is checked again by the database.
 
-import { supabase } from './supabase.js?v=19';
-import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=19';
-import * as dm from './dm-api.js?v=19';
-import * as gov from './governance-api.js?v=19';
-import { icon } from './icons.js?v=19';
-import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=19';
-import { openContentEditor, TYPE, STATUS as CSTATUS } from './content-editors.js?v=19';
+import { supabase } from './supabase.js?v=20';
+import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=20';
+import * as dm from './dm-api.js?v=20';
+import * as gov from './governance-api.js?v=20';
+import { icon } from './icons.js?v=20';
+import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=20';
+import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=20';
 
 const SECTIONS = [['overview', 'Overview'], ['approvals', 'Approvals'], ['party', 'Party'], ['content', 'Content'], ['assign', 'Assign'],
   ['hidden', 'Hidden'], ['rules', 'Campaign rules'], ['audit', 'Audit log']];
@@ -137,6 +137,8 @@ async function onClick(e) {
   if (a === 'create') return createMenu();
   if (a === 'review') return openReview(b.dataset.id);
   if (a === 'goto') { if (b.dataset.filter) approvalFilter = { ...approvalFilter, ...JSON.parse(b.dataset.filter) }; return show(b.dataset.to); }
+  if (a === 'dup-official') return openDuplicateOfficial({ campaignId, onCreated: (c) => { show('content'); openContentEditor({ content: { id: c.id }, campaignId, onChanged: () => show('content') }); } });
+  if (a === 'usage-content') return openUsage({ id: b.dataset.id }, { onChanged: () => show('content'), onDeleted: () => show('content') });
   if (a === 'edit-content') return openContentEditor({ content: { id: b.dataset.id }, campaignId, onChanged: () => show('content'), onAssign: (c) => { assignPreset = { contentId: c.id }; show('assign'); } });
   if (a === 'new-content') return openContentEditor({ content: { content_type: b.dataset.type, campaign_id: b.dataset.private ? null : campaignId }, campaignId,
     onChanged: () => { if (section === 'content') show('content'); }, onAssign: (c) => { assignPreset = { contentId: c.id }; show('assign'); } });
@@ -453,7 +455,7 @@ async function content(panel, alive) {
           ${x.summary ? `<span class="small">${esc(x.summary)}</span>` : ''}</span>
         <span class="ce-chip ce-${esc(x.status)}">${esc(CSTATUS[x.status] || x.status)}</span>
         <span class="small muted">${x.usage_characters ? `${x.usage_characters} character${x.usage_characters === 1 ? '' : 's'}` : 'unused'}</span>
-      </button></li>`).join('') : '<li class="muted">Nothing here yet.</li>';
+      </button>${contentManagementEnabled() ? `<button type="button" class="btn btn-xs btn-ghost" data-dm="usage-content" data-id="${esc(x.id)}" aria-label="Usage of ${esc(x.name)}">Usage</button>` : ''}</li>`).join('') : '<li class="muted">Nothing here yet.</li>';
   };
   panel.innerHTML = `
     <div class="dm-filters">
@@ -462,7 +464,8 @@ async function content(panel, alive) {
       <label class="field"><span>Status</span><select data-cs><option value="">Any</option><option value="draft">Drafts</option><option value="published">Published</option><option value="archived">Archived</option></select></label>
       <label class="field"><span>Search</span><input type="search" data-cq></label>
     </div>
-    <div class="dm-create-inline" role="group" aria-label="Create new content"><span class="muted small">Create:</span>${Object.entries(TYPE).map(([k, t]) => `<button type="button" class="btn btn-sm btn-quiet" data-dm="new-content" data-type="${k}">${t.icon}${esc(t.label.split(' / ')[0])}</button>`).join('')}</div>
+    <div class="dm-create-inline" role="group" aria-label="Create new content"><span class="muted small">Create:</span>${Object.entries(TYPE).map(([k, t]) => `<button type="button" class="btn btn-sm btn-quiet" data-dm="new-content" data-type="${k}">${t.icon}${esc(t.label.split(' / ')[0])}</button>`).join('')}
+      ${contentManagementEnabled() ? '<button type="button" class="btn btn-sm" data-dm="dup-official">Duplicate official…</button>' : ''}</div>
     <ul class="dm-content-list" data-c-list></ul>`;
   $('[data-cs]', panel).value = f.status;
   panel.addEventListener('click', (e) => {

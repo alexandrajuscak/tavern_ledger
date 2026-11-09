@@ -2,10 +2,10 @@
 // and the choice editors of every feat grant (direct, background, lineage, Ability Score Improvement). The server resolves
 // grants, prerequisites, effects, spells and resources (get_character_feats); this module only displays and edits choices.
 
-import { $, $$, esc, toast, openModal, filtersOpenAttr, friendlyError } from './utils.js?v=19';
-import { icon } from './icons.js?v=19';
-import { sectionHead } from './section.js?v=19';
-import { getFeatCatalog, getFeatDetail, getCharacterFeats, assignFeat, removeFeat, previewFeatRemoval, setFeatChoices, setFeatNotes, getChoiceReference, getSpellOptions } from './feat-api.js?v=19';
+import { $, $$, esc, toast, openModal, filtersOpenAttr, friendlyError } from './utils.js?v=20';
+import { icon } from './icons.js?v=20';
+import { sectionHead } from './section.js?v=20';
+import { getFeatCatalog, getFeatDetail, getCharacterFeats, assignFeat, removeFeat, previewFeatRemoval, setFeatChoices, setFeatNotes, getChoiceReference, getSpellOptions } from './feat-api.js?v=20';
 
 const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const CATEGORY = { origin: 'Origin', general: 'General', fighting_style: 'Fighting Style', epic_boon: 'Epic Boon', other: 'Other' };
@@ -107,7 +107,7 @@ function featEntryHTML(g, editable, removal = 'allow') {
     ${grantedHTML(g, f, editable)}
     ${g.prerequisite?.status && g.prerequisite.status !== 'satisfied' ? prereqHTML(g.prerequisite, f.prerequisite_text) : ''}
     ${g.prerequisite_override ? `<p class="small muted">Prerequisite waived by the DM: ${esc(g.prerequisite_override.reason)}</p>` : ''}
-    ${g.open_choices ? `<p class="feat-open">${g.open_choices} choice${g.open_choices === 1 ? '' : 's'} still open${pending.length ? ' — those effects wait for them' : ''}.
+    ${g.open_choices ? `<p class="feat-open" data-feat-state="${esc(g.state || 'incomplete')}"><strong>Next step:</strong> ${esc(nextStepText(g))}${pending.length || (g.spells || []).length === 0 && hasSpellChoice(g) ? ' Its spells and effects wait for these choices.' : ''}
       ${editable ? `<button type="button" class="btn btn-xs btn-gold" data-feat="choices" data-grant="${esc(g.grant_key)}" data-focus-key="feat-ch:${esc(g.grant_key)}">Choose…</button>` : ''}</p>` : ''}
     <details class="feat-more"><summary>What it does</summary>
       ${auto.length ? `<ul class="feat-effects">${auto.map((e) => `<li><span aria-hidden="true">✓</span> ${esc(effectText(e))}</li>`).join('')}</ul>` : ''}
@@ -125,6 +125,15 @@ function featEntryHTML(g, editable, removal = 'allow') {
     </div>` : ''}
     ${g.notes ? `<p class="small feat-notes">${esc(g.notes)}</p>` : ''}
   </article>`;
+}
+
+const hasSpellChoice = (g) => (g.choices || []).some((c) => c.kind === 'spell' || c.kind === 'spell_list');
+/** Build "Next step" for a grant that is not applied yet (state from get_character_feats: incomplete | invalidated). */
+export function nextStepText(g) {
+  const open = (g.choices || []).filter((c) => c.status === 'incomplete' || c.status === 'invalid');
+  const bad = open.filter((c) => c.status === 'invalid');
+  if (bad.length) return `Choose again: ${bad.map((c) => c.label).join(', ')} ${bad.length === 1 ? 'is' : 'are'} no longer valid.`;
+  return `Choose ${open.map((c) => c.label).join(', ') || 'the remaining options'}.`;
 }
 
 function effectText(e) {
@@ -367,18 +376,35 @@ export async function openFeatPicker({ characterId, mode = 'assign', title = 'Ch
   if (focus) { $('[data-eligible]', m.el).checked = false; list(); detail(focus); } else $('[data-q]', m.el).focus();
 }
 
+/** The options of 'spell_list' / 'option' choices: from the grant (get_character_feats, 20261109000100) or, for an older
+ *  server or a cached read without them, from the feat version's detail (the same rows). Without options such a choice had no
+ *  buttons, its dependent spell pickers never loaded and only the other choices were saved (docs/FEAT_SYSTEM_AUDIT.md). */
+async function choicesWithOptions(grant) {
+  const choices = (grant.choices || []).map((c) => ({ ...c }));
+  const missing = choices.filter((c) => (c.kind === 'spell_list' || c.kind === 'option') && !(c.options || []).length && !c.fixed);
+  if (!missing.length) return choices;
+  const detail = await getFeatDetail(grant.feat?.id || grant.feat_version_id).catch(() => null);
+  const byKey = new Map((detail?.choices || detail?.feat?.choices || []).map((c) => [c.key, c.options || []]));
+  for (const c of missing) c.options = byKey.get(c.key) || [];
+  return choices;
+}
+
 /** Edit the choices of one grant (any source). */
 export async function openFeatChoices({ characterId, grant, onChanged }) {
+  const choices = await choicesWithOptions(grant);
   const m = openModal({ title: `${grant.feat?.name || 'Feat'}: choices`, wide: true,
-    body: `<form class="feat-choice-form" data-choice-form>${await choiceFormHTML(grant.choices || [], {})}</form>`,
+    body: `<form class="feat-choice-form" data-choice-form>${await choiceFormHTML(choices, {})}</form>`,
     footer: '<button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn btn-gold" data-save>Save choices</button>' });
   const fixed = Object.fromEntries((grant.choices || []).filter((c) => c.status === 'fixed').map((c) => [c.key, c.values?.[0]]));
   wireChoiceForm($('[data-choice-form]', m.el), fixed);
   $('[data-save]', m.el).addEventListener('click', async (e) => {
     e.target.disabled = true;
     try {
-      await setFeatChoices(characterId, grant.grant_key, collectChoices($('[data-choice-form]', m.el)));
-      toast('Choices saved.', 'good');
+      const res = await setFeatChoices(characterId, grant.grant_key, collectChoices($('[data-choice-form]', m.el)));
+      const after = res?.feats?.find((x) => x.grant_key === grant.grant_key);
+      // say what was actually stored: "saved" only when every required choice is complete and the mechanics are applied
+      if (after && after.open_choices) toast(`Saved, but not complete yet. ${nextStepText(after)}`, 'warn', 7000);
+      else toast(after?.spells?.length ? 'Choices saved. The spells are in your spellbook.' : 'Choices saved.', 'good');
       m.close();
       onChanged?.();
     } catch (err) { e.target.disabled = false; if (err.code !== 'TLAPR') toast(err.message, 'bad'); else m.close(); }

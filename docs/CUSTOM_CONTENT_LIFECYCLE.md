@@ -49,6 +49,10 @@ draft ─validate─▶ ready_for_review ─publish─▶ published ─new versi
 * **Restore** brings archived content back; **duplicate** copies it as a new draft (optionally into another campaign: this is
   how private library content is "copied to Campaign A"); **delete** only removes a draft that was never published and is
   referenced by nothing (author only). Published content is never deleted.
+* **Since 2026-11-09** (`docs/CONTENT_MANAGEMENT.md`, flag `CONTENT_MANAGEMENT`): a usage report with a classification
+  (safe to delete / archive recommended / delete blocked / new version required), permanent delete of *any* unused custom
+  content — also published versions nothing uses or remembers — by a DM of the campaign or an admin (re-checked in the delete
+  transaction, one audit event), and "Duplicate official as homebrew". Used or historically referenced content is archived.
 * Optimistic concurrency: `save_dm_content(..., expected_revision)` refuses a stale save ("Someone else saved this draft
   meanwhile. Reload it."), `publish_dm_content(..., expected_version)` refuses publishing a version that is no longer current.
 

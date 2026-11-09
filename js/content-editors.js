@@ -2,11 +2,17 @@
 // type, the lifecycle actions (save draft, validate, preview, publish, new version, archive, restore, duplicate, delete) and a
 // preview of what players will see. The definition is validated and materialized by the database (_dm_try / _dm_materialize).
 
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=19';
-import * as dm from './dm-api.js?v=19';
-import { icon } from './icons.js?v=19';
-import { spellIconHTML } from './spell-icons.js?v=19';
-import { iconPickerHTML } from './item-icon-gallery.js?v=19';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=20';
+import * as dm from './dm-api.js?v=20';
+import { icon } from './icons.js?v=20';
+import { spellIconHTML } from './spell-icons.js?v=20';
+import { iconPickerHTML } from './item-icon-gallery.js?v=20';
+import { supabase } from './supabase.js?v=20';
+import { CONTENT_MANAGEMENT } from './config.js?v=20';
+
+/** The content management actions (usage report, delete any unused content, duplicate official) are behind js/config.js
+ *  CONTENT_MANAGEMENT; 'off' keeps the earlier buttons. The database authorizes every action itself. */
+export const contentManagementEnabled = () => (CONTENT_MANAGEMENT || 'off') !== 'off';
 
 export const TYPE = {
   spell: { icon: icon('dm/spell'), label: 'Spell' }, item: { icon: icon('dm/item'), label: 'Item' }, feat: { icon: icon('dm/feat'), label: 'Feat' },
@@ -332,15 +338,132 @@ export function previewHTML(type, p, player) {
   }
 }
 
+// ---- usage report and permanent delete (20261109000300) --------------------------------------------------------------------------
+const USAGE_LABEL = {
+  character_spells: 'characters know or prepare it', character_resources: 'free-cast counters', feat_spell_grants: 'feats grant it',
+  class_feature_effects: 'class features grant it', inventory_instances: 'inventory entries', equipped_instances: 'equipped',
+  attuned_instances: 'attuned', inventory_history: 'inventory history entries', owned_assets: 'owned assets', background_equipment: 'background equipment',
+  proficiencies: 'proficiencies', items_based_on_it: 'items based on it', feat_assignments: 'feat assignments', feat_choices: 'saved feat choices',
+  lineage_feat_picks: 'lineage feat picks', class_feat_picks: 'Ability Score Improvement feat picks', backgrounds_granting: 'backgrounds grant it',
+  seen_forms: 'Wild Shape forms known', form_favorites: 'form favourites', companions: 'companions', transformations: 'active transformations',
+  active_encounter_snapshots: 'running or planned encounters', background_assignments: 'characters with this background',
+  background_choices: 'saved background choices', lineage_assignments: 'characters with this lineage', lineage_choices: 'saved lineage choices',
+  condition_assignments: 'applied conditions', pending_requests: 'pending change requests', other_content: 'other content refers to it',
+  completed_encounter_snapshots: 'completed encounters (history)', audit_references: 'audit history entries', earlier_assignments: 'earlier assignments (history)',
+};
+export const CLASSIFICATION = {
+  safe_to_delete: ['Safe to delete', 'good'], archive_recommended: ['Archive recommended', 'warn'],
+  delete_blocked: ['Delete blocked', 'bad'], new_version_required: ['New version required', 'warn'],
+};
+
+function usageHTML(u) {
+  const rows = Object.entries(u.counts || {}).filter(([, n]) => Number(n) > 0);
+  const [label, tone] = CLASSIFICATION[u.classification] || [u.classification, ''];
+  return `<p><span class="ce-chip ce-usage-${esc(tone)}" data-usage-class="${esc(u.classification)}">${esc(label)}</span>
+      ${u.edit === 'new_version_required' ? `<span class="ce-chip ce-usage-warn" data-usage-edit>${esc(CLASSIFICATION.new_version_required[0])}</span>` : ''}</p>
+    <p class="small">${esc(TYPE[u.content_type]?.label || u.content_type)} · version ${esc(u.version_no || 1)} · Campaign custom${u.archived ? ' · archived' : ''}</p>
+    <p class="small"><strong>${Number(u.characters) || 0}</strong> character${Number(u.characters) === 1 ? '' : 's'} use it.</p>
+    ${rows.length ? `<ul class="small ce-usage-list" data-usage-counts>${rows.map(([k, n]) => `<li><strong>${esc(n)}</strong> ${esc(USAGE_LABEL[k] || k.replace(/_/g, ' '))}</li>`).join('')}</ul>`
+      : '<p class="small muted" data-usage-counts>Nothing uses it and nothing refers to it.</p>'}
+    <p class="small">${esc(u.advice || '')}</p>`;
+}
+
+/** The usage report (counts only) with Archive as the alternative and Delete only when the server says it is safe. */
+export async function openUsage(content, { onChanged, onDeleted } = {}) {
+  let u;
+  try { u = await dm.getContentUsage(content.id); } catch (err) { toast(err.message, 'bad'); return; }
+  const m = openModal({ title: `Usage: ${u.name}`, body: `<div data-usage>${usageHTML(u)}</div>`,
+    footer: `<button type="button" class="btn" data-close>Close</button>
+      ${u.can_archive ? '<button type="button" class="btn" data-u="archive">Archive instead</button>' : ''}
+      ${u.can_delete ? '<button type="button" class="btn btn-bad" data-u="delete">Delete permanently…</button>' : ''}` });
+  m.el.addEventListener('click', async (e) => {
+    const a = e.target.closest('[data-u]')?.dataset.u;
+    if (!a) return;
+    if (a === 'archive') {
+      if (!(await confirmDialog(`Archive “${u.name}”? It can no longer be assigned; everything that has it keeps working.`, { okLabel: 'Archive', danger: true }))) return;
+      try { await dm.archiveContent(content.id); toast('Archived.'); m.close(); onChanged?.(); } catch (err) { toast(err.message, 'bad'); }
+    }
+    if (a === 'delete') { m.close(); if (await deleteContentFlow(u)) onDeleted?.(); }
+  });
+}
+
+/** Typed-name permanent delete; the server re-checks every dependency in its own transaction. Resolves true when deleted. */
+async function deleteContentFlow(u) {
+  const typed = await askName(u.name, { what: TYPE[u.content_type]?.label.toLowerCase() || 'content',
+    detail: `${TYPE[u.content_type]?.label || u.content_type} · version ${u.version_no || 1} · Campaign custom. Nothing uses it and nothing refers to it.
+      Deleting removes the content, all its versions and their catalog entries for good. Archive keeps it readable instead.` });
+  if (typed == null) return false;
+  try {
+    await dm.deleteUnusedContent(u.content_id, typed);
+    toast(`${u.name} deleted.`);
+    return true;
+  } catch (err) {
+    toast(err.code === 'TLUSE' ? `${err.message} Open its usage to see what refers to it.` : err.message, 'bad', 7000);
+    return false;
+  }
+}
+
+// ---- duplicate official content as homebrew -------------------------------------------------------------------------------------
+const OFFICIAL = {
+  spell: { table: 'spell_versions', label: 'Spell', filter: (q) => q.is('content_version_id', null).eq('status', 'current') },
+  item: { table: 'items', label: 'Item', filter: (q) => q.is('owner_id', null) },
+  feat: { table: 'feat_versions', label: 'Feat', filter: (q) => q.is('content_version_id', null).is('owner_id', null) },
+  creature: { table: 'creatures', label: 'Creature', filter: (q) => q.is('owner_id', null).is('content_version_id', null) },
+  background: { table: 'background_versions', label: 'Background', filter: (q) => q.is('content_version_id', null).is('owner_id', null) },
+  lineage: { table: 'lineage_versions', label: 'Lineage', filter: (q) => q.is('content_version_id', null).is('owner_id', null) },
+};
+
+/** Search an official catalog entry and copy it into a new campaign draft (the official row is never changed). */
+export function openDuplicateOfficial({ campaignId, onCreated }) {
+  const m = openModal({ title: 'Duplicate official content as homebrew', wide: true,
+    body: `<p class="small muted">Official content is never edited or deleted. A duplicate is a new draft of this campaign with its own id; review it,
+        validate and publish it like any other content.</p>
+      <div class="dm-filters"><label class="field"><span>Type</span><select data-do-type>${Object.entries(OFFICIAL).map(([k, t]) => `<option value="${k}">${esc(t.label)}</option>`).join('')}</select></label>
+      <label class="field"><span>Name</span><input type="search" data-do-q placeholder="At least 2 letters" autocomplete="off"></label></div>
+      <ul class="dm-content-list" data-do-list aria-live="polite"></ul>`,
+    footer: '<button type="button" class="btn" data-close>Close</button>' });
+  let seq = 0;
+  const search = async () => {
+    const my = ++seq;
+    const type = $('[data-do-type]', m.el).value;
+    const q = $('[data-do-q]', m.el).value.trim();
+    const list = $('[data-do-list]', m.el);
+    if (q.length < 2) { list.innerHTML = ''; return; }
+    const t = OFFICIAL[type];
+    const { data, error } = await t.filter(supabase.from(t.table).select('id, name').ilike('name', `%${q.replace(/[%_]/g, '')}%`)).order('name').limit(20);
+    if (my !== seq) return;
+    list.innerHTML = error ? `<li class="warn small">${esc(error.message)}</li>` : (data || []).length ? data.map((x) => `<li class="dm-content-row">
+      <span class="dm-content-name"><strong>${esc(x.name)}</strong><span class="small muted">${esc(x.id)}</span></span>
+      <button type="button" class="btn btn-sm" data-do-copy="${esc(x.id)}" data-type="${esc(type)}">Duplicate as homebrew</button></li>`).join('')
+      : '<li class="muted small">No official entry matches.</li>';
+  };
+  let timer = null;
+  $('[data-do-q]', m.el).addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(search, 250); });
+  $('[data-do-type]', m.el).addEventListener('change', search);
+  m.el.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-do-copy]');
+    if (!b) return;
+    b.disabled = true;
+    try {
+      const c = await dm.duplicateOfficial(b.dataset.type, b.dataset.doCopy, campaignId);
+      toast(`${c.name} created as a draft.`, 'good');
+      m.close();
+      onCreated?.(c);
+    } catch (err) { b.disabled = false; toast(err.message, 'bad'); }
+  });
+  $('[data-do-q]', m.el).focus();
+  return m;
+}
+
 // ---- the editor --------------------------------------------------------------------------------------------------------------
 /** Typed-name confirmation for a permanent delete; resolves to the typed name or null. */
-function askName(name) {
+function askName(name, { what = 'item', detail = 'Nothing uses this item yet. Deleting removes every version for good and cannot be undone.' } = {}) {
   return new Promise((resolve) => {
     let done = false;
     const m = openModal({
       title: `Delete ${name}?`,
-      body: `<p>Nothing uses this item yet. Deleting removes every version for good and cannot be undone.</p>
-        <label class="field"><span>Type the item name to confirm</span><input data-n autocomplete="off"></label>`,
+      body: `<p>${esc(detail)}</p>
+        <label class="field"><span>Type the ${esc(what)} name to confirm</span><input data-n autocomplete="off"></label>`,
       footer: '<button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn btn-bad" data-ok disabled>Delete for good</button>',
       onClose: () => { if (!done) resolve(null); },
     });
@@ -359,6 +482,11 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
   const current = () => c?.versions?.find((v) => v.id === c.current_version_id) || { name: '', definition: {} };
   const m = openModal({ title: c ? `${TYPE[type].label}: ${c.name}` : `New ${TYPE[type].label.toLowerCase()}`, wide: true, body: '<div data-ce></div>', footer: '<div data-ce-actions class="ce-actions"></div>' });
   const editable = () => !c || ['draft', 'validation_failed', 'ready_for_review'].includes(current().status);
+  let mgmt = null;   // get_dm_content_usage: whether Delete permanently is offered (the server decides; re-checked on delete)
+  const refreshMgmt = async () => {
+    if (!c?.id || !contentManagementEnabled()) { mgmt = null; return; }
+    mgmt = await dm.getContentUsage(c.id).catch(() => null);
+  };
 
   function draw() {
     const v = current();
@@ -389,8 +517,10 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
       ${c ? '<button type="button" class="btn" data-ce-act="duplicate">Duplicate</button>' : ''}
       ${c && st === 'archived' ? '<button type="button" class="btn" data-ce-act="restore">Restore</button>' : ''}
       ${c && c.published_version_id && st !== 'archived' ? '<button type="button" class="btn btn-bad" data-ce-act="archive">Archive</button>' : ''}
-      ${c && !c.published_version_id ? '<button type="button" class="btn btn-bad" data-ce-act="delete">Delete draft</button>' : ''}
-      ${c && type === 'item' && c.published_version_id && !(usage?.characters) && !(usage?.stash_items) ? '<button type="button" class="btn btn-bad" data-ce-act="delete-unused">Delete (unused)…</button>' : ''}
+      ${c && contentManagementEnabled() ? '<button type="button" class="btn" data-ce-act="usage">View usage…</button>' : ''}
+      ${c && !contentManagementEnabled() && !c.published_version_id ? '<button type="button" class="btn btn-bad" data-ce-act="delete">Delete draft</button>' : ''}
+      ${c && !contentManagementEnabled() && type === 'item' && c.published_version_id && !(usage?.characters) && !(usage?.stash_items) ? '<button type="button" class="btn btn-bad" data-ce-act="delete-unused">Delete (unused)…</button>' : ''}
+      ${c && contentManagementEnabled() && mgmt?.can_delete ? '<button type="button" class="btn btn-bad" data-ce-act="delete-any">Delete permanently…</button>' : ''}
       <button type="button" class="btn btn-ghost" data-close>Close</button>`;
     $$('.multi-opts[data-max]', m.el).forEach(limitMulti);
     showTypeSections();
@@ -460,6 +590,13 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
           if (!(await confirmDialog(`Archive “${c.name}”? It can no longer be assigned.${n ? ` The ${n} character(s) that have it keep it.` : ''}`, { okLabel: 'Archive', danger: true }))) break;
           c = await dm.archiveContent(c.id); toast('Archived.'); onChanged?.(); break;
         }
+        case 'usage': await openUsage(c, { onChanged: () => { onChanged?.(); m.close(); }, onDeleted: () => { onChanged?.(); m.close(); } }); btn.disabled = false; return;
+        case 'delete-any': {
+          await refreshMgmt();
+          if (!mgmt?.can_delete) { toast('It is in use or part of the history now: archive it instead.', 'bad'); break; }
+          if (await deleteContentFlow(mgmt)) { onChanged?.(); m.close(); return; }
+          break;
+        }
         case 'delete-unused': {
           const typed = await askName(c.name);
           if (typed == null) break;
@@ -471,6 +608,7 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
           await dm.deleteContent(c.id); toast('Draft deleted.'); onChanged?.(); m.close(); return;
         default:
       }
+      await refreshMgmt();
       draw();
     } catch (err) {
       toast(err.message, 'bad', 6000);
@@ -478,5 +616,6 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
     btn.disabled = false;
   });
   draw();
+  refreshMgmt().then(() => { if (mgmt) draw(); });
   return m;
 }

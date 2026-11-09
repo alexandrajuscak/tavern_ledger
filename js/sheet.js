@@ -4,56 +4,57 @@ import {
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   ACTIVATIONS, ACTIVATION_BY_KEY, CASTING_TIMES, CONDITIONS, CONDITION_BY_NAME,
   weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js?v=19';
+} from './dnd.js?v=20';
 import {
   saver, insertRow, deleteRow, deleteCharacter, applyCharacterHp, subscribeCharacter, subscribeCharacterFluent, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
-} from './store.js?v=19';
-import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=19';
-import { openCoinCalculator, wallet as coinWallet } from './coins.js?v=19';
-import { mountInventory } from './inventory-ui.js?v=19';
-import { exportCharacter, downloadJson } from './transfer.js?v=19';
-import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups } from './inventory-api.js?v=19';
+} from './store.js?v=20';
+import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=20';
+import { openCoinCalculator, wallet as coinWallet } from './coins.js?v=20';
+import { mountInventory } from './inventory-ui.js?v=20';
+import { exportCharacter, downloadJson } from './transfer.js?v=20';
+import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups } from './inventory-api.js?v=20';
 import { backgroundCardHTML, openBackgroundPicker, openBackgroundEquipment, openReplaceDuplicate, saveCharacteristics, rollCharacteristic,
-  removeBackground } from './background-ui.js?v=19';
-import { getCharacterBackground } from './background-api.js?v=19';
-import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=19';
-import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=19';
+  removeBackground } from './background-ui.js?v=20';
+import { getCharacterBackground } from './background-api.js?v=20';
+import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=20';
+import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=20';
 import {
   acNote, openAcBreakdown, equippedWeaponsHTML, trackWeaponDetails, toolsHTML, specificProficienciesHTML,
   openProficiencyManager, equipmentNotes,
-} from './derived-ui.js?v=19';
-import { openLevelUp } from './levelup.js?v=19';
-import { mountGovernance } from './request-ui.js?v=19';
-import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=19';
-import { fluentEnabled, beginReadScope, endReadScope, seedReads, prefetchDomain, readNow, knownRevision, noteRevisions, awaitSeed } from './read-layer.js?v=19';
-import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=19';
-import { exportFeats } from './feat-api.js?v=19';
-import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=19';
-import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=19';
-import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=19';
+} from './derived-ui.js?v=20';
+import { openLevelUp } from './levelup.js?v=20';
+import { mountGovernance } from './request-ui.js?v=20';
+import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=20';
+import { fluentEnabled, beginReadScope, endReadScope, seedReads, prefetchDomain, readNow, knownRevision, noteRevisions, awaitSeed } from './read-layer.js?v=20';
+import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=20';
+import { exportFeats } from './feat-api.js?v=20';
+import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=20';
+import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=20';
+import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=20';
 import {
   emptyFilters, filtersHTML, readFilter, sourcesHTML, spellbookListHTML, openSpellDetail, openAddSpell, openSourceEditor, rememberSpellSections,
-} from './spell-ui.js?v=19';
+} from './spell-ui.js?v=20';
 import {
   getClassSummary, getSpellSlots, getClassCatalog, expendStandardSlot, restoreStandardSlot, expendPactSlot, restorePactSlot,
   setSlotState, setCharacterClass, shortRest, longRest, getClassFeatures, getResources, exportClassFeatures, useTemporarySlot,
   restoreTemporarySlot, getStartingEquipmentState, getStartingEquipment, getStates,
-} from './class-api.js?v=19';
-import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=19';
-import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=19';
-import { openStartingEquipment } from './class-setup.js?v=19';
+} from './class-api.js?v=20';
+import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=20';
+import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=20';
+import { openStartingEquipment } from './class-setup.js?v=20';
 import {
   companionsHTML, openAddCompanion, changeCompanionHp, removeCompanionConfirm,
-} from './creature-ui.js?v=19';
-import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=19';
-import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=19';
-import { selectedOptions, optionCardHTML, reminderListHTML, infusionsPlayHTML, optionSpellsHTML, infusedItemMap } from './active-features.js?v=19';
+} from './creature-ui.js?v=20';
+import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=20';
+import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=20';
+import { selectedOptions, optionCardHTML, reminderListHTML, infusionsPlayHTML, optionSpellsHTML, infusedItemMap, loadPlayTiming, sourceFeatures,
+  sourceCardHTML, sourceReminderListHTML } from './active-features.js?v=20';
 import {
   featuresPanelHTML, featureSummaryHTML, restoreDrafts, resourceListHTML, attachFeatureHandlers, hydrateSpellChoices, restResourceLines, restResultText, restSummaryHTML,
   riderDiceRange, statesHTML, glanceHTML,
-} from './feature-ui.js?v=19';
-import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=19';
-import { sectionHTML, sectionHead } from './section.js?v=19';
+} from './feature-ui.js?v=20';
+import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=20';
+import { sectionHTML, sectionHead } from './section.js?v=20';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -121,6 +122,7 @@ let tfBusy = new Set();
 let tfEpoch = 0;
 let tfSeq = 0;
 let companions = null;        // character_companions with their catalog creature
+let playTiming = null;        // catalog_play_timing (lineage traits and feats in Play), read once per page session
 let infusionState = null;     // get_character_infusions: known infusions and infused items      // {class_version_id, applied, has_options} of the primary class (starting equipment review)
 const hasClasses = () => (classSummary?.classes?.length || 0) > 0;
 const DERIVED_FIELDS = new Set(['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma', 'level', 'speed', 'ac_override']);
@@ -509,6 +511,7 @@ async function loadFeats() {
     featState = r;
     rerender('#feats-card', featsCardHTML(featState, { editable: !ctx?.readOnly, removal: featRemovalPolicy() }));
     renderSheetChips();
+    rerenderPlayFeatures();   // feat actions, reminders and counters in Play
   } catch (err) { console.warn('Feats unavailable:', err.message); }
 }
 
@@ -534,6 +537,7 @@ async function loadLineage() {
     if (!B || my !== lineageSeq) return;
     renderLineage();
     renderSheetChips();
+    rerenderPlayFeatures();   // lineage actions, reminders and counters in Play
   } catch (err) {
     if (my === lineageSeq) console.warn('[lineage]', err?.message || err);
   }
@@ -1701,6 +1705,20 @@ const featureCard = (f) =>
 const spellCard = (s) =>
   `<article class="entry combat-spell"><div class="entry-view" data-view="spells:${s.id}">${spellViewHTML(s)}</div></article>`;
 
+/** Lineage traits and feats for Play, from the lineage, feat and resource reads the sheet already has (no extra request). */
+function activeSourceFeatures() {
+  if (!playTiming) return { action: [], bonus_action: [], reaction: [], special: [], passive: [], resource: [] };
+  return sourceFeatures({ lineage, feats: featState, resources: classResources, timing: playTiming });
+}
+
+/** Play after a lineage, feat or timing read: only the timing groups and Ready to use (targeted, no sheet reload). */
+function rerenderPlayFeatures() {
+  if (!root || !B) return;
+  rerender('#combat-groups', combatGroupsHTML());
+  rerender('#combat-states', playGlanceHTML());
+  $$('[data-play-ready]', root).forEach((el) => { el.hidden = !playGlanceHTML(); });
+}
+
 function combatGroupsHTML() {
   lastCombatSignature = combatSignature();
   const empty = [];
@@ -1708,9 +1726,11 @@ function combatGroupsHTML() {
   // an option already shown as an attack rider (Eldritch Smite under Attacks) is not repeated as a card
   const riders = new Set((derived?.attack_riders || []).map((r) => String(r.name || '').toLowerCase()));
   for (const k of Object.keys(opts)) opts[k] = opts[k].filter((x) => !riders.has(x.name.toLowerCase()));
+  const src = activeSourceFeatures();   // lineage traits and feats with a stated timing (catalog_play_timing)
   const groups = ['action', 'bonus_action', 'reaction', 'special'].map((key) => {
     const { feats, spells } = groupItems(key);
-    const items = [...classActions(key).map(classActionHTML), ...(opts[key] || []).map(optionCardHTML), ...feats.map(featureCard), ...spells.map(spellCard)].join('');
+    const items = [...classActions(key).map(classActionHTML), ...(opts[key] || []).map(optionCardHTML), ...(src[key] || []).map(sourceCardHTML),
+      ...feats.map(featureCard), ...spells.map(spellCard)].join('');
     if (!items) { if (key !== 'special') empty.push(GROUP_TITLES[key].toLowerCase()); return key === 'action' ? actionBasicsHTML() : ''; }
     return `
       <section class="combat-group group-${key}" aria-labelledby="cg-${key}">
@@ -1721,13 +1741,15 @@ function combatGroupsHTML() {
   }).join('');
   const passive = groupItems('passive').feats;
   const reminders = opts.passive || [];
+  const srcReminders = src.passive || [];
   return `${groups}
     ${empty.length > 1 || (empty.length === 1 && empty[0] !== 'actions') ? `<p class="calm-note">No special ${empty.filter((x) => x !== 'actions').join(' or ')} from your features yet.
       Features and spells that use them appear here automatically.</p>` : ''}
-    <details class="combat-group passive-group" ${passive.length || reminders.length ? '' : 'hidden'} ${reminders.length ? 'open' : ''}>
-      <summary><span class="section-title">Passive and reminders</span> <span class="count">${passive.length + reminders.length}</span>
+    <details class="combat-group passive-group" ${passive.length || reminders.length || srcReminders.length ? '' : 'hidden'} ${reminders.length || srcReminders.length ? 'open' : ''}>
+      <summary><span class="section-title">Passive and reminders</span> <span class="count">${passive.length + reminders.length + srcReminders.length}</span>
         <span class="hint">always on, nothing to activate</span></summary>
       ${reminderListHTML(reminders)}
+      ${sourceReminderListHTML(srcReminders)}
       <div class="entry-list">${passive.map(featureCard).join('')}</div>
     </details>`;
 }
@@ -1768,7 +1790,7 @@ function featureAttacksHTML() {
 /** Play's "Ready to use": active states, feature DCs and quick resource buttons (classResources has the uses). */
 // Ready to use: the class feature resources plus the lineage counters (Hungry Jaws, Breath Weapon, ...: get_character_resources)
 const playGlanceHTML = () => {
-  const lineage = (classResources?.resources || []).filter((r) => r.source_type === 'lineage');
+  const lineage = (classResources?.resources || []).filter((r) => r.source_type === 'lineage' || (r.source_type === 'feat' && !r.spell_version_id));
   const state = classFeatures || (lineage.length ? { resources: [] } : null);
   return glanceHTML(state && lineage.length ? { ...state, resources: [...(state.resources || []), ...lineage] } : state, derived, !ctx?.readOnly,
     classStates, { attackFacts: false });
@@ -3216,6 +3238,8 @@ export function mountSheet(container, bundle, options = {}) {
   loadSpellbook();
   loadClasses();
   loadFeats();
+  if (playTiming) rerenderPlayFeatures();
+  else loadPlayTiming().then((m) => { playTiming = m; rerenderPlayFeatures(); });   // once per page session (catalog table)
   if (!sheetFluent && !fluentEnabled()) cacheSet(`bundle:${C().id}`, B);
   // a prefetched view may be a few seconds old: one revision check catches what changed in between (no full reload)
   else if (options.view?.fetched_at && Date.now() - options.view.fetched_at > 1500) reconcileSoon();

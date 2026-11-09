@@ -37,9 +37,10 @@ step supabase/seed/creatures.sql
 step supabase/seed/lineages.sql
 step supabase/seed/feats.sql
 step supabase/seed/backgrounds.sql
+step supabase/seed/catalog_play_timing.sql
 step supabase/tests/03_legacy_migration_check.sql
 echo "== seed re-run (must be idempotent)"
-cat supabase/seed/reference_data.sql supabase/seed/item_effects.sql supabase/seed/spells.sql supabase/seed/classes.sql supabase/seed/class_features.sql supabase/seed/creatures.sql supabase/seed/lineages.sql supabase/seed/feats.sql supabase/seed/backgrounds.sql | psqlx >/dev/null
+cat supabase/seed/reference_data.sql supabase/seed/item_effects.sql supabase/seed/spells.sql supabase/seed/classes.sql supabase/seed/class_features.sql supabase/seed/creatures.sql supabase/seed/lineages.sql supabase/seed/feats.sql supabase/seed/backgrounds.sql supabase/seed/catalog_play_timing.sql | psqlx >/dev/null
 [ "$(q 'select count(*) from public.items')" = 1146 ] && echo "PASSED  seed re-run kept 1146 items" || { echo "FAILED  seed re-run"; exit 1; }
 echo "== tests"
 cat supabase/tests/01_expected_counts.sql supabase/tests/inventory_tests.sql | psqlx | tail -n +1 | grep -v "^1$"
@@ -103,12 +104,17 @@ for t in combat_initiative_tests wild_shape_damage_tests items_herbs_icons_tests
   echo "$out"
   echo "$out" | grep -q "^TOTAL .*, 0 failed" || { echo "FAILED  $t.sql"; exit 1; }
 done
+echo "== active features / feats / content management (20261109000100-300): feat choice state, Resilient, content usage and deletion"
+out=$(psqlx -At < supabase/tests/feat_choice_state_tests.sql 2>&1 | grep -E "^(FAILED|TOTAL)|<--|ERROR")
+echo "$out"
+echo "$out" | grep -q "^TOTAL .*, 0 failed" || { echo "FAILED  feat_choice_state_tests.sql"; exit 1; }
+DB="$NAME" bash supabase/tests/content_deletion_concurrency_test.sh 8 || exit 1
 echo "== rollback of the class catalog content and the 20261017* migrations"
 if psqlx < supabase/rollback/rollback_class_engine_extensions.sql >/dev/null 2>&1; then echo "FAILED  rollback_class_engine_extensions.sql ran while official content exists"; exit 1; fi
 echo "PASSED  rollback_class_engine_extensions.sql refuses to run while official class content exists"
 psqlx < supabase/rollback/rollback_class_catalog.sql
 # the 20261017* migrations, newest first (one rollback each; same list as run_supabase_local.sh)
-for rb in rollback_class_option_activation rollback_items_herbs_icons_deletion rollback_combat_initiative_wild_shape rollback_feat_removal rollback_combat_builder_functions rollback_combat_builder_schema rollback_derived_stats_items_lookup rollback_v62_hardening rollback_feat_backfill rollback_derived_stats_performance rollback_dm_read_models rollback_hidden_dm_data rollback_dm_content rollback_feat_catalog rollback_change_requests rollback_campaign_governance rollback_wild_shape_engine rollback_backgrounds rollback_proficiency_resolver rollback_rest_report_fix rollback_infusions_and_attunement rollback_creatures_and_transformations rollback_martial_engine_extensions rollback_class_setup_flow rollback_hybrid_caster_extensions rollback_spells_ux rollback_spellcasting_class_extensions rollback_class_page_read_model rollback_class_engine_extensions; do
+for rb in rollback_content_management rollback_active_feature_timing rollback_feat_choice_state rollback_class_option_activation rollback_items_herbs_icons_deletion rollback_combat_initiative_wild_shape rollback_feat_removal rollback_combat_builder_functions rollback_combat_builder_schema rollback_derived_stats_items_lookup rollback_v62_hardening rollback_feat_backfill rollback_derived_stats_performance rollback_dm_read_models rollback_hidden_dm_data rollback_dm_content rollback_feat_catalog rollback_change_requests rollback_campaign_governance rollback_wild_shape_engine rollback_backgrounds rollback_proficiency_resolver rollback_rest_report_fix rollback_infusions_and_attunement rollback_creatures_and_transformations rollback_martial_engine_extensions rollback_class_setup_flow rollback_hybrid_caster_extensions rollback_spells_ux rollback_spellcasting_class_extensions rollback_class_page_read_model rollback_class_engine_extensions; do
   psqlx < "supabase/rollback/$rb.sql"
 done
 [ "$(q "select count(*) from public.class_features where content_scope = 'official'")" = 0 ] \
@@ -167,7 +173,7 @@ if [ "$TABLES" = 11 ] && [ "$POLICY" = inventory_items_all ] && [ "$COLS" = 10 ]
 [ "$EQ" = 7 ] && echo "PASSED  rollback restored the 7 legacy equipped flags" || { echo "FAILED  rollback equipped flags: $EQ"; exit 1; }
 echo "== re-apply after rollback"
 for f in $(inventory_migrations); do psqlx < "$f" >/dev/null; done
-cat supabase/seed/reference_data.sql supabase/seed/item_effects.sql supabase/seed/spells.sql supabase/seed/classes.sql supabase/seed/class_features.sql supabase/seed/creatures.sql supabase/seed/lineages.sql supabase/seed/feats.sql supabase/seed/backgrounds.sql | psqlx >/dev/null
+cat supabase/seed/reference_data.sql supabase/seed/item_effects.sql supabase/seed/spells.sql supabase/seed/classes.sql supabase/seed/class_features.sql supabase/seed/creatures.sql supabase/seed/lineages.sql supabase/seed/feats.sql supabase/seed/backgrounds.sql supabase/seed/catalog_play_timing.sql | psqlx >/dev/null
 cat supabase/tests/01_expected_counts.sql supabase/tests/inventory_tests.sql | psqlx | grep "passed,"
 psqlx < supabase/tests/derived_stats_tests.sql | grep "passed,"
 psqlx < supabase/tests/lineage_tests.sql | grep "passed,"

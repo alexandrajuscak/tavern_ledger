@@ -100,9 +100,8 @@ proficiencies, open choices, the feat list).
 | Build Next Steps / open choices | recomputed from the remaining grants |
 | Read cache / Realtime | `tl_cache_rev` (cache counter) and the new `character_feats_revision` / `character_feat_choices_revision` triggers; open sheets reload feats, derived stats, spellbook and class resources (`scheduleFeatsChanged`), the legacy path through its own subscription, the Combat Builder its linked numbers |
 
-Known, separate defect found while testing (not changed here): a feat's **saving-throw proficiency** (Resilient) is listed as
-automated on the feat card but neither the derived saves nor the proficiency resolver apply it. Removing such a feat therefore
-has nothing else to undo. See [V6_KNOWN_LIMITATIONS.md](V6_KNOWN_LIMITATIONS.md).
+A feat's **saving-throw proficiency** (Resilient) was listed as automated but not applied; **fixed 2026-11-09**
+(`20261109000100`, `docs/FEAT_SYSTEM_AUDIT.md` D2): it is applied while the feat is held and removed with it (test F17b).
 
 ## The review dialog
 

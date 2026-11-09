@@ -1,7 +1,7 @@
 // Derived character stats on the sheet: AC breakdown, warnings, equipped weapon attacks, proficiency manager.
 // The rules live in the database (get_character_derived_stats); this module only turns the structured result into text.
-import { $, esc, toast, openModal } from './utils.js?v=19';
-import * as api from './inventory-api.js?v=19';
+import { $, esc, toast, openModal } from './utils.js?v=20';
+import * as api from './inventory-api.js?v=20';
 
 const fmt = (n) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`);
 const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };

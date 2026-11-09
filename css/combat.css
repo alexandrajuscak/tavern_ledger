@@ -335,3 +335,9 @@ body:has(.cb-dock) .toasts { bottom: calc(76px + env(safe-area-inset-bottom)); }
   .cb-imode { max-width: none; }
   .cb-init-input { min-height: 44px; width: 5em; }
 }
+/* linked character: active features (actions, reactions, uses) loaded on request */
+.cb-active-features { display: grid; gap: 4px; margin: 0; }
+.cb-af-row { display: grid; grid-template-columns: minmax(96px, auto) 1fr; gap: 8px; }
+.cb-af-row dt { color: var(--text-3); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.cb-af-row dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 520px) { .cb-af-row { grid-template-columns: 1fr; gap: 0; } }

@@ -4,8 +4,13 @@
 // choice features (Eldritch Invocations, Metamagic, Fighting Style, Battle Master maneuvers, Hunter options, Pact Boon,
 // Fiendish Resilience) using the option's catalog timing (data.activation, migration 20261107000400), and the Artificer
 // infusions that are active on an item. Nothing is automated here: a reminder says so, and no Use button is invented.
-import { esc } from './utils.js?v=19';
-import { icon } from './icons.js?v=19';
+//
+// Lineage traits and feats (20261109000200, docs/ACTIVE_GAMEPLAY_FEATURE_AUDIT.md): sourceFeatures() builds the same compact card
+// model from get_character_lineage, get_character_feats and get_character_resources plus the catalog table catalog_play_timing
+// (the timing the catalog text states; read once per page session). No request per card and no rules evaluation here.
+import { esc } from './utils.js?v=20';
+import { icon } from './icons.js?v=20';
+import { supabase } from './supabase.js?v=20';
 
 export const PLAY_TIMINGS = ['action', 'bonus_action', 'reaction', 'special'];
 const AUTOMATION = { automated: 'automatic', partially_automated: 'partly automatic', informational: 'reminder' };
@@ -92,4 +97,111 @@ export function infusedItemMap(infusionState) {
   const m = new Map();
   for (const a of infusionState?.active || []) if (a.inventory_item_id) m.set(a.inventory_item_id, { label: a.label, attunement: a.attunement, attuned: a.attuned });
   return m;
+}
+
+// ---- lineage traits and feats in Play -------------------------------------------------------------------------------------------
+let timingPromise = null;
+/** Map 'lineage_trait:<id>' | 'feat_version:<id>' -> { timing, play }. Cached for the page session; empty when unavailable
+ *  (an older database without the table): Play then simply shows no lineage / feat cards, as before. */
+export function loadPlayTiming() {
+  timingPromise ||= supabase.from('catalog_play_timing').select('source_kind, source_id, timing, play').limit(5000)
+    .then(({ data, error }) => {
+      if (error) { timingPromise = null; return new Map(); }
+      return new Map((data || []).map((r) => [`${r.source_kind}:${r.source_id}`, { timing: r.timing, play: r.play }]));
+    }, () => { timingPromise = null; return new Map(); });
+  return timingPromise;
+}
+
+const LINEAGE_AUTOMATION = { automatic: 'automated', partial: 'partially_automated', informational: 'informational' };
+const RECHARGE = { short_rest: 'short rest', long_rest: 'long rest', short_or_long_rest: 'short or long rest', special: 'special' };
+
+/**
+ * Lineage traits and feats that matter during play, as compact cards:
+ * { key, featureId, versionId, name, sourceType: 'lineage'|'feat', sourceName, timing, play: 'card'|'resource'|'reminder',
+ *   summary, uses: [resource], recovery, automation, state, spells: [names] },
+ * grouped {action, bonus_action, reaction, special, passive, resource}.
+ */
+export function sourceFeatures({ lineage, feats, resources, timing }) {
+  const out = { action: [], bonus_action: [], reaction: [], special: [], passive: [], resource: [] };
+  const map = timing instanceof Map ? timing : new Map();
+  const res = resources?.resources || [];
+  const lineageName = lineage?.subversion?.name || lineage?.version?.name || lineage?.lineage?.name || 'Lineage';
+  for (const t of lineage?.traits || []) {
+    if (t.status && t.status !== 'active') continue;
+    const tm = map.get(`lineage_trait:${t.id}`);
+    if (!tm) continue;
+    const uses = res.filter((r) => r.source_type === 'lineage' && r.source_id === t.id && r.active !== false);
+    place(out, { key: `lin:${t.id}`, featureId: t.id, versionId: t.version_id, name: t.name, sourceType: 'lineage', sourceName: lineageName,
+      timing: tm.timing, play: tm.play, summary: t.summary || '', uses, recovery: RECHARGE[t.recharge] || null,
+      automation: LINEAGE_AUTOMATION[t.automation] || 'informational', state: 'applied', spells: [] });
+  }
+  for (const g of feats?.feats || []) {
+    if (!g.active) continue;
+    const f = g.feat || {};
+    const tm = map.get(`feat_version:${f.id}`);
+    const uses = res.filter((r) => r.source_type === 'feat' && r.source_id === g.grant_key && r.active !== false && !r.spell_version_id);
+    if (!tm && !uses.length) continue;
+    place(out, { key: `feat:${g.grant_key}`, featureId: g.grant_key, versionId: f.id, name: f.name, sourceType: 'feat',
+      sourceName: g.source_label || 'Feat', timing: tm?.timing || null, play: tm?.play || 'resource', summary: f.summary || '', uses,
+      recovery: uses[0]?.recharge ? (RECHARGE[uses[0].recharge] || null) : null,
+      automation: f.automation || 'informational', state: g.state || (g.open_choices ? 'incomplete' : 'applied'),
+      spells: (g.spells || []).map((s) => s.name) });
+  }
+  return out;
+}
+
+function place(out, card) {
+  if (card.play === 'card' && card.timing && out[card.timing]) out[card.timing].push(card);
+  else if (card.play === 'reminder') out.passive.push(card);
+  else out.resource.push(card);
+}
+
+const AUTOMATION_LABEL = { automated: 'automatic', partially_automated: 'partly automatic', informational: 'reminder only' };
+const TIMING_LABEL = { action: 'Action', bonus_action: 'Bonus action', reaction: 'Reaction', special: 'Special' };
+
+/** A lineage trait or feat card for Play: name, source, timing, concise effect, uses, automation. No Use button on the card: a
+ *  counter's Use button is in Ready to use, and a reminder says that the app does not apply it. */
+export function sourceCardHTML(x) {
+  const uses = usesChips(x.uses || []);
+  const auto = AUTOMATION_LABEL[x.automation] || 'reminder only';
+  return `<article class="entry action-card af-source af-${esc(x.sourceType)}" data-active-feature="${esc(x.key)}" data-source-type="${esc(x.sourceType)}">
+    <div class="entry-head"><div class="entry-title"><h3 class="entry-name">${esc(x.name)}</h3>
+      <div class="entry-sub">${esc(x.sourceName)}${x.timing ? ` · ${esc(TIMING_LABEL[x.timing] || x.timing)}` : ''}${x.recovery ? ` · recovers on a ${esc(x.recovery)}` : ''}</div></div>
+      <span class="badge af-auto af-${esc(x.automation)}" title="${auto === 'reminder only' ? 'Not applied by the app: apply it yourself' : 'Applied by the app where it says so'}">${esc(auto)}</span></div>
+    ${x.summary ? `<p class="entry-notes">${esc(x.summary)}</p>` : ''}
+    ${x.state === 'incomplete' || x.state === 'invalidated' ? '<p class="sp-warn small">Choices are still open: finish them on the Build tab.</p>' : ''}
+    ${uses ? `<div class="chip-row">${uses}</div>` : ''}
+  </article>`;
+}
+
+/** Passive reminders of lineage traits and feats (one line each). */
+export function sourceReminderListHTML(list) {
+  if (!list.length) return '';
+  return `<ul class="af-reminders small">${list.map((x) => `<li data-active-feature="${esc(x.key)}"><strong>${esc(x.name)}</strong>
+    <span class="muted">(${esc(x.sourceName)})</span> ${esc(x.summary)}</li>`).join('')}</ul>`;
+}
+
+const usesText = (uses) => (uses || []).filter((r) => r.max != null).map((r) => `${r.remaining}/${r.max}`).join(', ');
+
+/** Compact list for the Combat Builder character detail: what the linked character can use, by timing (names and uses). */
+export function compactActiveFeaturesHTML({ classFeatures, classResources, feats, lineage, timing }) {
+  const opts = selectedOptions(classFeatures, classResources);
+  const src = sourceFeatures({ lineage, feats, resources: classResources, timing });
+  const classRes = classResources?.resources || classFeatures?.resources || [];
+  const item = (name, uses) => `${esc(name)}${uses ? ` <span class="muted">${esc(uses)}</span>` : ''}`;
+  const rows = [];
+  for (const key of PLAY_TIMINGS) {
+    const names = [];
+    for (const cls of classFeatures?.classes || []) {
+      for (const f of cls.features || []) {
+        if (f.status !== 'active' || f.activation !== key) continue;
+        names.push(item(f.name, usesText(classRes.filter((r) => r.unlock_id === f.unlock_id && r.character_class_id === cls.id && r.active))));
+      }
+    }
+    for (const x of [...(opts[key] || []), ...(src[key] || [])]) names.push(item(x.name, usesText(x.uses)));
+    if (names.length) rows.push(`<div class="cb-af-row" data-cb-af="${key}"><dt>${key === 'special' ? 'Free / special' : `${TIMING_LABEL[key]}s`}</dt><dd>${names.join(' · ')}</dd></div>`);
+  }
+  const limited = src.resource.filter((x) => usesText(x.uses));
+  if (limited.length) rows.push(`<div class="cb-af-row" data-cb-af="resource"><dt>Limited uses</dt><dd>${limited.map((x) => item(x.name, usesText(x.uses))).join(' · ')}</dd></div>`);
+  return rows.length ? `<dl class="cb-active-features">${rows.join('')}</dl>` : '<p class="muted small">No features with an action timing.</p>';
 }

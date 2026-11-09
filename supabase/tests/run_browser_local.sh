@@ -89,4 +89,6 @@ echo "== Feat removal and ability sources: review dialog, source-granted feats, 
 (cd supabase/tests/browser && "$PY" feat_removal_ui_test.py) || RC=1
 echo "== Combined follow-up: final-total Initiative, Wild Shape overflow, class options and infusions in Play, herbs, icons, deletion"
 (cd supabase/tests/browser && "$PY" combined_followup_ui_test.py) || RC=1
+echo "== Active features and content management: lineage / feat Play cards, feat choice repair, Combat Builder features, usage, delete, duplicate official"
+(cd supabase/tests/browser && "$PY" active_features_ui_test.py) || RC=1
 exit $RC
