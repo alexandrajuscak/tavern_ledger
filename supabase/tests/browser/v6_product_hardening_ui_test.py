@@ -117,9 +117,14 @@ def main():
         # (bodies: every player REST response and Realtime frame; the DM's own reads are not collected)
 
         # ================= HOME ============================================================================================
+        # the card values are held back for a moment: since the 2026-11 performance release they come through the server read
+        # cache and can arrive before the first look at the page (the check is about what shows BEFORE they arrive)
+        slow = "**/rest/v1/rpc/get_character_{reads,derived_stats}"
+        page.route(slow, lambda r: (page.wait_for_timeout(1200), r.continue_()))
         page.goto(APP)
         page.wait_for_selector(".char-card")
         first = page.evaluate("""() => [...document.querySelectorAll('.char-card')].map((c) => c.querySelector('[data-cc-ac]').textContent.trim())""")
+        page.unroute(slow)
         der_f = pl.rpc("get_character_derived_stats", p_character=fighter)[1]
         check("H3 a fresh browser shows loading marks, never the legacy stored AC, until the authoritative values arrive", set(first) == {"…"}, sorted(set(first)))
         s.wait(lambda: page.locator(".cc-wait").count() == 0, timeout=20000)

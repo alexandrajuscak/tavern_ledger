@@ -1,7 +1,8 @@
 // Inventory data access. The ONLY module that talks to Supabase about items, inventories and equipment.
 // Reads come from views (RLS applies: they are security_invoker), every change goes through an RPC.
 // Function names follow the database; where they differ the mapping is written next to the function.
-import { supabase } from './supabase.js?v=20';
+import { supabase } from './supabase.js?v=21';
+import { onUserCachesCleared } from './read-layer.js?v=21';
 
 // ---- Errors -----------------------------------------------------------------------------------
 
@@ -183,6 +184,8 @@ export const CATALOG_COLUMNS = 'id, name, kind_id, kind_name, category_id, categ
   + 'icon_key, details';   // 20261107000300 (deploy the migration before this frontend)
 
 const detailCache = new Map();
+// catalog rows as the signed-in user may see them (a DM sees secret items in full): forgotten on a user switch
+onUserCachesCleared(() => detailCache.clear());
 
 /** Forget cached catalog rows (after a homebrew item was created, edited, archived or restored). */
 export function invalidateCatalogItems(ids = null) {

@@ -4,57 +4,57 @@ import {
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   ACTIVATIONS, ACTIVATION_BY_KEY, CASTING_TIMES, CONDITIONS, CONDITION_BY_NAME,
   weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js?v=20';
+} from './dnd.js?v=21';
 import {
   saver, insertRow, deleteRow, deleteCharacter, applyCharacterHp, subscribeCharacter, subscribeCharacterFluent, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
-} from './store.js?v=20';
-import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=20';
-import { openCoinCalculator, wallet as coinWallet } from './coins.js?v=20';
-import { mountInventory } from './inventory-ui.js?v=20';
-import { exportCharacter, downloadJson } from './transfer.js?v=20';
-import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups } from './inventory-api.js?v=20';
+} from './store.js?v=21';
+import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=21';
+import { openCoinCalculator, wallet as coinWallet } from './coins.js?v=21';
+import { mountInventory } from './inventory-ui.js?v=21';
+import { exportCharacter, downloadJson } from './transfer.js?v=21';
+import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups } from './inventory-api.js?v=21';
 import { backgroundCardHTML, openBackgroundPicker, openBackgroundEquipment, openReplaceDuplicate, saveCharacteristics, rollCharacteristic,
-  removeBackground } from './background-ui.js?v=20';
-import { getCharacterBackground } from './background-api.js?v=20';
-import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=20';
-import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=20';
+  removeBackground } from './background-ui.js?v=21';
+import { getCharacterBackground } from './background-api.js?v=21';
+import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=21';
+import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=21';
 import {
   acNote, openAcBreakdown, equippedWeaponsHTML, trackWeaponDetails, toolsHTML, specificProficienciesHTML,
   openProficiencyManager, equipmentNotes,
-} from './derived-ui.js?v=20';
-import { openLevelUp } from './levelup.js?v=20';
-import { mountGovernance } from './request-ui.js?v=20';
-import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=20';
-import { fluentEnabled, beginReadScope, endReadScope, seedReads, prefetchDomain, readNow, knownRevision, noteRevisions, awaitSeed } from './read-layer.js?v=20';
-import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=20';
-import { exportFeats } from './feat-api.js?v=20';
-import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=20';
-import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=20';
-import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=20';
+} from './derived-ui.js?v=21';
+import { openLevelUp } from './levelup.js?v=21';
+import { mountGovernance } from './request-ui.js?v=21';
+import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=21';
+import { fluentEnabled, beginReadScope, endReadScope, seedReads, prefetchDomain, readNow, knownRevision, noteRevisions, awaitSeed } from './read-layer.js?v=21';
+import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=21';
+import { exportFeats } from './feat-api.js?v=21';
+import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=21';
+import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=21';
+import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=21';
 import {
   emptyFilters, filtersHTML, readFilter, sourcesHTML, spellbookListHTML, openSpellDetail, openAddSpell, openSourceEditor, rememberSpellSections,
-} from './spell-ui.js?v=20';
+} from './spell-ui.js?v=21';
 import {
   getClassSummary, getSpellSlots, getClassCatalog, expendStandardSlot, restoreStandardSlot, expendPactSlot, restorePactSlot,
   setSlotState, setCharacterClass, shortRest, longRest, getClassFeatures, getResources, exportClassFeatures, useTemporarySlot,
   restoreTemporarySlot, getStartingEquipmentState, getStartingEquipment, getStates,
-} from './class-api.js?v=20';
-import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=20';
-import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=20';
-import { openStartingEquipment } from './class-setup.js?v=20';
+} from './class-api.js?v=21';
+import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=21';
+import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=21';
+import { openStartingEquipment } from './class-setup.js?v=21';
 import {
   companionsHTML, openAddCompanion, changeCompanionHp, removeCompanionConfirm,
-} from './creature-ui.js?v=20';
-import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=20';
-import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=20';
+} from './creature-ui.js?v=21';
+import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=21';
+import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=21';
 import { selectedOptions, optionCardHTML, reminderListHTML, infusionsPlayHTML, optionSpellsHTML, infusedItemMap, loadPlayTiming, sourceFeatures,
-  sourceCardHTML, sourceReminderListHTML } from './active-features.js?v=20';
+  sourceCardHTML, sourceReminderListHTML } from './active-features.js?v=21';
 import {
   featuresPanelHTML, featureSummaryHTML, restoreDrafts, resourceListHTML, attachFeatureHandlers, hydrateSpellChoices, restResourceLines, restResultText, restSummaryHTML,
   riderDiceRange, statesHTML, glanceHTML,
-} from './feature-ui.js?v=20';
-import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=20';
-import { sectionHTML, sectionHead } from './section.js?v=20';
+} from './feature-ui.js?v=21';
+import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=21';
+import { sectionHTML, sectionHead } from './section.js?v=21';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -65,7 +65,7 @@ let root = null;
 let ctx = null; // { reload, onDeleted }
 let unsubscribe = null;
 let liveCharacterId = null;  // the character of the Realtime channel: kept when the same sheet is reloaded (no leave + join)
-let liveFluent = false;      // which subscription the kept channel is (legacy 64 bindings or fluent 3)
+let liveFluent = false;      // which subscription the kept channel is (legacy 70 bindings or fluent 2)
 // Fluent read path (js/read-layer.js): this sheet was mounted from one get_character_view response; its later reads are
 // coalesced, Realtime is one revision table, the inventory panel loads on its first open. Never mixed with the legacy path.
 let sheetFluent = false;
@@ -114,6 +114,9 @@ let slotsSeq = 0;
 // Class feature engine (get_character_class_features / get_character_resources): features, choices, resources; never stored.
 let classFeatures = null;
 let classResources = null;
+// Resource-only refresh (loadResources): a class read that overlaps one re-reads the resources afterwards (resEpoch)
+let resSeq = 0;
+let resEpoch = 0;
 let startEqState = null;
 let classStates = null;       // get_character_states: Rage-style states (Start / End)
 let transformState = null;    // get_character_transformation: Wild Shape forms and the current form
@@ -609,6 +612,7 @@ async function loadClasses() {
   const id = C().id;
   const tfAt = tfEpoch;
   const epoch = slotEpoch;
+  const resAt = resEpoch;
   try {
     const [summary, slots, cat, feats, res, sts] = await Promise.all([getClassSummary(id), getSpellSlots(id),
       classCatalog || getClassCatalog().catch(() => null), getClassFeatures(id), getResources(id), getStates(id).catch(() => null)]);
@@ -635,12 +639,54 @@ async function loadClasses() {
     classCatalog = cat;
     classFeatures = feats;
     classResources = res;
+    overlayResources();
     renderClasses();
+    if (resAt !== resEpoch) scheduleResources();   // a resource change overlapped this read: its counters may be older
   } catch (err) {
     if (my === classSeq) console.warn('[classes]', err?.message || err);
   }
 }
 const scheduleClasses = debounce(loadClasses, 250);
+
+/**
+ * The class-features and Wild Shape reads carry copies of the resource rows (same server rows, same keys as
+ * get_character_resources). The resource read is the authority for the counters: its rows replace those copies, so a
+ * resource change needs only the small resource read, not the whole class page (docs/PERFORMANCE_RELEASE_2026-11.md).
+ */
+function overlayResources() {
+  const rows = classResources?.resources;
+  if (!Array.isArray(rows)) return;
+  const fresh = new Map(rows.map((r) => [r.key, r]));
+  const swap = (list) => (Array.isArray(list) ? list.map((r) => fresh.get(r?.key) || r) : list);
+  if (classFeatures) {
+    classFeatures.resources = swap(classFeatures.resources);
+    for (const cls of classFeatures.classes || []) cls.resources = swap(cls.resources);
+  }
+  if (transformState) transformState.resources = swap(transformState.resources);
+}
+
+/**
+ * Re-read only the resources and the Rage-style states (a use, a restore, or a resource event from another session). The
+ * class page, its features and the Wild Shape options did not change, so they are not fetched again.
+ */
+async function loadResources() {
+  if (!B) return;
+  if (!classFeatures || !classResources) { await loadClasses(); return; }   // nothing to patch yet: the full read
+  resEpoch += 1;
+  const my = ++resSeq;
+  const id = C().id;
+  try {
+    const [res, sts] = await Promise.all([getResources(id), getStates(id).catch(() => null)]);
+    if (!B || my !== resSeq || C().id !== id) return;
+    classResources = res;
+    if (sts) classStates = sts;
+    overlayResources();
+    renderClasses();
+  } catch (err) {
+    if (my === resSeq) console.warn('[resources]', err?.message || err);
+  }
+}
+const scheduleResources = debounce(loadResources, 250);
 
 /** Re-read only the Wild Shape state (Realtime on character_transformations); a read overlapping a change is dropped. */
 async function loadTransform() {
@@ -2738,7 +2784,9 @@ const actions = {
   },
   'export-json': async () => {
     const slug = (C().name || 'character').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    if (!classSummary) await loadClasses();   // exported right after opening: never drop the classes and companions silently
+    // always the full class read: the export takes manual resource counters from the class summary, which the small
+    // resource refresh (loadResources) does not re-read
+    await loadClasses();
     if (!spellbook || spellbookStale) await loadSpellbook({ force: true });   // loaded only with the Spells section
     const classFeatureState = classSummary?.classes?.length ? await exportClassFeatures(C().id).catch(() => null) : null;
     const feats = await exportFeats(C().id).catch(() => null);
@@ -3083,6 +3131,7 @@ function onRemote(table, event, nw, old) {
     const rec = event === 'DELETE' ? old : nw;
     if (!rec?.character_id || rec.character_id === C().id) {
       if (table === 'character_spell_slot_state' || table === 'character_temporary_spell_slots') scheduleSlots();
+      else if (table === 'character_resources') scheduleResources();   // counters only: not the class page (33-118 KB)
       else scheduleClasses();
       if (table !== 'character_spell_slot_state' && table !== 'character_temporary_spell_slots' && table !== 'character_resources') {
         scheduleDerived(); scheduleLineage(); scheduleSpellbook();
@@ -3208,7 +3257,7 @@ export function mountSheet(container, bundle, options = {}) {
   root.addEventListener('click', onClick);
   root.addEventListener('keydown', onKeyDown);
   root.addEventListener('submit', onSubmit);
-  attachFeatureHandlers(root, { getCharacterId: () => C().id, onChanged: classesChanged, onResources: loadClasses });
+  attachFeatureHandlers(root, { getCharacterId: () => C().id, onChanged: classesChanged, onResources: loadResources });
   attachFeatHandlers(root, { getCharacterId: () => C().id, getState: () => featState, onChanged: featsChanged });
   rememberSpellSections(root);
   // one channel per character: a reload of the same sheet (reconnect, refused change) keeps it instead of leave + join
@@ -3273,7 +3322,7 @@ function mountInventoryPanel() {
   });
 }
 
-// ---- fluent read path: one revision table instead of 64 bindings (docs/CHARACTER_DATA_INVALIDATION_MODEL.md) ------------
+// ---- fluent read path: one revision table instead of 70 bindings (docs/CHARACTER_DATA_INVALIDATION_MODEL.md) ------------
 // The stored-row lists of the sheet: a revision of one of them re-reads that list and replays the differences through
 // onRemote (same patching, focus and in-flight-edit protection as the per-row events of the legacy path).
 /** Run `fn` when the browser is idle (low-priority prefetch), at the latest after 3 s. */
@@ -3377,6 +3426,7 @@ export function unmountSheet({ keepRealtimeFor = null } = {}) {
   transformState = null;
   classFeatures = null;
   classResources = null;
+  resSeq += 1;
   classSeq += 1;
   featState = null;
   featSeq += 1;

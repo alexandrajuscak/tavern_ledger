@@ -2,13 +2,13 @@
 // type, the lifecycle actions (save draft, validate, preview, publish, new version, archive, restore, duplicate, delete) and a
 // preview of what players will see. The definition is validated and materialized by the database (_dm_try / _dm_materialize).
 
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=20';
-import * as dm from './dm-api.js?v=20';
-import { icon } from './icons.js?v=20';
-import { spellIconHTML } from './spell-icons.js?v=20';
-import { iconPickerHTML } from './item-icon-gallery.js?v=20';
-import { supabase } from './supabase.js?v=20';
-import { CONTENT_MANAGEMENT } from './config.js?v=20';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=21';
+import * as dm from './dm-api.js?v=21';
+import { icon } from './icons.js?v=21';
+import { spellIconHTML } from './spell-icons.js?v=21';
+import { iconPickerHTML } from './item-icon-gallery.js?v=21';
+import { supabase } from './supabase.js?v=21';
+import { CONTENT_MANAGEMENT } from './config.js?v=21';
 
 /** The content management actions (usage report, delete any unused content, duplicate official) are behind js/config.js
  *  CONTENT_MANAGEMENT; 'off' keeps the earlier buttons. The database authorizes every action itself. */

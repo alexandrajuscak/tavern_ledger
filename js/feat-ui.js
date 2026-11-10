@@ -2,10 +2,10 @@
 // and the choice editors of every feat grant (direct, background, lineage, Ability Score Improvement). The server resolves
 // grants, prerequisites, effects, spells and resources (get_character_feats); this module only displays and edits choices.
 
-import { $, $$, esc, toast, openModal, filtersOpenAttr, friendlyError } from './utils.js?v=20';
-import { icon } from './icons.js?v=20';
-import { sectionHead } from './section.js?v=20';
-import { getFeatCatalog, getFeatDetail, getCharacterFeats, assignFeat, removeFeat, previewFeatRemoval, setFeatChoices, setFeatNotes, getChoiceReference, getSpellOptions } from './feat-api.js?v=20';
+import { $, $$, esc, toast, openModal, filtersOpenAttr, friendlyError } from './utils.js?v=21';
+import { icon } from './icons.js?v=21';
+import { sectionHead } from './section.js?v=21';
+import { getFeatCatalog, getFeatDetail, getCharacterFeats, assignFeat, removeFeat, previewFeatRemoval, setFeatChoices, setFeatNotes, getChoiceReference, getSpellOptions } from './feat-api.js?v=21';
 
 const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const CATEGORY = { origin: 'Origin', general: 'General', fighting_style: 'Fighting Style', epic_boon: 'Epic Boon', other: 'Other' };

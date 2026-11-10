@@ -89,7 +89,12 @@ nothing about a hosted deployment.
   first open of a session; afterwards they are cached until sign-out.
 - **Home card stats** (max HP, AC) still read the derived stats per card, six at a time, cached per character version.
 - **Feature flag:** `FLUENT_READS` in js/config.js; `?fluent=0` per browser forces the legacy path. The legacy code path and its
-  64-binding Realtime channel remain in this release as the rollback; they are removed only after production monitoring.
+  Realtime channel remain in this release as the rollback; they are removed only after production monitoring. The legacy
+  channel has **70** bindings since the feat tables were added (`characters` UPDATE + 23 child tables × INSERT / UPDATE /
+  DELETE; it had 64 with 21 tables when the earlier documents were written); the fluent channel has 2. The fluent database
+  objects (`get_character_reads`, `character_revisions`) are **not** used by the fluent path only: the Combat Builder calls
+  them regardless of the flag, so they must stay even if `FLUENT_READS` is switched off (details:
+  docs/FLUENCY_PRODUCTION_DEPLOYMENT.md, "Correction (2026-11-10)").
 
 ## Added by the Combat Builder (2026-11-06; docs/COMBAT_BUILDER_ARCHITECTURE.md)
 

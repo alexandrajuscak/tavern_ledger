@@ -1,8 +1,8 @@
 // Creature catalog, transformations (Wild Shape) and companions (migration 20261017000800). The rules (which forms are
 // allowed, costs, hit point carry-over) live in the database; this module only moves data.
-import { supabase } from './supabase.js?v=20';
-import { awaitSeed } from './read-layer.js?v=20';
-import { friendlyError } from './utils.js?v=20';
+import { supabase } from './supabase.js?v=21';
+import { awaitSeed, onUserCachesCleared } from './read-layer.js?v=21';
+import { friendlyError } from './utils.js?v=21';
 
 class CreatureError extends Error {}
 
@@ -18,6 +18,7 @@ async function rpc(fn, args) {
 }
 
 let catalog = null;
+onUserCachesCleared(() => { catalog = null; });   // includes campaign custom creatures the signed-in user may see
 /** All catalog creatures (summary columns), cached for the session. */
 export function getCreatures() {
   catalog ||= supabase.from('creatures')

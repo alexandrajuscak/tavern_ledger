@@ -9,7 +9,9 @@
 | DM Space | 2 (unchanged) | campaign requests |
 
 A player's open sheet now holds **4** `realtime.subscription` rows instead of **66**; a switch leaves 2 and joins 2 instead of
-64 and 64. No binding watches a static catalog table. `'*'` with a filter is not used (it delivered nothing in local tests).
+64 and 64. (Update 2026-11-10: the legacy channel, still reachable with `?fluent=0`, has grown to 70 bindings / 72 rows since
+`character_feats` and `character_feat_choices` were added; the Combat Builder adds its own channel of 1-3 bindings and uses
+`character_revisions` and `get_character_reads` regardless of the fluent flag.) No binding watches a static catalog table. `'*'` with a filter is not used (it delivered nothing in local tests).
 A reconnect runs one reconciliation request instead of reloading the sheet (34 requests). The legacy section below applies
 only when the flag is `'off'` or the automatic fallback is active.
 

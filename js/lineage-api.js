@@ -1,8 +1,9 @@
 // Lineage data access (migration 20261015001500): catalog reads and the three character RPCs.
 // The rules live in the database (get_character_lineage, get_character_derived_stats); this module only moves data.
-import { supabase } from './supabase.js?v=20';
-import { friendlyError } from './utils.js?v=20';
-import { normalizeError } from './inventory-api.js?v=20';
+import { supabase } from './supabase.js?v=21';
+import { friendlyError } from './utils.js?v=21';
+import { normalizeError } from './inventory-api.js?v=21';
+import { onUserCachesCleared } from './read-layer.js?v=21';
 
 export class LineageError extends Error {
   constructor(message, raw) { super(message); this.raw = raw; }
@@ -52,6 +53,9 @@ export function getLineageDetail(lineageId) {
   }
   return detailCache.get(lineageId);
 }
+
+// The catalog and the details include campaign custom lineages the signed-in user may see: forgotten on a user switch.
+onUserCachesCleared(() => { catalogPromise = null; detailCache.clear(); });
 
 let refPromise = null;
 /** Skills, languages and the mundane tools and weapons a choice can offer. */

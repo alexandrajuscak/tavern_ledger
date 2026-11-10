@@ -2,8 +2,15 @@
 
 Project `pfgz…wlsc` (Free plan, PostgreSQL 17.11), frontend on GitHub Pages. No secrets in this file.
 
-Deployed: frontend `a568ab5`, migration `20261029000100` (42 migrations), 2026-10-29. Rollback: docs/PRODUCTION_INCIDENT_REALTIME_TIMEOUTS.md §7.
-Monitoring checkpoints: 2026-10-30 and 2026-11-05 (§9 there).
+Deployed (as of 2026-11-10): frontend `7fa453d` (asset marker `?v=20`; `2ac52c7` adds only the release report), newest
+migration `20261109000300` (55 migrations), released 2026-11-09. Flags: `FLUENT_READS = 'on'` (progressive fluent reads are
+the default), `COMBAT_BUILDER = 'dm'`, `CONTENT_MANAGEMENT = 'on'`.
+Rollback of the latest release: docs/ACTIVE_FEATURES_AND_CONTENT_MANAGEMENT_RELEASE_REPORT.md ("Backups"); of the Combat
+Builder: docs/COMBAT_BUILDER_PRODUCTION_RELEASE_REPORT.md ("Migrations"); of the 2026-10-29 timeout fix:
+docs/PRODUCTION_INCIDENT_REALTIME_TIMEOUTS.md §7.
+Monitoring: both releases stay "deployed and monitoring" until one real multiplayer session has run and the Supabase Log
+Explorer has been reviewed (not yet done: no access token on the release machine).
+Open operational items (2026-11-10): the nightly backup below is not scheduled yet; confirm the database password rotation.
 
 ## Never
 
@@ -23,7 +30,7 @@ previous snapshot instead of resetting counters.
 | `pgss_over_5s` (role authenticated) | empty after the fix | any `get_character_*` above 5 s |
 | `pgss_top_by_total` | derived-stats RPCs dominate (expected) | a catalog RPC or view among the top |
 | `connections_by_app_role_state` | ~15 with nobody online | `idle in transaction`, blocked > 0 |
-| `realtime_subscriptions_total` | 66 per open sheet | grows while nobody switches characters (leak) |
+| `realtime_subscriptions_total` | 4 per open sheet on the default fluent path (2 sheet + 2 request bar); 72 on the legacy path `?fluent=0` (70 + 2); +2 per open DM Space; 1-3 per open Combat Builder encounter | grows while nobody switches characters (leak) |
 | Supabase Logs (Postgres) | no `57014` | a cluster of `57014` |
 | Supabase Logs (Realtime) | no `IncreaseSubscriptionConnectionPool` | the same message again |
 

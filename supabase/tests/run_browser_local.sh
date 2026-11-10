@@ -91,4 +91,6 @@ echo "== Combined follow-up: final-total Initiative, Wild Shape overflow, class 
 (cd supabase/tests/browser && "$PY" combined_followup_ui_test.py) || RC=1
 echo "== Active features and content management: lineage / feat Play cards, feat choice repair, Combat Builder features, usage, delete, duplicate official"
 (cd supabase/tests/browser && "$PY" active_features_ui_test.py) || RC=1
+echo "== Performance release 2026-11: resource-only refresh, Home cards through the read cache, catalog caches on a user switch"
+(cd supabase/tests/browser && "$PY" performance_release_ui_test.py) || RC=1
 exit $RC

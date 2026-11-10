@@ -2,13 +2,13 @@
 // Approvals, Party, Content (custom content library + editors), Assign, Hidden, Rules (governance and content policy), Audit.
 // Visible only to campaign DMs and admins; every read and write is checked again by the database.
 
-import { supabase } from './supabase.js?v=20';
-import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=20';
-import * as dm from './dm-api.js?v=20';
-import * as gov from './governance-api.js?v=20';
-import { icon } from './icons.js?v=20';
-import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=20';
-import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=20';
+import { supabase } from './supabase.js?v=21';
+import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=21';
+import * as dm from './dm-api.js?v=21';
+import * as gov from './governance-api.js?v=21';
+import { icon } from './icons.js?v=21';
+import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=21';
+import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=21';
 
 const SECTIONS = [['overview', 'Overview'], ['approvals', 'Approvals'], ['party', 'Party'], ['content', 'Content'], ['assign', 'Assign'],
   ['hidden', 'Hidden'], ['rules', 'Campaign rules'], ['audit', 'Audit log']];

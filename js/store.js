@@ -1,7 +1,7 @@
-import { supabase, announceGovernance } from './supabase.js?v=20';
-import { toast, friendlyError } from './utils.js?v=20';
-import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=20';
-import { fetchView } from './read-layer.js?v=20';
+import { supabase, announceGovernance } from './supabase.js?v=21';
+import { toast, friendlyError } from './utils.js?v=21';
+import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=21';
+import { fetchView } from './read-layer.js?v=21';
 
 export const state = {
   session: null,
@@ -458,7 +458,7 @@ export function subscribeCharacter(id, handler, onResync) {
 }
 
 /**
- * Fluent read path: ONE channel with 2 bindings instead of 64 (docs/REALTIME_SUBSCRIPTION_ARCHITECTURE.md).
+ * Fluent read path: ONE channel with 2 bindings instead of the legacy 70 (docs/REALTIME_SUBSCRIPTION_ARCHITECTURE.md).
  *  - characters UPDATE (filtered): the row itself, so HP / coins / notes fields are patched without any read;
  *  - character_revisions INSERT (filtered): {source_table, id = revision} once per committed transaction and table (an
  *    append-only log); the sheet refreshes only that table's domain.

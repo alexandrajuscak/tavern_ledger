@@ -68,8 +68,15 @@ starting-equipment prompt for those characters).
 | 9 | Commit `FLUENT_READS = 'on'`; push; smoke with the site default (`FLAG=''`) | all pass |
 | 10 | Cleanup (left 0), post backup, delete the access file, password rotation | — |
 
-Rollback: `FLUENT_READS = 'off'` (one line) or `?fluent=0` per browser; the database objects can stay (additive, used only by
-the fluent path). `rollback_progressive_fluent_reads.sql` only for a confirmed database defect.
+Rollback: `FLUENT_READS = 'off'` (one line) or `?fluent=0` per browser; the database objects can stay (additive).
+`rollback_progressive_fluent_reads.sql` only for a confirmed database defect.
+**Correction (2026-11-10):** the database objects were used only by the fluent path when this was written. Since the Combat
+Builder release (2026-11-08) they are used regardless of the flag: the Combat Builder always calls `get_character_reads`
+(`js/combat-api.js`) and binds `character_revisions`. The flag rollback is unaffected. `rollback_progressive_fluent_reads.sql`
+keeps `get_character_reads` (without the cache) but drops the `tl_cache` schema, which the later migrations' `tl_cache_rev`
+triggers and `tl_cache.combat_skip()` depend on; `rollback_fluent_read_architecture.sql` drops `get_character_reads` and
+`character_revisions` and would break the Combat Builder. Neither script may be run alone any more: the later migrations
+must be rolled back first, in reverse order. The legacy Realtime channel now has 70 bindings (64 at the time of the figures below).
 
 ### Run of the progressive release (2026-10-30, 19:39-21:45 UTC)
 

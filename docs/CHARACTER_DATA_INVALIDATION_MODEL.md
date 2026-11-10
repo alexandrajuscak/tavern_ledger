@@ -36,7 +36,7 @@ Hidden-condition and DM-note tables are deliberately **not** revisioned: a playe
 ## What refreshes after which change
 
 The revision event is replayed into the sheet's existing decision table (`onRemote` in `js/sheet.js`), so the targeted
-behaviour of the legacy path is kept; the difference is the transport (1 table instead of 64 bindings) and that the reloads
+behaviour of the legacy path is kept; the difference is the transport (1 table instead of the legacy channel's 70 bindings; 64 before the feat tables were added) and that the reloads
 are coalesced into one request.
 
 | Change | Refreshed | Not refreshed |

@@ -1,7 +1,8 @@
 // Spell data access (migration 20261015001600): catalog reads, the resolved spellbook and the spell write RPCs.
 // The rules (source resolution, Save DC, attack bonus, list eligibility) live in the database; this module moves data.
-import { supabase } from './supabase.js?v=20';
-import { friendlyError } from './utils.js?v=20';
+import { supabase } from './supabase.js?v=21';
+import { friendlyError } from './utils.js?v=21';
+import { onUserCachesCleared } from './read-layer.js?v=21';
 
 export class SpellError extends Error {
   constructor(message, raw) { super(message); this.raw = raw; }
@@ -73,6 +74,9 @@ export function getSpellReference() {
 }
 
 const detailCache = new Map();
+// The catalog and the details hold what the signed-in user may see (campaign custom spells): another user signing in on the
+// same page must not get them (RLS decides again on the next read).
+onUserCachesCleared(() => { catalogPromise = null; detailCache.clear(); });
 export function getSpellDetail(versionId) {
   if (!detailCache.has(versionId)) {
     detailCache.set(versionId, rpc('get_spell_detail', { p_version: versionId }).catch((e) => { detailCache.delete(versionId); throw e; }));

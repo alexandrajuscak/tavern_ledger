@@ -1,21 +1,21 @@
-import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=20';
+import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=21';
 import {
   state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
   loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
   updateProfile, listCharacters, listCharacterBadges, createCharacter, loadBundle, loadCharacterView, saver,
-} from './store.js?v=20';
-import { getDerivedStats, getProficiencies } from './inventory-api.js?v=20';
-import { icon, classIcon, iconSrc } from './icons.js?v=20';
-import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=20';
-import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=20';
-import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=20';
-import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=20';
-import { mountCombat, unmountCombat, combatEnabled } from './combat.js?v=20';
-import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=20';
-import { openLineagePicker } from './lineage-ui.js?v=20';
-import { getCharacterLineage } from './lineage-api.js?v=20';
-import { openAddClass } from './class-setup.js?v=20';
-import { getClassSummary } from './class-api.js?v=20';
+} from './store.js?v=21';
+import { getDerivedStats, getProficiencies } from './inventory-api.js?v=21';
+import { icon, classIcon, iconSrc } from './icons.js?v=21';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=21';
+import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=21';
+import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=21';
+import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=21';
+import { mountCombat, unmountCombat, combatEnabled } from './combat.js?v=21';
+import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=21';
+import { openLineagePicker } from './lineage-ui.js?v=21';
+import { getCharacterLineage } from './lineage-api.js?v=21';
+import { openAddClass } from './class-setup.js?v=21';
+import { getClassSummary } from './class-api.js?v=21';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders
@@ -316,13 +316,32 @@ function wirePrefetch(list) {
   list.addEventListener('pointerdown', (e) => go(e, 0));
 }
 
+/**
+ * Derived stats of one Home card. On the fluent path they come through get_character_reads, the only entry point that uses
+ * the server's per-viewer read cache (a direct get_character_derived_stats call evaluates the rules every time: mean 1.0 s,
+ * maximum 6.0 s in production). The direct call stays as the path for the legacy flag and for a database without the
+ * fluent functions.
+ */
+async function cardDerivedStats(id) {
+  if (fluentEnabled()) {
+    const { data, error } = await supabase.rpc('get_character_reads', { p_character: id, p_reads: ['get_character_derived_stats'] });
+    if (!error) {
+      const d = data?.reads?.get_character_derived_stats;
+      if (d) return d;
+      throw new Error(data?.errors?.get_character_derived_stats?.message || 'No derived stats');
+    }
+    if (!isFluentUnavailable(error)) throw error;   // a timeout or a refusal is not retried on the slower path
+  }
+  return getDerivedStats(id);
+}
+
 async function loadCardStats(chars, token) {
   const queue = chars.filter((c) => !cacheGet(statsKey(c)));
   const worker = async () => {
     while (queue.length && token === routeToken) {
       const c = queue.shift();
       try {
-        const d = await getDerivedStats(c.id);
+        const d = await cardDerivedStats(c.id);
         const st = { max: d?.hit_points?.max ?? null, ac: d?.armor_class?.value ?? null, lineage: d?.lineage?.name || null };
         cacheSet(statsKey(c), st);
         if (token === routeToken) updateCard(c, st);
@@ -331,7 +350,9 @@ async function loadCardStats(chars, token) {
       }
     }
   };
-  await Promise.all(Array.from({ length: 6 }, worker));   // six reads at a time: 35 local cards complete in ~1.6 s instead of ~2.7 s
+  // three reads at a time: a cached card answers in milliseconds, and uncached ones are rules evaluations that only queue
+  // on the small shared production CPU when more run in parallel (they also compete with a sheet being opened)
+  await Promise.all(Array.from({ length: 3 }, worker));
 }
 
 function updateCard(c, st) {
