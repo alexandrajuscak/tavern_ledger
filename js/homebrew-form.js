@@ -1,9 +1,9 @@
 // Homebrew item form: create, edit and "convert a legacy item". Progressive: basic fields, a section for the chosen
 // type, and an Advanced section. Validation here is only UX; the database RPCs are authoritative.
-import * as api from './inventory-api.js?v=22';
-import { $, $$, esc, openModal, confirmDialog } from './utils.js?v=22';
-import { icon } from './icons.js?v=22';
-import { iconPickerHTML } from './item-icon-gallery.js?v=22';
+import * as api from './inventory-api.js?v=23';
+import { $, $$, esc, openModal, confirmDialog } from './utils.js?v=23';
+import { icon } from './icons.js?v=23';
+import { iconPickerHTML } from './item-icon-gallery.js?v=23';
 
 const KINDS = ['weapon', 'armor', 'gear', 'tool', 'ammunition', 'potion', 'scroll', 'magic_item', 'herbs_plants'];
 const PLANT_PROPS = [['alchemical', 'Alchemical'], ['medicinal', 'Medicinal'], ['poisonous', 'Poisonous'], ['edible', 'Edible']];

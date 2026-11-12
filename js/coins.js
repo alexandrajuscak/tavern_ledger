@@ -1,8 +1,8 @@
 // Coin calculator (docs/GAMEPLAY_POLISH_AUDIT.md, "Coins"): spend or gain coins in one atomic server transaction
 // (adjust_character_coins, migration 20261031000100). The preview below uses the SAME deterministic algorithm as the server;
 // the server is authoritative (it re-reads the wallet under a row lock and refuses a wallet that changed meanwhile).
-import { supabase } from './supabase.js?v=22';
-import { $, $$, esc, toast, openModal, friendlyError } from './utils.js?v=22';
+import { supabase } from './supabase.js?v=23';
+import { $, $$, esc, toast, openModal, friendlyError } from './utils.js?v=23';
 
 export const COINS = ['pp', 'gp', 'ep', 'sp', 'cp'];                 // display order
 const ASC = ['cp', 'sp', 'ep', 'gp', 'pp'];                          // ascending value
@@ -175,6 +175,12 @@ export function openCoinCalculator({ characterId, getWallet, onApplied }) {
     });
   });
   render();
-  setTimeout(() => inputs.find((i) => i.dataset.coin === 'gp')?.focus(), 60);
+  // initial focus on GP, unless the user already chose a field: a late timer (busy main thread) must not move the caret out of
+  // the field being typed into (the digits would land in GP). openModal's own initial focus goes to the first input (Spend).
+  const initial = $('input', m.el);
+  setTimeout(() => {
+    const a = document.activeElement;
+    if (m.isTop() && (!m.el.contains(a) || a === initial || a === $('.modal', m.el))) inputs.find((i) => i.dataset.coin === 'gp')?.focus();
+  }, 60);
   return m;
 }

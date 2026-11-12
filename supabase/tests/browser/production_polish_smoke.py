@@ -1,13 +1,14 @@
 """Production smoke test of the gameplay polish release (docs/GAMEPLAY_POLISH_AUDIT.md).
 
 LIVE GitHub Pages site, SYNTHETIC accounts only (scripts/fluent/smoke_users.sql: smoke-fl-*@example.test, their own campaign
-and two characters). Never opens or changes a real player's character. Env: SMOKE_RUN, SMOKE_PW, PROD_APP, OUT.
+and two characters). Never opens or changes a real player's character. Env: SMOKE_RUN, SMOKE_PW, PROD_APP, OUT, ASSET_V (expected marker; default: index.html).
 Player: coin calculator (gain, spend with change, Undo, Realtime to a second session), Hungry Jaws on Play (Lizardfolk set on
 the synthetic character), Magic Initiate spells from the Sage background, the new icons. DM: a Tool draft without armor
 fields validates, Weapon without damage and Armor without AC are explained, the draft is deleted. Stranger denied.
 """
 import json
 import os
+import re
 import time
 
 from playwright.sync_api import sync_playwright
@@ -16,6 +17,10 @@ import production_fluent_smoke as base
 from production_fluent_smoke import Session, check, results, HERO, SOLO
 
 OUT = os.environ.get("OUT")
+# the expected asset marker: ASSET_V if set (the deployed release), otherwise the repo's index.html (so a bump needs no edit here)
+_INDEX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "index.html")
+V = os.environ.get("ASSET_V") or re.search(r"js/app[.]js[?]v=(\d+)", open(_INDEX, encoding="utf-8").read()).group(1)
+SUPA = f"./js/supabase.js?v={V}"   # the app's own module instance (same marker as the page), not a second client
 summary = {}
 HASH_JS = """async (path) => { const r = await fetch(path, { cache: 'no-store' }); if (!r.ok) return 'HTTP ' + r.status;
   const d = await crypto.subtle.digest('SHA-256', await r.arrayBuffer());
@@ -28,8 +33,8 @@ def coins(page):
 
 def rpc(sess, fn, **args):
     """A call with the signed-in user's own session (the app's supabase client): same RLS as the UI."""
-    return sess.page.evaluate("""async ([fn, args]) => { const m = await import('./js/supabase.js?v=22');
-      const { data, error } = await m.supabase.rpc(fn, args); return { data, error: error && { code: error.code, message: error.message } }; }""", [fn, args])
+    return sess.page.evaluate("""async ([fn, args]) => { const m = await import('__SUPA__');
+      const { data, error } = await m.supabase.rpc(fn, args); return { data, error: error && { code: error.code, message: error.message } }; }""".replace("__SUPA__", SUPA), [fn, args])
 
 
 def wait(fn, timeout=15):
@@ -52,7 +57,7 @@ def run():
         info = page.evaluate("() => window.__tavernLedgerReadPath")
         check("PP-01 player signed in on the progressive path (site default)", info.get("path") == "fluent" and info.get("configured") == "on", info)
         v = page.evaluate("() => [...new Set([...document.querySelectorAll('script[src],link[href]')].map((e) => (e.src || e.href).match(/[?]v=(\\d+)/)?.[1]).filter(Boolean))]")
-        check("PP-02 one asset version (?v=22)", v == ["21"], v)
+        check(f"PP-02 one asset version (?v={V})", v == [V], v)
         hero, solo = pl.char_id(HERO), pl.char_id(SOLO)
 
         # icons
@@ -63,7 +68,7 @@ def run():
 
         # coin calculator on the synthetic character outside the campaign (the player manages it)
         r = rpc(pl, "adjust_character_coins", p_character=solo, p_mode="set", p_amount={"gp": 1},
-                p_expected=page.evaluate(f"""async () => {{ const m = await import('./js/supabase.js?v=22');
+                p_expected=page.evaluate(f"""async () => {{ const m = await import('{SUPA}');
                   const {{ data }} = await m.supabase.from('characters').select('cp,sp,ep,gp,pp').eq('id', '{solo}').single(); return data; }}"""))
         check("PP-04 a wallet of 1 gp is set (synthetic character)", not r["error"], r["error"])
         pl.open(solo); pl.tab("inventory")
@@ -72,6 +77,9 @@ def run():
         page.locator('[data-action="coin-calc"]').click()
         dlg = page.locator(".modal").last
         dlg.locator("[data-coin-calc]").wait_for(timeout=15000)
+        # the calculator places its initial focus ~60 ms after opening; filling before that raced it (?v<=22 moved the caret to
+        # GP in the middle of a fill, so "4" cp became 4 gp). Wait until a coin field has the focus, as a person would.
+        page.wait_for_function("() => document.activeElement?.matches?.('.modal [data-coin]')", timeout=5000)
         dlg.locator('[data-coin="sp"]').fill("3"); dlg.locator('[data-coin="cp"]').fill("4")
         check("PP-05 spend preview: 1 gp - 3 sp 4 cp -> 6 sp, 6 cp", dlg.locator("[data-coin-after]").inner_text().startswith("6 sp, 6 cp"), dlg.locator("[data-coin-preview]").inner_text())
         i = pl.mark(); t0 = time.time()
@@ -98,9 +106,9 @@ def run():
         if r["error"]:
             r = rpc(pl, "set_character_background", p_character=solo, p_version="sage-2024")
         check("PP-11 the player chooses the Sage background", not r["error"], r["error"])
-        sp = page.evaluate("""async () => { const m = await import('./js/supabase.js?v=22');
+        sp = page.evaluate("""async () => { const m = await import('__SUPA__');
           const q = (lvl) => m.supabase.from('class_spell_list_entries').select('spell_version_id, spell_versions!inner(level, name)').eq('list_id', 'wizard-spell-list').eq('spell_versions.level', lvl).order('spell_version_id').limit(2);
-          const [a, b] = await Promise.all([q(0), q(1)]); return { c: (a.data || []).map((x) => [x.spell_version_id, x.spell_versions.name]), s: (b.data || []).slice(0, 1).map((x) => [x.spell_version_id, x.spell_versions.name]) }; }""")
+          const [a, b] = await Promise.all([q(0), q(1)]); return { c: (a.data || []).map((x) => [x.spell_version_id, x.spell_versions.name]), s: (b.data || []).slice(0, 1).map((x) => [x.spell_version_id, x.spell_versions.name]) }; }""".replace("__SUPA__", SUPA))
         r = rpc(pl, "set_character_feat_choices", p_character=solo, p_grant_key="bg:sage-2024",
                 p_choices={"ability": ["int"], "cantrips": [x[0] for x in sp["c"]], "spell1": [x[0] for x in sp["s"]]})
         check("PP-12 the Magic Initiate choices save (background grant)", not r["error"] and len(sp["c"]) == 2 and len(sp["s"]) == 1, r["error"] or sp)

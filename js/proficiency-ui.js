@@ -2,7 +2,7 @@
 // Three states: active from a grant (class, lineage, background, feature), active by a manual mark, inactive.
 // Derived grants are never removed from here: a click explains where they come from (and where to change them);
 // manual marks stay editable. Nothing is copied into manual rows. docs/PROFICIENCY_RESOLUTION.md
-import { esc, openModal } from './utils.js?v=22';
+import { esc, openModal } from './utils.js?v=23';
 
 const KIND_ORDER = { class: 0, feature: 1, background: 2, lineage: 3, item: 4, import: 5, manual: 6 };
 const KIND_WORD = { class: 'class', feature: 'class feature', background: 'background', lineage: 'lineage', item: 'item', manual: 'your manual mark',

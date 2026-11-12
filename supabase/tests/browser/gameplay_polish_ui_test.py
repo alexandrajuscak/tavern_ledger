@@ -66,9 +66,9 @@ def run(t):
         page = s.page
 
         # ---- icons ------------------------------------------------------------------------------------------------------
-        reg = page.evaluate("async () => { const m = await import('./js/icon-registry.js?v=22'); return m.ICON_REGISTRY || m.default || m.REGISTRY || null; }")
+        reg = page.evaluate("async () => { const m = await import('./js/icon-registry.js?v=23'); return m.ICON_REGISTRY || m.default || m.REGISTRY || null; }")
         if not reg:
-            reg = page.evaluate("async () => { const m = await import('./js/icon-registry.js?v=22'); return Object.values(m).find((v) => v && typeof v === 'object' && v['item.weapons']) || null; }")
+            reg = page.evaluate("async () => { const m = await import('./js/icon-registry.js?v=23'); return Object.values(m).find((v) => v && typeof v === 'object' && v['item.weapons']) || null; }")
         assets = {k: v.get("asset") for k, v in (reg or {}).items()}
         h = {a: page.evaluate(HASH_JS, f"assets/icons/{a}.webp") for a in ["items/weapons", "items/tools", "classes/fighter", "spell-schools/illusion",
                                                                              "classes/rogue", "spell-schools/divination", "classes/artificer", "items/lute"]}
@@ -121,6 +121,22 @@ def run(t):
         dlg.locator("[data-coin-apply]").dblclick()
         page.wait_for_timeout(1500)
         check("C16 a double click applies the gain once", stored_coins(pl, hero)["gp"] == 13, stored_coins(pl, hero))
+        page.keyboard.press("Escape"); page.wait_for_timeout(300)
+        # C25b: a field chosen before the delayed initial focus keeps the focus (production smoke PP-05, 2026-11-12: the GP
+        # autofocus fired in the middle of typing into CP and the digits landed in GP). The observer focuses CP in the same task
+        # the dialog appears, i.e. before both initial-focus timers (50 ms modal, 60 ms calculator).
+        page.evaluate("""() => { const o = new MutationObserver(() => {
+            const i = document.querySelector('.modal-backdrop:not([data-closing]) [data-coin="cp"]');
+            if (i) { o.disconnect(); i.focus(); } }); o.observe(document.body, { childList: true, subtree: true }); }""")
+        page.locator('[data-action="coin-calc"]').click()
+        dlg = page.locator(".modal-backdrop:not([data-closing]) .modal").last
+        dlg.locator("[data-coin-calc]").wait_for(timeout=10000)
+        page.wait_for_timeout(250)
+        early = page.evaluate("() => document.activeElement?.dataset?.coin")
+        page.keyboard.type("4")
+        check("C25b a coin field focused before the initial focus keeps it; typed coins land there, not in GP",
+              early == "cp" and dlg.locator('[data-coin="cp"]').input_value() == "4" and dlg.locator('[data-coin="gp"]').input_value() == "",
+              (early, dlg.locator('[data-coin="cp"]').input_value(), dlg.locator('[data-coin="gp"]').input_value()))
         page.keyboard.press("Escape"); page.wait_for_timeout(300)
         # 390 px
         m = Sheet(b, pl, width=390, height=844, tab="inventory"); m.open(hero); m.tab("inventory")
