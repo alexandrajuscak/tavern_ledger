@@ -22,7 +22,8 @@
 --      carry the id of a removed hidden row to any subscriber);
 --   8. combat_finish carries Exhaustion with its level (and SRD conditions with their key) instead of a bare name.
 -- Cache: character_conditions keeps its tl_cache_rev trigger (mode 'character'); no new table. Every change, hidden or not,
--- invalidates that character's cached reads (a miss, never a leak: tl_cache is per viewer).
+-- invalidates that character's cached reads (a miss, never a leak: tl_cache is per viewer). character_condition_secrets
+-- (DM notes, no character_id) gets a skip trigger instead of the global bump (section "cache classification").
 -- Rollback: supabase/rollback/rollback_character_conditions_unified.sql.
 -- =============================================================================
 
@@ -665,6 +666,20 @@ begin
     alter publication supabase_realtime drop table public.character_conditions;
   end if;
 end $$;
+
+-- ---- cache classification: character_condition_secrets ------------------------------------------------------------------
+-- It has no character_id, so 20261030000200 gave it bump('global'): every DM-note write invalidated every cached read of every
+-- character for every user (the 57014 pattern 20261106000100 forbids for combat tables), and that is now an everyday action.
+-- No cached read reads it (only get_character_conditions, which is never cached), so nothing needs invalidating.
+create or replace function tl_cache.skip()
+returns trigger language plpgsql as $$
+begin
+  return null;   -- the table feeds no cached character read: nothing to invalidate
+end $$;
+revoke all on function tl_cache.skip() from public, anon, authenticated;
+drop trigger if exists tl_cache_rev on public.character_condition_secrets;
+create trigger tl_cache_rev after insert or update or delete on public.character_condition_secrets
+  for each row execute function tl_cache.skip();
 
 -- ---- grants --------------------------------------------------------------------------------------------------------------
 revoke all on function public._condition_text(jsonb), public._condition_parse(text), public._condition_label(public.character_conditions),

@@ -2,7 +2,8 @@
 -- bodies of the five replaced functions (captured with pg_get_functiondef from the local database at 20261112000100; md5 of
 -- pg_get_functiondef: _character_read bba461e3, get_character_conditions 344ca55b, remove_character_condition 0b7d764d,
 -- apply_character_condition c5a9bf79, combat_finish 4db16266 (with the carriage returns the CLI applied; compare without them
--- after a checkout that changed line endings)), drops the new columns, puts character_conditions back into supabase_realtime.
+-- after a checkout that changed line endings)), drops the new columns, puts character_conditions back into supabase_realtime and character_condition_secrets back on the
+-- global tl_cache bump.
 -- Grants are unchanged by CREATE OR REPLACE.
 -- DATA:
 --  * characters.conditions is never changed here. It holds the visible conditions as the mirror last wrote them (copied
@@ -253,6 +254,11 @@ begin
   return r;
 end $function$
 ;
+-- character_condition_secrets: back to the global counter bump of 20261030000200
+drop trigger if exists tl_cache_rev on public.character_condition_secrets;
+create trigger tl_cache_rev after insert or update or delete on public.character_condition_secrets
+  for each row execute function tl_cache.bump('global');
+drop function if exists tl_cache.skip();
 drop function if exists public.apply_character_effect(uuid, jsonb);
 drop function if exists public.update_character_effect(uuid, jsonb);
 drop function if exists public._combat_carry_spec(uuid, text);

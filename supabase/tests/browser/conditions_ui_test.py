@@ -13,7 +13,7 @@ import uuid
 from playwright.sync_api import sync_playwright
 
 import isolation as iso
-from class_ui_common import APP, RUN, SHOTS, Sheet, User, check, report
+from class_ui_common import ANON, APP, RUN, SHOTS, Sheet, User, call, check, report
 
 SHOTS.mkdir(parents=True, exist_ok=True)
 q = iso.psql
@@ -94,6 +94,17 @@ def run(t):
               not [f for f in new_frames if "postgres_changes" in f], [f[:200] for f in new_frames if "postgres_changes" in f][:3])
         check("LK-B3 no API response or Realtime frame ever carried the hidden name or note",
               not [b for b in seen["bodies"] + seen["frames"] if SECRET in b or SECRET_NOTE in b])
+
+        # ---- the same through the API with the player's own token (PostgREST table select, secrets, RPC, cached reads)
+        st1, rows = call("GET", f"/rest/v1/character_conditions?character_id=eq.{ch}&select=*", token=pl.jwt, key=ANON)
+        st2, secrets = call("GET", "/rest/v1/character_condition_secrets?select=*", token=pl.jwt, key=ANON)
+        st3, own = pl.rpc("get_character_conditions", p_character=ch)
+        reads = [pl.rpc("get_character_reads", p_character=ch, p_reads=["get_character_conditions", "characters", "get_character_derived_stats", "revisions"])
+                 for _ in range(2)]
+        check("LK-B4 REST select / secrets / RPC / get_character_reads (twice: miss, then hit) as the player: no hidden row",
+              st1 == 200 and len(rows) == 1 and not any(r["hidden"] for r in rows) and st2 == 200 and secrets == [] and st3 == 200
+              and all(s == 200 for s, _ in reads) and reads[1][1]["cache"]["hits"] >= 1
+              and SECRET not in str(rows) + str(own) + str(reads), (st1, rows, st2, secrets, [r[1].get("cache") for r in reads]))
 
         # ---- the player cannot remove the DM's tag
         pp.locator("#conditions-row .condition-chip", has_text="Resistant to fire").click()

@@ -51,7 +51,7 @@ see or change hidden information").
 hidden conditions and notes through tables, read models and audit, reveal, DM backup), `governance_api_test.py` GA12, GA15,
 GA19, GA23, GA32 (the same through PostgREST with the player's JWT), `dm_space_ui_test.py` DS14–DS16 (an unidentified ring
 shows only its disguise to the player; after identification the true name, the curse stays hidden).
-`character_conditions_tests.sql` (CC1–CC20, LK1–LK16) and `browser/conditions_ui_test.py` cover the conditions and tags
+`character_conditions_tests.sql` (CC1–CC20, LK1–LK17) and `browser/conditions_ui_test.py` cover the conditions and tags
 below, including the leak checks.
 
 ## Conditions and tags on the sheet (20261112000200)
@@ -77,3 +77,7 @@ They are **reminders only**: no derived value (AC, speed, saves) reads them. The
   the `characters` row, and `character_conditions` is not in the `supabase_realtime` publication (its DELETE events are not
   RLS-filtered). Residual, accepted: a hidden change still bumps the character's `tl_cache` counter (every table with a
   `character_id` does; hidden audit rows did already), so the next `get_character_reads` of any viewer reports cache misses.
+  `character_condition_secrets` (DM notes) has a skip trigger (`tl_cache.skip()`): no cached read uses it, so a DM note no
+  longer flushes every cached read of every user.
+- Deploy order: migration first, then the frontend (an older server is detected and the sheet keeps the old list). On a
+  rollback, the previous frontend first, then `supabase/rollback/rollback_character_conditions_unified.sql`.

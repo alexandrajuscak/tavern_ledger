@@ -1307,7 +1307,9 @@ async function loadConditions() {
   try {
     const rows = await getCharacterConditions(id);
     if (my !== condSeq || !B || C().id !== id) return;
-    condRows = rows;
+    // a server before 20261112000200 (its rows have no kind, and the sheet list is not their mirror): keep the old list
+    const old = rows.length ? !('kind' in rows[0]) : activeConditions().some((x) => conditionText(x).trim());
+    condRows = old ? null : rows;
   } catch (err) {
     if (my !== condSeq || isAbortError(err)) return;
     console.warn('[conditions]', err?.message || err);   // an older server: the stored list stays the source of the chips

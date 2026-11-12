@@ -117,6 +117,16 @@ select tl_test.rec('LK14 anon cannot call the new RPCs; internal helpers are not
   and not has_function_privilege('authenticated', 'public._conditions_visible(uuid)', 'execute')
   and not has_function_privilege('authenticated', 'public._condition_insert(uuid, jsonb, text, int)', 'execute')
   and not has_function_privilege('authenticated', 'public._combat_carry_spec(uuid, text)', 'execute'));
+select tl_test.cc_fresh(:'cc1');
+create function tl_test.cc_grev() returns bigint language sql security definer as $$ select rev from tl_cache.global_rev where id = 1 $$;
+grant execute on function tl_test.cc_grev() to public;
+select tl_test.cc_grev() as grev0 \gset
+select tl_test.as_user(:'dm');
+select public.update_character_effect(tl_test.cc_id(:'cc1', 'Cursed by the lich'), '{"dm_note": "Dies at level 7"}') as r \gset
+select tl_test.as_root();
+select tl_test.rec('LK17 a DM-note write does not bump the global cache counter (no cache flush for every user)',
+  tl_test.cc_grev() = :grev0 and exists (select 1 from pg_trigger where tgrelid = 'public.character_condition_secrets'::regclass
+                                          and tgname = 'tl_cache_rev' and tgfoid = 'tl_cache.skip()'::regprocedure));
 -- hidden delete: still nothing; then a visible change: exactly one revision
 select tl_test.as_user(:'dm');
 select public.apply_character_effect(:'cc1', '{"kind": "condition", "condition_key": "blinded", "hidden": true}') as r \gset
