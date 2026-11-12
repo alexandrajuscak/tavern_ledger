@@ -49,8 +49,8 @@ def classify(spells):
         pg = br.new_page()
         pg.goto(APP)
         res = pg.evaluate("""async (spells) => {
-          const m = await import('./js/spell-icons.js?v=21');
-          const reg = (await import('./js/icon-registry.js?v=21')).ICON_REGISTRY;
+          const m = await import('./js/spell-icons.js?v=22');
+          const reg = (await import('./js/icon-registry.js?v=22')).ICON_REGISTRY;
           const rows = spells.map((s) => {
             const shapeBook = { ...s, damage_types: s.links };                  // effect rows first (spellbook, details)
             // the catalog row: links only; campaign custom rows get their effect rows attached (spell-api.js withCustomEffects)

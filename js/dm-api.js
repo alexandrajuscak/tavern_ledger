@@ -1,8 +1,8 @@
 // DM Space data (docs/DM_SPACE.md): campaigns, overview, party, the custom content library and its lifecycle, assignment and
 // hidden information. Every function is a DM-only RPC that checks the campaign role itself (20261019000400-000600).
 
-import { supabase } from './supabase.js?v=21';
-import { friendlyError } from './utils.js?v=21';
+import { supabase } from './supabase.js?v=22';
+import { friendlyError } from './utils.js?v=22';
 
 export class DmError extends Error {
   constructor(message, raw) {
@@ -91,4 +91,13 @@ export function getEditorReference() {
     ({ schools, damageTypes, spellLists, skills, tools, languages, originFeats, itemKinds, rarities, ammoTypes }))
     .catch((e) => { refPromise = null; throw e; });
   return refPromise;
+}
+
+/** Rarity of published custom items (their catalog rows; the DM may read them): Map(item id → {id, name, magic}). */
+export async function getItemRarities(itemIds) {
+  const ids = [...new Set(itemIds.filter(Boolean))];
+  if (!ids.length) return new Map();
+  const { data, error } = await supabase.from('items').select('id, rarity_id, is_magic, rarity:rarities(name)').in('id', ids).not('rarity_id', 'is', null);
+  if (error) throw new DmError(friendlyError(error), error);
+  return new Map(data.map((x) => [x.id, { id: x.rarity_id, name: x.rarity?.name || x.rarity_id, magic: !!x.is_magic }]));
 }

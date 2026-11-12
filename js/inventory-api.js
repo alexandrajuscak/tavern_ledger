@@ -1,8 +1,8 @@
 // Inventory data access. The ONLY module that talks to Supabase about items, inventories and equipment.
 // Reads come from views (RLS applies: they are security_invoker), every change goes through an RPC.
 // Function names follow the database; where they differ the mapping is written next to the function.
-import { supabase } from './supabase.js?v=21';
-import { onUserCachesCleared } from './read-layer.js?v=21';
+import { supabase } from './supabase.js?v=22';
+import { onUserCachesCleared } from './read-layer.js?v=22';
 
 // ---- Errors -----------------------------------------------------------------------------------
 
@@ -207,6 +207,25 @@ export async function getCatalogItems(ids, { fresh = false } = {}) {
     data.forEach((r) => detailCache.set(r.id, r));
   }
   return new Map(ids.filter((id) => detailCache.has(id)).map((id) => [id, detailCache.get(id)]));
+}
+
+/** What the signed-in user knows about the (partly) unidentified items of a character: [{inventory_item_id, state, facts, …}].
+ *  Players get the disguise and the revealed facts only (get_character_item_knowledge strips the rest on the server). */
+export const getItemKnowledge = (characterId) => rpc('get_character_item_knowledge', { p_character: characterId });
+
+const modifierRarityCache = new Map();
+// item_modifiers are read with the user's RLS (homebrew modifiers): forgotten on a user switch
+onUserCachesCleared(() => modifierRarityCache.clear());
+
+/** Rarity of item modifiers (a +1 on a mundane weapon is uncommon): Map(modifier id → rarity id or null), cached. */
+export async function getModifierRarities(ids) {
+  const missing = [...new Set(ids)].filter((id) => id && !modifierRarityCache.has(id));
+  if (missing.length) {
+    const { data } = await read(() => supabase.from('item_modifiers').select('id, rarity_id').in('id', missing));
+    missing.forEach((id) => modifierRarityCache.set(id, null));
+    data.forEach((m) => modifierRarityCache.set(m.id, m.rarity_id || null));
+  }
+  return new Map(ids.map((id) => [id, modifierRarityCache.get(id) ?? null]));
 }
 
 /** PostgREST `ilike` pattern for a free-text search: % and _ are escaped, * would be a wildcard. */

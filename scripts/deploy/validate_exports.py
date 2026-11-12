@@ -77,7 +77,7 @@ def main(folder):
             hid = hidden_paths(j)
             if hid:
                 row["problems"].append("hidden DM data present: " + ", ".join(hid[:5]))
-            parsed = page.evaluate("""async (txt) => { const m = await import('./js/transfer.js?v=21');
+            parsed = page.evaluate("""async (txt) => { const m = await import('./js/transfer.js?v=22');
                 try { const p = m.parseCharacterJson(JSON.parse(txt)); return { ok: true, name: p.character.name, level: p.character.level,
                   hp_max: p.character.hp_max, ac: p.character.ac, attacks: p.attacks.length, spells: p.spells.length, inventory: p.inventory.length,
                   lineage: !!p.lineage, classes: p.classes.length }; }

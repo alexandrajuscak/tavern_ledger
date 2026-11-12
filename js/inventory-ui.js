@@ -1,13 +1,13 @@
 // Inventory tab: summary, equipment slots, item list, item detail and the catalog picker.
 // All data comes from inventory-api.js; after every change the authoritative state is re-read from the server
 // (no client-side simulation of splits, merges or quantities).
-import * as api from './inventory-api.js?v=21';
-import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=21';
-import { openHomebrewForm } from './homebrew-form.js?v=21';
-import { galleryIcon } from './item-icon-gallery.js?v=21';
-import { isAnyDM } from './store.js?v=21';
-import { icon, ITEM_ICONS } from './icons.js?v=21';
-import { sectionHead } from './section.js?v=21';
+import * as api from './inventory-api.js?v=22';
+import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=22';
+import { openHomebrewForm } from './homebrew-form.js?v=22';
+import { galleryIcon } from './item-icon-gallery.js?v=22';
+import { isAnyDM } from './store.js?v=22';
+import { icon, ITEM_ICONS } from './icons.js?v=22';
+import { sectionHead } from './section.js?v=22';
 
 const CATEGORIES = [
   ['all', 'All', () => true],
@@ -67,7 +67,7 @@ function sourceBadge(d) {
 export function mountInventory(el, opts) {
   const s = {
     inventoryId: null, rows: [], equipment: [], attunement: null, weight: null, containers: new Map(), review: new Map(),
-    details: new Map(), lookups: null, filter: 'all', status: 'loading', error: null, busy: new Set(),
+    details: new Map(), knowledge: new Map(), knowledgeOk: true, modifierRarity: new Map(), lookups: null, filter: 'all', status: 'loading', error: null, busy: new Set(),
     refreshing: null, again: false, destroyed: false, eqOpen: window.matchMedia?.('(min-width: 900px)').matches ?? true,
   };
 
@@ -78,6 +78,26 @@ export function mountInventory(el, opts) {
   const kindName = (id) => s.lookups?.kinds.find((k) => k.id === id)?.name || '';
   const categoryName = (id) => s.lookups?.categories.find((c) => c.id === id)?.name || '';
   const rarityName = (id) => s.lookups?.rarities.find((r) => r.id === id)?.name || '';
+  const raritySort = (id) => s.lookups?.rarities.find((r) => r.id === id)?.sort_order ?? -1;
+  const rarityLabel = (id) => (id === 'unknown' ? 'Unknown rarity' : rarityName(id) || id);
+  /** A rarity badge (text, never colour alone); magic items keep the magic tint. */
+  const rarityBadge = (id, magic) => `<span class="badge inv-b-rarity${magic ? ' inv-b-magic' : ''} inv-r-${esc(id)}" title="${magic ? 'Magic item, rarity' : 'Rarity'}: ${esc(rarityLabel(id))}">${esc(rarityLabel(id))}</span>`;
+  // What the viewer legitimately knows about one inventory row. An instance in a non-identified knowledge state shows only
+  // the facts the DM revealed (get_character_item_knowledge); its own catalog columns are never used for it.
+  const knowledgeOf = (r) => {
+    const k = s.knowledge?.get(r.id);
+    if (k) return k.state === 'identified' ? null : k;
+    return !s.knowledgeOk && maybeHidden(r, s.details) ? { state: 'unidentified', facts: {} } : null;   // knowledge read failed: hide
+  };
+  /** The known rarity id of an inventory row (catalog rarity or the highest modifier rarity), or null. */
+  function rarityOf(r) {
+    const k = knowledgeOf(r);
+    if (k) return k.facts?.rarity || null;
+    const own = r.rarity_id || detail(r)?.rarity_id || null;
+    const mods = (r.modifier_ids || []).map((m) => s.modifierRarity?.get(m)).filter(Boolean);
+    return [own, ...mods].filter(Boolean).sort((a, b) => raritySort(b) - raritySort(a))[0] || null;
+  }
+  const magicOf = (r) => { const k = knowledgeOf(r); return k ? !!(k.magic_known || k.facts?.magic) : !!r.is_magic; };
   const occupant = (slotId) => {
     const e = s.equipment.find((x) => x.slot_id === slotId);
     return e ? rowById(e.inventory_item_id) || { id: e.inventory_item_id, display_name: 'Unknown item' } : null;
@@ -133,7 +153,8 @@ export function mountInventory(el, opts) {
       (b.review || []).forEach((x) => reviewMap.set(x.inventory_item_id, [...(reviewMap.get(x.inventory_item_id) || []), x]));
       return { rows: b.rows || [], equipment: b.equipment || [], attunement: b.attunement || { attuned_count: 0, attunement_limit: 3, slots_free: 3 },
         weight: b.weight || { stacks: 0, pieces: 0, total_weight_lb: 0 }, details,
-        containers: new Map((b.containers || []).map((c) => [c.container_item_id, c])), review: reviewMap };
+        containers: new Map((b.containers || []).map((c) => [c.container_item_id, c])), review: reviewMap,
+        ...(await rarityFacts(b.rows || [], details)) };
     }
     s.inventoryId ||= await api.getCharacterInventoryId(opts.characterId);
     const [rows, equipment, attunement, weight, containers, review] = await Promise.all([
@@ -144,7 +165,27 @@ export function mountInventory(el, opts) {
     const details = await api.getCatalogItems([...new Set(rows.map((r) => r.item_id).filter(Boolean))], { fresh: true });
     const reviewMap = new Map();
     review.forEach((x) => reviewMap.set(x.inventory_item_id, [...(reviewMap.get(x.inventory_item_id) || []), x]));
-    return { rows, equipment, attunement, weight, details, containers: new Map(containers.map((c) => [c.container_item_id, c])), review: reviewMap };
+    return { rows, equipment, attunement, weight, details, containers: new Map(containers.map((c) => [c.container_item_id, c])), review: reviewMap,
+      ...(await rarityFacts(rows, details)) };
+  }
+
+  // A row may be (partly) unidentified: its catalog row is hidden from the player (kind_id null, no detail), or the row
+  // still carries the disguise name while the catalog row is readable through another, identified copy. Only then is
+  // the knowledge read needed (no extra request for an ordinary inventory).
+  const maybeHidden = (r, details) => !!r.item_id && (r.kind_id == null || !details.get(r.item_id) || details.get(r.item_id).name !== r.name);
+  /** Knowledge facts (revealed rarity) and modifier rarities of the loaded rows; a failed read hides rarities, it never breaks the list. */
+  async function rarityFacts(rows, details) {
+    const out = { knowledge: new Map(), knowledgeOk: true, modifierRarity: s.modifierRarity || new Map() };
+    const hidden = rows.some((r) => maybeHidden(r, details));
+    const mods = [...new Set(rows.flatMap((r) => r.modifier_ids || []).filter((m) => !m.startsWith('infusion-')))];
+    const [k, m] = await Promise.all([
+      hidden ? api.getItemKnowledge(opts.characterId).catch(() => null) : [],
+      mods.length ? api.getModifierRarities(mods).catch(() => null) : null,
+    ]);
+    if (k) k.forEach((x) => out.knowledge.set(x.inventory_item_id, x));
+    else out.knowledgeOk = false;
+    if (m) out.modifierRarity = m;
+    return out;
   }
 
   async function refresh() {
@@ -397,7 +438,9 @@ export function mountInventory(el, opts) {
     if (r.equipped) b.push(`<span class="badge inv-b-equipped">Equipped · ${esc(slotName(r.equipped_slot))}</span>`);
     if (r.is_attuned) b.push('<span class="badge inv-b-attuned">Attuned</span>');
     else if (r.requires_attunement) b.push('<span class="badge">Attunement</span>');
-    if (r.is_magic) b.push(`<span class="badge inv-b-magic inv-r-${esc(r.rarity_id || '')}">${esc(rarityName(r.rarity_id) || 'Magic')}</span>`);
+    const rar = rarityOf(r);
+    if (rar) b.push(rarityBadge(rar, magicOf(r)));
+    else if (magicOf(r)) b.push('<span class="badge inv-b-magic">Magic</span>');
     if (isLegacy(r)) b.push('<span class="badge inv-b-legacy" title="From the old sheet; not linked to an item definition yet">Old sheet item</span>');
     b.push(sourceBadge(d));
     if (d?.archived_at) b.push('<span class="badge inv-b-archived" title="The homebrew definition is archived; this entry still works">Archived definition</span>');
@@ -632,7 +675,7 @@ export function mountInventory(el, opts) {
     if (!d) return '';
     const rows = [
       ['Type', [d.kind_name, d.category_name].filter(Boolean).join(' · ')],
-      ['Rarity', d.is_magic ? rarityName(d.rarity_id) : ''],
+      ['Rarity', rarityOf(r) ? rarityLabel(rarityOf(r)) : ''],
       ['Attunement', d.requires_attunement ? 'required' : ''],
       ['Weight', d.weight_lb != null ? fmtWeight(d.weight_lb) : ''],
       ['Cost', d.cost_value != null ? `${d.cost_value} ${d.cost_unit}` : ''],
@@ -832,7 +875,7 @@ export function mountInventory(el, opts) {
             <div class="inv-pick-item"><span><b>${esc(c.name)}</b>
               <span class="badge ${c.confidence === 'exact' ? 'inv-b-match' : ''}">${c.confidence === 'exact' ? '✓ Exact name' : '≈ Probable match'}</span>
               ${sourceBadge(c)}
-              <span class="muted small">${esc([kindName(c.kind_id), categoryName(c.category_id), c.is_magic ? rarityName(c.rarity_id) : ''].filter(Boolean).join(' · '))}</span></span>
+              <span class="muted small">${esc([kindName(c.kind_id), categoryName(c.category_id), c.rarity_id ? rarityLabel(c.rarity_id) : ''].filter(Boolean).join(' · '))}</span></span>
               <button type="button" class="btn btn-sm" data-compare="${esc(c.item_id)}" aria-label="Compare with ${esc(c.name)}">Compare…</button></div>`).join('')}</div>`
         : '<p class="muted">No item with a similar name was found.</p>'}${search}`;
     } catch (raw) {
@@ -1053,7 +1096,7 @@ export function mountInventory(el, opts) {
         results.innerHTML = st.rows.map((c) => `
           <div class="inv-result" data-id="${esc(c.id)}">
             <div class="inv-result-text"><b>${esc(c.name)}</b> ${sourceBadge(c)}
-              <span class="muted small">${esc([c.kind_name, c.category_name, c.is_magic ? rarityName(c.rarity_id) : '', c.weight_lb != null ? fmtWeight(c.weight_lb) : '', c.cost_value != null ? `${c.cost_value} ${c.cost_unit}` : ''].filter(Boolean).join(' · '))}</span></div>
+              <span class="muted small">${esc([c.kind_name, c.category_name, c.rarity_id ? rarityLabel(c.rarity_id) : '', c.weight_lb != null ? fmtWeight(c.weight_lb) : '', c.cost_value != null ? `${c.cost_value} ${c.cost_unit}` : ''].filter(Boolean).join(' · '))}</span></div>
             ${linkRow
               ? '<button type="button" class="btn btn-sm btn-gold" data-pick>Compare…</button>'
               : `<input type="number" min="1" step="1" value="1" inputmode="numeric" aria-label="Quantity of ${esc(c.name)}" data-qty>

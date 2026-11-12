@@ -28,7 +28,7 @@ def coins(page):
 
 def rpc(sess, fn, **args):
     """A call with the signed-in user's own session (the app's supabase client): same RLS as the UI."""
-    return sess.page.evaluate("""async ([fn, args]) => { const m = await import('./js/supabase.js?v=21');
+    return sess.page.evaluate("""async ([fn, args]) => { const m = await import('./js/supabase.js?v=22');
       const { data, error } = await m.supabase.rpc(fn, args); return { data, error: error && { code: error.code, message: error.message } }; }""", [fn, args])
 
 
@@ -52,7 +52,7 @@ def run():
         info = page.evaluate("() => window.__tavernLedgerReadPath")
         check("PP-01 player signed in on the progressive path (site default)", info.get("path") == "fluent" and info.get("configured") == "on", info)
         v = page.evaluate("() => [...new Set([...document.querySelectorAll('script[src],link[href]')].map((e) => (e.src || e.href).match(/[?]v=(\\d+)/)?.[1]).filter(Boolean))]")
-        check("PP-02 one asset version (?v=21)", v == ["21"], v)
+        check("PP-02 one asset version (?v=22)", v == ["21"], v)
         hero, solo = pl.char_id(HERO), pl.char_id(SOLO)
 
         # icons
@@ -63,7 +63,7 @@ def run():
 
         # coin calculator on the synthetic character outside the campaign (the player manages it)
         r = rpc(pl, "adjust_character_coins", p_character=solo, p_mode="set", p_amount={"gp": 1},
-                p_expected=page.evaluate(f"""async () => {{ const m = await import('./js/supabase.js?v=21');
+                p_expected=page.evaluate(f"""async () => {{ const m = await import('./js/supabase.js?v=22');
                   const {{ data }} = await m.supabase.from('characters').select('cp,sp,ep,gp,pp').eq('id', '{solo}').single(); return data; }}"""))
         check("PP-04 a wallet of 1 gp is set (synthetic character)", not r["error"], r["error"])
         pl.open(solo); pl.tab("inventory")
@@ -98,7 +98,7 @@ def run():
         if r["error"]:
             r = rpc(pl, "set_character_background", p_character=solo, p_version="sage-2024")
         check("PP-11 the player chooses the Sage background", not r["error"], r["error"])
-        sp = page.evaluate("""async () => { const m = await import('./js/supabase.js?v=21');
+        sp = page.evaluate("""async () => { const m = await import('./js/supabase.js?v=22');
           const q = (lvl) => m.supabase.from('class_spell_list_entries').select('spell_version_id, spell_versions!inner(level, name)').eq('list_id', 'wizard-spell-list').eq('spell_versions.level', lvl).order('spell_version_id').limit(2);
           const [a, b] = await Promise.all([q(0), q(1)]); return { c: (a.data || []).map((x) => [x.spell_version_id, x.spell_versions.name]), s: (b.data || []).slice(0, 1).map((x) => [x.spell_version_id, x.spell_versions.name]) }; }""")
         r = rpc(pl, "set_character_feat_choices", p_character=solo, p_grant_key="bg:sage-2024",

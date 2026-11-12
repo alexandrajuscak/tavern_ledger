@@ -30,6 +30,15 @@
   --dmg-none: #8a8794;
   --effect-healing: #5fd38d;
   --effect-temp-hp: #6fb8e0;
+  /* item rarities (rarity badge text; the badge always carries the rarity name, never colour alone) */
+  --rarity-common: #c9c4b8;
+  --rarity-uncommon: #6fd38a;
+  --rarity-rare: #8ab4ff;
+  --rarity-very-rare: #d08cff;
+  --rarity-legendary: #ffb45c;
+  --rarity-artifact: #ff8a7a;
+  --rarity-unique: #e6c35c;
+  --rarity-unknown: #8a8794;
   /* ---- surfaces (docs/UI_VISUAL_TOKENS.md) ---- */
   --bg: #121216;
   --bg-grad: radial-gradient(1100px 520px at 50% -220px, rgba(217, 174, 85, 0.10) 0%, transparent 70%);
@@ -1099,7 +1108,13 @@ input.big-num:focus { border-color: var(--gold) !important; }
 .inv-b-magic { background: rgba(160, 120, 240, 0.18); color: #c7b2f5; }
 .inv-b-legacy { background: var(--panel-3); color: var(--text); }
 .inv-b-warn { background: rgba(240, 160, 70, 0.18); color: #f0c07a; }
-.inv-r-rare { color: #8ab4ff; } .inv-r-very_rare { color: #d08cff; } .inv-r-legendary { color: #ffb45c; } .inv-r-artifact { color: #ff8a7a; }
+/* rarity badge: neutral base for a non-magic item, the magic tint stays on magic items (.inv-b-magic.inv-b-rarity) */
+.inv-b-rarity { background: var(--panel-3); border: 1px solid color-mix(in srgb, var(--rarity, var(--muted)) 45%, transparent); color: var(--rarity, var(--muted)); }
+.inv-b-rarity.inv-b-magic { background: rgba(160, 120, 240, 0.18); }
+.inv-r-common { --rarity: var(--rarity-common); color: var(--rarity); } .inv-r-uncommon { --rarity: var(--rarity-uncommon); color: var(--rarity); }
+.inv-r-rare { --rarity: var(--rarity-rare); color: var(--rarity); } .inv-r-very_rare { --rarity: var(--rarity-very-rare); color: var(--rarity); }
+.inv-r-legendary { --rarity: var(--rarity-legendary); color: var(--rarity); } .inv-r-artifact { --rarity: var(--rarity-artifact); color: var(--rarity); }
+.inv-r-unique { --rarity: var(--rarity-unique); color: var(--rarity); } .inv-r-unknown { --rarity: var(--rarity-unknown); color: var(--rarity); }
 .inv-props { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 8px 0 12px; font-size: 0.9rem; }
 .inv-props dt { color: var(--muted); }
 .inv-props dd { margin: 0; }

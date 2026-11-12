@@ -2,13 +2,13 @@
 // type, the lifecycle actions (save draft, validate, preview, publish, new version, archive, restore, duplicate, delete) and a
 // preview of what players will see. The definition is validated and materialized by the database (_dm_try / _dm_materialize).
 
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=21';
-import * as dm from './dm-api.js?v=21';
-import { icon } from './icons.js?v=21';
-import { spellIconHTML } from './spell-icons.js?v=21';
-import { iconPickerHTML } from './item-icon-gallery.js?v=21';
-import { supabase } from './supabase.js?v=21';
-import { CONTENT_MANAGEMENT } from './config.js?v=21';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=22';
+import * as dm from './dm-api.js?v=22';
+import { icon } from './icons.js?v=22';
+import { spellIconHTML } from './spell-icons.js?v=22';
+import { iconPickerHTML } from './item-icon-gallery.js?v=22';
+import { supabase } from './supabase.js?v=22';
+import { CONTENT_MANAGEMENT } from './config.js?v=22';
 
 /** The content management actions (usage report, delete any unused content, duplicate official) are behind js/config.js
  *  CONTENT_MANAGEMENT; 'off' keeps the earlier buttons. The database authorizes every action itself. */
@@ -305,8 +305,14 @@ function formModel(type, v) {
   return m;
 }
 
+/** The rarity of an item as a named badge (same classes as the inventory), never the raw id. */
+function rarityChip(id, magic, ref) {
+  const name = id === 'unknown' ? 'Unknown rarity' : ref?.rarities?.find((r) => r.id === id)?.name || String(id).replace(/_/g, ' ');
+  return `<span class="badge inv-b-rarity${magic ? ' inv-b-magic' : ''} inv-r-${esc(id)}" title="Rarity: ${esc(name)}">${esc(name)}</span>`;
+}
+
 // ---- preview ----------------------------------------------------------------------------------------------------------------
-export function previewHTML(type, p, player) {
+export function previewHTML(type, p, player, ref = null) {
   if (!p) return '<p class="muted">No preview.</p>';
   const head = `<h3>${esc(p.name || player?.name || '')}</h3>${player?.summary ? `<p><em>${esc(player.summary)}</em></p>` : ''}`;
   switch (type) {
@@ -316,8 +322,8 @@ export function previewHTML(type, p, player) {
         <dt>Components</dt><dd>${esc(p.components || '')}</dd><dt>Duration</dt><dd>${esc(p.duration || '')}</dd></dl>
       ${(p.effects || []).map((e) => `<p class="small">${esc(e.category || '')}: ${esc(e.dice || '')} ${esc((e.damage_types || []).join(', '))}</p>`).join('')}
       ${player?.player_text ? `<p>${esc(player.player_text)}</p>` : ''}<p class="feat-b feat-b-homebrew">Campaign custom</p></article>`;
-    case 'item': return `<article class="preview-card">${head}<p class="small">${esc(p.kind_name || p.kind_id || '')}${p.rarity_id ? ` · ${esc(p.rarity_id)}` : ''}
-      ${p.is_magic ? ' · magical' : ''}${p.requires_attunement ? ' · attunement' : ''}</p>${p.description ? `<p>${esc(p.description)}</p>` : ''}
+    case 'item': return `<article class="preview-card">${head}<p class="small">${esc(p.kind_name || p.kind_id || '')}
+      ${p.rarity_id ? rarityChip(p.rarity_id, p.is_magic, ref) : ''}${p.is_magic ? ' · magical' : ''}${p.requires_attunement ? ' · attunement' : ''}</p>${p.description ? `<p>${esc(p.description)}</p>` : ''}
       ${p.damage_dice ? `<p class="small">Damage ${esc(p.damage_dice)} ${esc(p.damage_type_id || '')}</p>` : ''}${p.base_ac ? `<p class="small">AC ${esc(p.base_ac)}</p>` : ''}
       <p class="muted small">Unidentified copies show only the disguise you set; secrets stay with you.</p></article>`;
     case 'feat': return `<article class="preview-card">${head}<p class="small">${esc(p.category || '')} · ${esc(p.ruleset || '')}</p>
@@ -570,7 +576,7 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
           const p = await dm.previewContent(c.id);
           const box = $('[data-ce-preview]', m.el);
           box.hidden = false;
-          box.innerHTML = `<h3 class="small-h">Players will see</h3>${p.ok ? previewHTML(type, p.preview, p.player_view) : `<div class="gov-error">${esc((p.errors || []).join(' '))}</div>`}`;
+          box.innerHTML = `<h3 class="small-h">Players will see</h3>${p.ok ? previewHTML(type, p.preview, p.player_view, ref) : `<div class="gov-error">${esc((p.errors || []).join(' '))}</div>`}`;
           box.scrollIntoView({ block: 'nearest' });
           btn.disabled = false;
           return;

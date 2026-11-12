@@ -2,13 +2,13 @@
 // Approvals, Party, Content (custom content library + editors), Assign, Hidden, Rules (governance and content policy), Audit.
 // Visible only to campaign DMs and admins; every read and write is checked again by the database.
 
-import { supabase } from './supabase.js?v=21';
-import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=21';
-import * as dm from './dm-api.js?v=21';
-import * as gov from './governance-api.js?v=21';
-import { icon } from './icons.js?v=21';
-import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=21';
-import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=21';
+import { supabase } from './supabase.js?v=22';
+import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=22';
+import * as dm from './dm-api.js?v=22';
+import * as gov from './governance-api.js?v=22';
+import { icon } from './icons.js?v=22';
+import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=22';
+import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=22';
 
 const SECTIONS = [['overview', 'Overview'], ['approvals', 'Approvals'], ['party', 'Party'], ['content', 'Content'], ['assign', 'Assign'],
   ['hidden', 'Hidden'], ['rules', 'Campaign rules'], ['audit', 'Audit log']];
@@ -439,9 +439,13 @@ function noteDialog(id, name, note = null) {
   });
 }
 
+const rarityChipHTML = (r) => (r ? `<span class="badge inv-b-rarity${r.magic ? ' inv-b-magic' : ''} inv-r-${esc(r.id)}" title="Rarity: ${esc(r.id === 'unknown' ? 'Unknown rarity' : r.name)}">${esc(r.id === 'unknown' ? 'Unknown rarity' : r.name)}</span>` : '');
+
 // ---- content -------------------------------------------------------------------------------------------------------------------
 async function content(panel, alive) {
   const list = await dm.getContentLibrary(campaignId);
+  // rarity chips of published items (a draft has no catalog row yet); a failed read only drops the chips
+  const rarity = await dm.getItemRarities(list.filter((x) => x.content_type === 'item').map((x) => x.catalog_ref)).catch(() => new Map());
   if (!alive()) return;
   const f = { type: store.get('ctype') || '', status: store.get('cstatus') || '', q: '' };
   const draw = () => {
@@ -451,7 +455,7 @@ async function content(panel, alive) {
       <button type="button" class="dm-content-btn" data-dm="edit-content" data-id="${esc(x.id)}">
         <span class="dm-ico" aria-hidden="true">${TYPE[x.content_type]?.icon || ''}</span>
         <span class="dm-content-name"><strong>${esc(x.name)}</strong><span class="small muted">${esc(TYPE[x.content_type]?.label || x.content_type)}${x.scope === 'private' ? ' · private library' : ''}
-          · v${esc(x.version_no || 1)}${x.published_version_no && x.published_version_no !== x.version_no ? ` (v${x.published_version_no} published)` : ''}</span>
+          · v${esc(x.version_no || 1)}${x.published_version_no && x.published_version_no !== x.version_no ? ` (v${x.published_version_no} published)` : ''}${x.content_type === 'item' && rarity.get(x.catalog_ref) ? ` ${rarityChipHTML(rarity.get(x.catalog_ref))}` : ''}</span>
           ${x.summary ? `<span class="small">${esc(x.summary)}</span>` : ''}</span>
         <span class="ce-chip ce-${esc(x.status)}">${esc(CSTATUS[x.status] || x.status)}</span>
         <span class="small muted">${x.usage_characters ? `${x.usage_characters} character${x.usage_characters === 1 ? '' : 's'}` : 'unused'}</span>
