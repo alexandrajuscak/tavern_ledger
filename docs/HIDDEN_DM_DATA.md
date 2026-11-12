@@ -51,3 +51,29 @@ see or change hidden information").
 hidden conditions and notes through tables, read models and audit, reveal, DM backup), `governance_api_test.py` GA12, GA15,
 GA19, GA23, GA32 (the same through PostgREST with the player's JWT), `dm_space_ui_test.py` DS14–DS16 (an unidentified ring
 shows only its disguise to the player; after identification the true name, the curse stays hidden).
+`character_conditions_tests.sql` (CC1–CC20, LK1–LK16) and `browser/conditions_ui_test.py` cover the conditions and tags
+below, including the leak checks.
+
+## Conditions and tags on the sheet (20261112000200)
+
+`character_conditions` is the only store of a character's conditions. A row is an SRD condition (`kind = condition`,
+`condition_key`), Exhaustion (`kind = exhaustion`, `level` 1–6, one per character and visibility) or a tag (`kind = tag`,
+`tag_type` resistance / immunity / vulnerability with an optional `damage_type_id`, condition_immunity, blessing, curse,
+other), with an optional `note`, `duration_text`, timer, `hidden` flag and DM note (`character_condition_secrets`).
+`source` says who applied it: `dm`, `combat` (carried at Finish), `player` or `legacy_sheet` (copied from the old list).
+They are **reminders only**: no derived value (AC, speed, saves) reads them. The reminder text is the SRD summary of
+`combat_conditions` for the campaign's ruleset.
+
+- RPCs: `apply_character_effect(character, spec)`, `update_character_effect(condition, patch)`,
+  `remove_character_condition(condition)`, `get_character_conditions(character)` (the caller's view; also the read
+  `get_character_conditions` of `get_character_reads`, never stored in `tl_cache`). The 6-argument
+  `apply_character_condition` stays for DM Space and `dm_assign_content`.
+- Rights: hidden rows and DM notes are the DM's only (a player gets "not found"). A player adds, changes and removes only his
+  own visible rows (`player`, `legacy_sheet`); DM and combat rows need the DM (`42501`). Only the DM hides or reveals.
+- `characters.conditions` is a mirror of the VISIBLE rows (home card, export, Wild Shape panel, combat, `?fluent=0`),
+  rewritten by a trigger only when that list changes. A client that still writes the list directly (one release) is
+  translated into its own rows; DM, combat and hidden rows are never touched by it.
+- No side channel for hidden changes: they write no `character_revisions` row (three WHEN-guarded triggers) and never update
+  the `characters` row, and `character_conditions` is not in the `supabase_realtime` publication (its DELETE events are not
+  RLS-filtered). Residual, accepted: a hidden change still bumps the character's `tl_cache` counter (every table with a
+  `character_id` does; hidden audit rows did already), so the next `get_character_reads` of any viewer reports cache misses.
