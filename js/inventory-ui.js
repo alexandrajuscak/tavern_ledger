@@ -42,6 +42,7 @@ function itemDetailsHTML(d) {
 const itemIcon = (r, ui) => galleryIcon(r.icon_key || ui?.detail?.(r)?.icon_key) || (/shield/.test(r.category_id || '') ? 'equipment-slots/shield' : null)
   || ITEM_ICONS[r.kind_id] || (r.is_magic ? ITEM_ICONS.magic : ui?.isContainer?.(r) ? ITEM_ICONS.containers : ITEM_ICONS.gear);
 const LOW_AMMO = 10;
+const VAGUE_RARITIES = ['unknown', 'unique'];
 const PAGE_SIZE = 50;
 const fmtWeight = (w) => `${Math.round(Number(w || 0) * 100) / 100} lb`;
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -87,7 +88,7 @@ export function mountInventory(el, opts) {
   const knowledgeOf = (r) => {
     const k = s.knowledge?.get(r.id);
     if (k) return k.state === 'identified' ? null : k;
-    return !s.knowledgeOk && maybeHidden(r, s.details) ? { state: 'unidentified', facts: {} } : null;   // knowledge read failed: hide
+    return !s.knowledgeOk && r.item_id ? { state: 'unidentified', facts: {} } : null;   // knowledge read failed: hide on every linked row
   };
   /** The known rarity id of an inventory row (catalog rarity or the highest modifier rarity), or null. */
   function rarityOf(r) {
@@ -95,7 +96,11 @@ export function mountInventory(el, opts) {
     if (k) return k.facts?.rarity || null;
     const own = r.rarity_id || detail(r)?.rarity_id || null;
     const mods = (r.modifier_ids || []).map((m) => s.modifierRarity?.get(m)).filter(Boolean);
-    return [own, ...mods].filter(Boolean).sort((a, b) => raritySort(b) - raritySort(a))[0] || null;
+    const all = [own, ...mods].filter(Boolean);
+    // 'unknown' and 'unique' are not tiers: a real tier wins (own unknown + weapon +1 = Uncommon), unique before unknown
+    const tiers = all.filter((x) => !VAGUE_RARITIES.includes(x));
+    if (tiers.length) return tiers.sort((a, b) => raritySort(b) - raritySort(a))[0];
+    return all.includes('unique') ? 'unique' : all[0] || null;
   }
   const magicOf = (r) => { const k = knowledgeOf(r); return k ? !!(k.magic_known || k.facts?.magic) : !!r.is_magic; };
   const occupant = (slotId) => {
@@ -142,7 +147,7 @@ export function mountInventory(el, opts) {
     s.lookups ||= await api.getLookups();
     // fluent read path: the whole inventory state in one request (get_character_bundle 'inventory'), same rows as below
     if (opts.loadBundle) {
-      const b = await opts.loadBundle();
+      const [b, knowledge] = await Promise.all([opts.loadBundle(), knowledgeRead()]);
       if (!b) throw new api.InventoryError('not_found', 'This character has no inventory yet. Ask the DM to run the inventory migration.');
       s.inventoryId = b.inventory_id;
       const ids = [...new Set((b.rows || []).map((r) => r.item_id).filter(Boolean))];
@@ -154,37 +159,32 @@ export function mountInventory(el, opts) {
       return { rows: b.rows || [], equipment: b.equipment || [], attunement: b.attunement || { attuned_count: 0, attunement_limit: 3, slots_free: 3 },
         weight: b.weight || { stacks: 0, pieces: 0, total_weight_lb: 0 }, details,
         containers: new Map((b.containers || []).map((c) => [c.container_item_id, c])), review: reviewMap,
-        ...(await rarityFacts(b.rows || [], details)) };
+        ...(await rarityFacts(b.rows || [], knowledge)) };
     }
     s.inventoryId ||= await api.getCharacterInventoryId(opts.characterId);
-    const [rows, equipment, attunement, weight, containers, review] = await Promise.all([
+    const [rows, equipment, attunement, weight, containers, review, knowledge] = await Promise.all([
       api.getInventoryRows(s.inventoryId), api.getCharacterEquipment(opts.characterId), api.getAttunement(opts.characterId),
       api.getInventoryWeight(s.inventoryId), api.getContainerContents(s.inventoryId), api.getLegacyReview(opts.characterId),
+      knowledgeRead(),
     ]);
     // fresh: a campaign member may have edited or archived a shared homebrew definition meanwhile
     const details = await api.getCatalogItems([...new Set(rows.map((r) => r.item_id).filter(Boolean))], { fresh: true });
     const reviewMap = new Map();
     review.forEach((x) => reviewMap.set(x.inventory_item_id, [...(reviewMap.get(x.inventory_item_id) || []), x]));
     return { rows, equipment, attunement, weight, details, containers: new Map(containers.map((c) => [c.container_item_id, c])), review: reviewMap,
-      ...(await rarityFacts(rows, details)) };
+      ...(await rarityFacts(rows, knowledge)) };
   }
 
-  // A row may be (partly) unidentified: its catalog row is hidden from the player (kind_id null, no detail), or the row
-  // still carries the disguise name while the catalog row is readable through another, identified copy. Only then is
-  // the knowledge read needed (no extra request for an ordinary inventory).
-  const maybeHidden = (r, details) => !!r.item_id && (r.kind_id == null || !details.get(r.item_id) || details.get(r.item_id).name !== r.name);
+  // What the viewer knows about (partly) unidentified instances. Nothing in the inventory rows marks an instance as
+  // unidentified (the catalog row may be readable through an identified copy), so this is read on every load, in parallel
+  // with the rows. null = the read failed: rarities are then hidden on every linked row (knowledgeOf).
+  const knowledgeRead = () => api.getItemKnowledge(opts.characterId).catch(() => null);
   /** Knowledge facts (revealed rarity) and modifier rarities of the loaded rows; a failed read hides rarities, it never breaks the list. */
-  async function rarityFacts(rows, details) {
-    const out = { knowledge: new Map(), knowledgeOk: true, modifierRarity: s.modifierRarity || new Map() };
-    const hidden = rows.some((r) => maybeHidden(r, details));
+  async function rarityFacts(rows, knowledge) {
+    const out = { knowledge: new Map(), knowledgeOk: !!knowledge, modifierRarity: s.modifierRarity || new Map() };
+    (knowledge || []).forEach((x) => out.knowledge.set(x.inventory_item_id, x));
     const mods = [...new Set(rows.flatMap((r) => r.modifier_ids || []).filter((m) => !m.startsWith('infusion-')))];
-    const [k, m] = await Promise.all([
-      hidden ? api.getItemKnowledge(opts.characterId).catch(() => null) : [],
-      mods.length ? api.getModifierRarities(mods).catch(() => null) : null,
-    ]);
-    if (k) k.forEach((x) => out.knowledge.set(x.inventory_item_id, x));
-    else out.knowledgeOk = false;
-    if (m) out.modifierRarity = m;
+    if (mods.length) out.modifierRarity = await api.getModifierRarities(mods).catch(() => out.modifierRarity);
     return out;
   }
 

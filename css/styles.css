@@ -1109,7 +1109,7 @@ input.big-num:focus { border-color: var(--gold) !important; }
 .inv-b-legacy { background: var(--panel-3); color: var(--text); }
 .inv-b-warn { background: rgba(240, 160, 70, 0.18); color: #f0c07a; }
 /* rarity badge: neutral base for a non-magic item, the magic tint stays on magic items (.inv-b-magic.inv-b-rarity) */
-.inv-b-rarity { background: var(--panel-3); border: 1px solid color-mix(in srgb, var(--rarity, var(--muted)) 45%, transparent); color: var(--rarity, var(--muted)); }
+.inv-b-rarity { background: var(--panel-3); border: 1px solid var(--border); border: 1px solid color-mix(in srgb, var(--rarity, var(--muted)) 45%, transparent); color: var(--rarity, var(--muted)); }
 .inv-b-rarity.inv-b-magic { background: rgba(160, 120, 240, 0.18); }
 .inv-r-common { --rarity: var(--rarity-common); color: var(--rarity); } .inv-r-uncommon { --rarity: var(--rarity-uncommon); color: var(--rarity); }
 .inv-r-rare { --rarity: var(--rarity-rare); color: var(--rarity); } .inv-r-very_rare { --rarity: var(--rarity-very-rare); color: var(--rarity); }

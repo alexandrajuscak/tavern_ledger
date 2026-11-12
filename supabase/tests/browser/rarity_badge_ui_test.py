@@ -3,7 +3,7 @@
 RB-01..04  a non-magic custom item with a rarity shows a named rarity badge (inventory row, item detail, catalog picker);
            a magic item shows one rarity badge (no extra "Magic" chip); a mundane weapon with a +1 modifier shows the
            modifier's rarity.
-RB-05..07  an unidentified instance shows no rarity, even when the player can read the catalog row through an identified
+RB-05..07  an unidentified instance shows no rarity (also when its disguise equals the true name), even when the player can read the catalog row through an identified
            copy of the same item; after the DM reveals only the rarity (partially identified) the badge shows exactly it.
 RB-08      the legacy read path (?fluent=0) shows the same badge.
 RB-09..10  DM Space: the content list and the player preview show the rarity name, not the raw id.
@@ -58,11 +58,20 @@ def give(c, char, identified=True):
 
 
 CHARM, RING, STONE = f"Moonpetal Charm {RUN}", f"Ring of Embers {RUN}", f"Stone of Kings {RUN}"
+CROWN, TRINKET = f"Crown of Ash {RUN}", f"Odd Trinket {RUN}"
 charm = content({"name": CHARM, "definition": {"item": {"kind_id": "gear", "is_magic": False, "rarity_id": "very_rare"}}})
 ring = content({"name": RING, "definition": {"item": {"kind_id": "gear", "is_magic": True, "rarity_id": "rare"}}})
 stone = content({"name": STONE, "definition": {"item": {"kind_id": "gear", "is_magic": False, "rarity_id": "legendary"},
                                                "hidden": {"unidentified_name": "Dull grey stone"}}})
+# the disguise equals the true name: nothing in the row tells the instance is unidentified
+crown = content({"name": CROWN, "definition": {"item": {"kind_id": "gear", "is_magic": False, "rarity_id": "artifact"},
+                                               "hidden": {"unidentified_name": CROWN}}})
+trinket = content({"name": TRINKET, "definition": {"item": {"kind_id": "weapon", "category_id": "simple-melee", "is_magic": False, "rarity_id": "unknown"},
+                                                   "stats": {"weapon": {"weapon_group": "simple", "damage_dice": "1d4", "damage_type_id": "bludgeoning"}}}})
 give(charm, hero)
+give(trinket, hero)
+give(crown, twin)
+give(crown, hero, identified=False)
 give(ring, hero)
 give(stone, twin)                       # an identified copy the player can read ...
 give(stone, hero, identified=False)     # ... and the unidentified one on the sheet under test
@@ -73,7 +82,12 @@ if sword and mod:
     st, sid = player.rpc("add_inventory_item", p_inventory=inv, p_item="longsword", p_quantity=1)
     assert ok(st), sid
     sql(f"insert into public.inventory_item_modifiers (inventory_item_id, modifier_id) values ('{sid}', 'weapon-plus-1')")
+    # own rarity 'unknown' + a +1 modifier: the real tier wins
+    tid = sql(f"select ii.id from public.inventory_items ii join public.items i on i.id = ii.item_id where ii.inventory_id = '{inv}' and i.name = '{TRINKET}'")
+    sql(f"insert into public.inventory_item_modifiers (inventory_item_id, modifier_id) values ('{tid}', 'weapon-plus-1')")
 hidden_row = sql(f"select id from public.inventory_items where inventory_id = '{inv}' and name = 'Dull grey stone'")
+crown_row = sql(f"select ii.id from public.inventory_items ii join public.inventory_item_knowledge k on k.inventory_item_id = ii.id where ii.inventory_id = '{inv}' and ii.name = '{CROWN}'")
+_, crown_leak = call("GET", f"/rest/v1/v_inventory_detail?id=eq.{crown_row}&select=rarity_id,name", token=player.jwt, key=ANON)
 _, leak = call("GET", f"/rest/v1/v_inventory_detail?id=eq.{hidden_row}&select=rarity_id", token=player.jwt, key=ANON)
 
 
@@ -114,6 +128,13 @@ with sync_playwright() as pw:
     st_ok = isinstance(leak, list) and leak and leak[0].get("rarity_id") == "legendary"
     check("RB-05 precondition: the hidden instance's row carries the real rarity for the player (identified copy elsewhere)", st_ok, leak)
     h = row(p, "Dull grey stone")
+    cr = row(p, CROWN)
+    check("RB-06b precondition: the same-name unidentified instance's row is readable with its real rarity (L2)",
+          isinstance(crown_leak, list) and crown_leak and crown_leak[0].get("rarity_id") == "artifact" and cr.count() == 1, crown_leak)
+    check("RB-06c an unidentified instance whose disguise equals the true name shows no rarity badge",
+          cr.count() == 1 and not rarity_badges(cr) and "Artifact" not in cr.inner_text(), (rarity_badges(cr), cr.inner_text() if cr.count() else ""))
+    if sword and mod:
+        check("RB-03b own rarity 'unknown' + a +1 modifier shows Uncommon", rarity_badges(row(p, TRINKET)) == ["Uncommon"], rarity_badges(row(p, TRINKET)))
     check("RB-06 the unidentified instance shows no rarity badge and no rarity text",
           not rarity_badges(h) and "Legendary" not in h.inner_text() and STONE not in p.content(), (rarity_badges(h), h.inner_text()))
 
