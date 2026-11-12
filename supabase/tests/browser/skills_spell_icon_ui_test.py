@@ -224,7 +224,7 @@ def main():
         page.wait_for_timeout(300)
 
         # resolver contract: every school, unresolved school, missing asset -> generic fallback with the school kept as text
-        res = page.evaluate("""async () => { const m = await import('./js/spell-icons.js?v=24');
+        res = page.evaluate("""async () => { const m = await import('./js/spell-icons.js?v=25');
             const schools = ['Abjuration', 'Conjuration', 'Divination', 'Enchantment', 'Evocation', 'Illusion', 'Necromancy', 'Transmutation'];
             const fire = { school: 'Necromancy', effects: [{ category: 'damage', damage_types: ['fire'], damage_mode: 'single' }] };
             return { all: schools.map((s) => m.resolveSpellIcon({ school: s })), none: m.resolveSpellIcon({}), odd: m.resolveSpellIcon({ school: 'Chronurgy' }),

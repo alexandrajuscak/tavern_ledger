@@ -54,6 +54,8 @@ echo "== Wild Shape (picker, review, active form sheet, form HP and carry-over, 
 (cd supabase/tests/browser && "$PY" wild_shape_ui_test.py) || RC=1
 echo "== DM Space, governance, approvals, feats and custom content (20261019*)"
 (cd supabase/tests/browser && "$PY" dm_space_ui_test.py) || RC=1
+echo "== Herbs & Plants identification (decoy, Examine with a physical roll, DM confirm, per-character reveal, leak checks)"
+(cd supabase/tests/browser && "$PY" herb_identification_ui_test.py) || RC=1
 echo "== player-first redesign (typography, sections, bottom navigation, home cards, icons, Build, Wild Shape vitals, DM Needs you)"
 (cd supabase/tests/browser && "$PY" ux_redesign_ui_test.py) || RC=1
 (cd supabase/tests/browser && "$PY" ui_refinement_ui_test.py) || RC=1

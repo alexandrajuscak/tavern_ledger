@@ -1,8 +1,8 @@
 // Catalog pickers (docs/CATALOG_PICKER_LOADING.md, incident 2026-10-23): the dialog opens at once with a loading state, and
 // the catalog read always ends in a final state: the results, or a short message with one Retry. Nothing spins forever,
 // nothing retries by itself, and an answer that arrives after the dialog closed is ignored.
-import { esc, toast } from './utils.js?v=24';
-import { isAbortError } from './read-control.js?v=24';
+import { esc, toast } from './utils.js?v=25';
+import { isAbortError } from './read-control.js?v=25';
 
 // above the 8 s statement timeout of signed-in users: the client never gives up on a read the server would still finish
 export const PICKER_TIMEOUT_MS = 15000;

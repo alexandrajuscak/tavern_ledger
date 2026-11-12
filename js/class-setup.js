@@ -2,9 +2,9 @@
 // prerequisites of every class, features, proficiencies, choices to make, spellcasting and slots) and the starting
 // equipment review (one option per group, a concrete item for "any martial weapon"-style entries, added to the inventory
 // once, first class only). Everything comes from preview_character_class_add / get_class_starting_equipment; no class names.
-import { $, $$, esc, toast, openModal } from './utils.js?v=24';
-import * as api from './class-api.js?v=24';
-import { catalogOrExplain } from './catalog-load.js?v=24';
+import { $, $$, esc, toast, openModal } from './utils.js?v=25';
+import * as api from './class-api.js?v=25';
+import { catalogOrExplain } from './catalog-load.js?v=25';
 
 const ord = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`;
 const words = (id) => String(id || '').replace(/-/g, ' ');

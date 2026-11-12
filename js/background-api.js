@@ -1,9 +1,9 @@
 // Background data access (migration 20261017001200): the catalog and the character RPCs. The rules live in the database
 // (set_character_background validates; get_character_background resolves); this module only moves data.
-import { supabase } from './supabase.js?v=24';
-import { friendlyError } from './utils.js?v=24';
-import { PICKER_TIMEOUT_MS } from './catalog-load.js?v=24';
-import { fluentEnabled, isFluentUnavailable, onUserCachesCleared } from './read-layer.js?v=24';
+import { supabase } from './supabase.js?v=25';
+import { friendlyError } from './utils.js?v=25';
+import { PICKER_TIMEOUT_MS } from './catalog-load.js?v=25';
+import { fluentEnabled, isFluentUnavailable, onUserCachesCleared } from './read-layer.js?v=25';
 
 /** Validation messages (SQLSTATE 22023 / 23505) are written for users; everything else is mapped. */
 function bgError(raw) {

@@ -2,13 +2,13 @@
 // type, the lifecycle actions (save draft, validate, preview, publish, new version, archive, restore, duplicate, delete) and a
 // preview of what players will see. The definition is validated and materialized by the database (_dm_try / _dm_materialize).
 
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=24';
-import * as dm from './dm-api.js?v=24';
-import { icon } from './icons.js?v=24';
-import { spellIconHTML } from './spell-icons.js?v=24';
-import { iconPickerHTML } from './item-icon-gallery.js?v=24';
-import { supabase } from './supabase.js?v=24';
-import { CONTENT_MANAGEMENT } from './config.js?v=24';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=25';
+import * as dm from './dm-api.js?v=25';
+import { icon } from './icons.js?v=25';
+import { spellIconHTML } from './spell-icons.js?v=25';
+import { iconPickerHTML } from './item-icon-gallery.js?v=25';
+import { supabase } from './supabase.js?v=25';
+import { CONTENT_MANAGEMENT } from './config.js?v=25';
 
 /** The content management actions (usage report, delete any unused content, duplicate official) are behind js/config.js
  *  CONTENT_MANAGEMENT; 'off' keeps the earlier buttons. The database authorizes every action itself. */
@@ -119,6 +119,15 @@ function schemaFor(type, ref) {
       { title: 'Hidden from players (DM only)', dm: true, fields: [['definition.hidden.unidentified_name', 'Name while unidentified', 'text'],
         ['definition.hidden.unidentified_description', 'Description while unidentified', 'area'], ['definition.hidden.curse', 'Curse (stays secret until you reveal it)', 'area'],
         ['definition.hidden.properties', 'Secret properties (reveal them one by one)', 'rows', { row: [['key', 'Key', 'text'], ['label', 'Name', 'text'], ['text', 'What it does', 'text']] }]] },
+      // 20261112000300: players can Examine an unidentified copy with the total of their roll; you confirm unless automatic
+      { title: 'Identification by players (DM only)', dm: true, fields: [['definition.hidden.identify_dc', 'Examine DC (empty: players cannot examine it)', 'num'],
+        ['definition.hidden.identify_checks', 'Checks that can identify it (none ticked: any check)', 'multi', { options: [...ref.skills.map((x) => [x.id, x.name]), ...ref.tools.map((x) => [x.id, x.name])] }],
+        ['definition.hidden.identify_reveal', 'A success reveals (nothing ticked: everything)', 'multi', { options: [['all', 'Everything (identified)'], ['name', 'The true name'], ['description', 'The description'],
+          ['details', 'Herb / potion details'], ['magic', 'That it is magical'], ['rarity', 'Rarity'], ['attunement', 'Attunement'], ['curse', 'The curse']] }],
+        ['definition.hidden.identify_auto', 'Reveal at once when the roll meets the DC (no confirmation by you)', 'check'],
+        ['definition.hidden.identify_retry', 'Another attempt after a failure', 'sel', { options: [['dm', 'Only when I allow it'], ['once', 'Never (one attempt)'], ['per_long_rest', 'After a long rest'], ['unlimited', 'Any time']] }],
+        ['definition.hidden.fail_hint', 'Shown after a failed attempt (may be wrong but plausible)', 'area'],
+        ['definition.hidden.kind_face', 'Type shown while unidentified', 'sel', { options: [['', 'Default (Herbs & Plants: shown, others: hidden)'], ['show', 'Show the type'], ['hide', 'Hide the type']] }]] },
       { title: 'Text', fields: textFields },
     ];
     case 'feat': return [

@@ -2,13 +2,13 @@
 // the lock / setup banner, the "pending changes" tray, the request list, and the dialog that turns a refused change
 // (approval required) into a request for the DM. The database decides what needs approval; this module only reacts.
 
-import { supabase } from './supabase.js?v=24';
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=24';
-import { icon } from './icons.js?v=24';
+import { supabase } from './supabase.js?v=25';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=25';
+import { icon } from './icons.js?v=25';
 import {
   getCharacterGovernance, getCharacterChangeRequests, opForCall, addChangeRequestOp, createChangeRequest, submitChangeRequest,
   updateChangeRequest, cancelChangeRequest, previewChangeRequest, STATUS_LABEL, LOCK_TEXT,
-} from './governance-api.js?v=24';
+} from './governance-api.js?v=25';
 
 const fmtTime = (t) => (t ? new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '');
 const OPEN = new Set(['draft', 'submitted', 'returned_for_changes', 'apply_failed']);

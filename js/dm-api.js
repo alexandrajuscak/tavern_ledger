@@ -1,8 +1,8 @@
 // DM Space data (docs/DM_SPACE.md): campaigns, overview, party, the custom content library and its lifecycle, assignment and
 // hidden information. Every function is a DM-only RPC that checks the campaign role itself (20261019000400-000600).
 
-import { supabase } from './supabase.js?v=24';
-import { friendlyError } from './utils.js?v=24';
+import { supabase } from './supabase.js?v=25';
+import { friendlyError } from './utils.js?v=25';
 
 export class DmError extends Error {
   constructor(message, raw) {
@@ -72,6 +72,28 @@ export const setConditionDmNote = (conditionId, note) => rpc('set_condition_dm_n
 export const setItemKnowledge = (inventoryItemId, state, revealed = null, magicKnown = null) =>
   rpc('set_item_knowledge', { p_inventory_item: inventoryItemId, p_state: state, p_revealed: revealed, p_magic_known: magicKnown });
 export const getCharacterConditions = (characterId) => rpc('get_character_conditions', { p_character: characterId });
+// identification of disguised items, e.g. Herbs & Plants (20261112000300)
+export const getIdentifyAttempts = (campaignId, status = 'pending') => rpc('get_campaign_identify_attempts', { p_campaign: campaignId, p_status: status });
+/** success: true / false, or null = decide by the (corrected) roll against the DC. allowRetry on a failure lets the player try again. */
+export const resolveIdentifyAttempt = (attemptId, { success = null, dmRoll = null, note = null, allowRetry = false, reveal = null } = {}) =>
+  rpc('resolve_identify_attempt', { p_attempt: attemptId, p_success: success, p_dm_roll: dmRoll, p_note: note, p_allow_retry: allowRetry, p_reveal: reveal });
+/** Reveal an item (all, or parts) to some characters; characterIds null = every character of the campaign. */
+export const revealItem = (itemId, characterIds = null, reveal = null, campaignId = null) =>
+  rpc('dm_reveal_item', { p_item: itemId, p_characters: characterIds, p_reveal: reveal, p_campaign: campaignId });
+export const setItemIdentifyOptions = (itemId, options) => rpc('set_item_identify_options', { p_item: itemId, p_options: options });
+export const giveItem = (itemId, characterIds, quantity = 1, identified = false) =>
+  rpc('dm_give_item', { p_item: itemId, p_characters: characterIds, p_quantity: quantity, p_identified: identified });
+/** Custom items of the campaign (DM Content and campaign homebrew) with their DM-only identification options. */
+export async function getCampaignCustomItems(campaignId) {
+  const { data, error } = await supabase.from('items').select('id, name, kind_id, archived_at').eq('campaign_id', campaignId)
+    .not('owner_id', 'is', null).is('archived_at', null).order('name');
+  if (error) throw new DmError(friendlyError(error), error);
+  const ids = data.map((x) => x.id);
+  const secrets = ids.length ? await supabase.from('item_secrets').select('*').in('item_id', ids) : { data: [] };
+  if (secrets.error) throw new DmError(friendlyError(secrets.error), secrets.error);
+  const by = new Map((secrets.data || []).map((x) => [x.item_id, x]));
+  return data.map((x) => ({ ...x, secrets: by.get(x.id) || null }));
+}
 export const exportDmBackup = (campaignId) => rpc('export_campaign_dm_backup', { p_campaign: campaignId });
 
 // ---- reference data for the editors ---------------------------------------------------------------------------------------

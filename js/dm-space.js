@@ -2,13 +2,13 @@
 // Approvals, Party, Content (custom content library + editors), Assign, Hidden, Rules (governance and content policy), Audit.
 // Visible only to campaign DMs and admins; every read and write is checked again by the database.
 
-import { supabase } from './supabase.js?v=24';
-import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=24';
-import * as dm from './dm-api.js?v=24';
-import * as gov from './governance-api.js?v=24';
-import { icon } from './icons.js?v=24';
-import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=24';
-import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=24';
+import { supabase } from './supabase.js?v=25';
+import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=25';
+import * as dm from './dm-api.js?v=25';
+import * as gov from './governance-api.js?v=25';
+import { icon } from './icons.js?v=25';
+import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=25';
+import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=25';
 
 const SECTIONS = [['overview', 'Overview'], ['approvals', 'Approvals'], ['party', 'Party'], ['content', 'Content'], ['assign', 'Assign'],
   ['hidden', 'Hidden'], ['rules', 'Campaign rules'], ['audit', 'Audit log']];
@@ -570,10 +570,12 @@ async function hidden(panel, alive) {
   if (!alive()) return;
   const cid = p.characters.some((c) => c.id === store.get('hidden-character')) ? store.get('hidden-character') : p.characters[0]?.id;
   if (!cid) { panel.innerHTML = '<p class="muted">No characters yet.</p>'; return; }
-  const h = await dm.getCharacterHidden(cid);
+  const [h, attempts, custom] = await Promise.all([dm.getCharacterHidden(cid), dm.getIdentifyAttempts(campaignId, null).catch(() => []),
+    dm.getCampaignCustomItems(campaignId).catch(() => [])]);
   if (!alive()) return;
   const name = p.characters.find((c) => c.id === cid)?.name || '';
   panel.innerHTML = `
+    ${identifyQueueHTML(attempts)}
     <label class="field"><span>Character</span><select data-h-char>${p.characters.map((c) => `<option value="${esc(c.id)}" ${c.id === cid ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
     <p class="muted small">Everything here is visible only to DMs. Players see nothing of it until you reveal it.</p>
     <div class="dm-columns">
@@ -597,8 +599,20 @@ async function hidden(panel, alive) {
             ${secret.curse ? `<p class="small warn">Curse: ${esc(secret.curse)}</p>` : ''}
             <label class="field"><span>Player knowledge</span><select data-k-state>${['unidentified', 'partially_identified', 'identified'].map((s) => `<option value="${s}" ${it.state === s ? 'selected' : ''}>${esc(s.replace('_', ' '))}</option>`).join('')}</select></label>
             <div class="multi-opts">${keys.map((k) => `<label class="check-field"><input type="checkbox" data-k-rev value="${esc(k)}" ${(it.revealed || []).includes(k) ? 'checked' : ''}><span>Reveal ${esc((secret.properties || []).find((x) => x.key === k)?.label || k)}</span></label>`).join('')}</div>
-            <button type="button" class="btn btn-sm btn-gold" data-h="knowledge">Save what the player knows</button></div>`;
-        }).join('') : '<p class="muted">No unidentified or partly identified items. Assign an item as unidentified from Assign.</p>'}
+            <button type="button" class="btn btn-sm btn-gold" data-h="knowledge">Save what the player knows</button>
+            ${identifySummaryHTML(it.identify)}
+            <div class="dm-action-row">${it.identify?.secrets_editable ? `<button type="button" class="btn btn-xs" data-h="identify-opts" data-item="${esc(it.item_id)}" data-name="${esc(it.true_name)}">Identification settings…</button>` : ''}
+              ${it.item_id ? `<button type="button" class="btn btn-xs" data-h="reveal-all" data-item="${esc(it.item_id)}" data-name="${esc(it.true_name)}">Reveal to every character</button>` : ''}</div></div>`;
+        }).join('') : '<p class="muted">No unidentified or partly identified items. Assign an item as unidentified from Assign, or give one below.</p>'}
+      </section>
+      <section class="card dm-card dm-wide"><h2>Give a campaign item unidentified</h2>
+        ${custom.length ? `<p class="muted small">Custom items of this campaign (DM Content and campaign homebrew, e.g. herbs). ${esc(name)} gets the disguise; set the decoy and the Examine check in Identification settings.</p>
+        <div class="inv-form-row" data-give>
+          <select data-give-item aria-label="Item">${custom.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.secrets?.identify_dc ? ` (DC ${esc(String(x.secrets.identify_dc))})` : x.secrets?.unidentified_name ? ' (disguised)' : ''}</option>`).join('')}</select>
+          <input type="number" data-give-qty min="1" max="999" value="1" aria-label="Quantity" style="width:5em">
+          <button type="button" class="btn btn-sm btn-gold" data-h="give">Give to ${esc(name)}</button>
+          <button type="button" class="btn btn-sm" data-h="give-opts">Identification settings…</button>
+        </div>` : '<p class="muted">No custom items in this campaign yet. Create one in Content, or with the Inventory homebrew form (campaign visibility).</p>'}
       </section>
     </div>`;
   $('[data-h-char]', panel).addEventListener('change', (e) => { store.set('hidden-character', e.target.value); show('hidden'); });
@@ -614,7 +628,96 @@ async function hidden(panel, alive) {
         const box = b.closest('[data-ii]');
         await dm.setItemKnowledge(box.dataset.ii, $('[data-k-state]', box).value, $$('[data-k-rev]:checked', box).map((x) => x.value));
       }
+      if (b.dataset.h === 'identify-opts' || b.dataset.h === 'give-opts') {
+        const id = b.dataset.item || $('[data-give-item]', panel).value;
+        const item = custom.find((x) => x.id === id);
+        const own = h.item_secrets.find((x) => x.item_id === id);
+        await identifyOptionsDialog(id, b.dataset.name || item?.name || '', item?.secrets || own || null);
+        return;
+      }
+      if (b.dataset.h === 'reveal-all') {
+        if (!await confirmDialog(`Reveal “${b.dataset.name}” to every character of the campaign?`, { okLabel: 'Reveal' })) return;
+        await dm.revealItem(b.dataset.item, null, null, campaignId);
+      }
+      if (b.dataset.h === 'give') {
+        const res = await dm.giveItem($('[data-give-item]', panel).value, [cid], Number($('[data-give-qty]', panel).value) || 1, false);
+        const bad = (res.results || []).find((x) => !x.ok);
+        if (bad) throw new Error(bad.error);
+      }
+      if (b.dataset.h === 'id-resolve' || b.dataset.h === 'id-retry') {
+        const box = b.closest('[data-attempt]');
+        const roll = $('[data-id-roll]', box)?.value;
+        await dm.resolveIdentifyAttempt(box.dataset.attempt, {
+          success: b.dataset.h === 'id-retry' ? false : b.dataset.ok === '1' ? true : b.dataset.ok === '0' ? false : null,
+          dmRoll: roll !== undefined && roll !== '' ? Number(roll) : null, note: $('[data-id-note]', box)?.value || null,
+          allowRetry: b.dataset.h === 'id-retry' || !!$('[data-id-allow]', box)?.checked,
+        });
+      }
       toast('Saved.', 'good');
+      show('hidden');
+    } catch (err) { toast(err.message, 'bad'); }
+  });
+}
+
+// ---- identification of disguised items (Herbs & Plants, 20261112000300) -------------------------------------------------------------
+const RETRY_TEXT = { dm: 'another try only when you allow it', once: 'one attempt', per_long_rest: 'again after a long rest', unlimited: 'any number of tries' };
+function identifySummaryHTML(x) {
+  if (!x) return '';
+  if (!x.dc) return '<p class="small muted">Players cannot examine it (no DC set).</p>';
+  return `<p class="small">Examine: DC ${esc(String(x.dc))} · ${x.checks?.length ? esc(x.checks.map((c) => c.label).join(', ')) : 'any check'} ·
+    ${x.auto ? 'reveals itself on a success' : 'you confirm'} · ${esc(RETRY_TEXT[x.retry] || x.retry || '')}${x.fail_hint ? ` · hint: “${esc(x.fail_hint)}”` : ''}</p>`;
+}
+function identifyQueueHTML(list) {
+  const pending = (list || []).filter((a) => a.status === 'pending');
+  const failed = (list || []).filter((a) => a.status === 'failed' && !a.retry_allowed).slice(0, 8);
+  if (!pending.length && !failed.length) return '';
+  const row = (a) => `<li class="dm-item-know" data-attempt="${esc(a.attempt_id)}">
+      <p><strong>${esc(a.character_name)}</strong> examined <strong>${esc(a.true_name)}</strong> <span class="small muted">(player sees: ${esc(a.shown_name)})</span></p>
+      <p class="small">${esc(a.check_label)}: <b>${esc(String(a.roll_total))}</b> against DC ${esc(String(a.dc ?? '—'))}${a.status === 'failed' ? ` · failed${a.dm_roll_total != null ? ` (corrected roll ${esc(String(a.dm_roll_total))})` : ''}` : ''} · ${esc(fmt(a.created_at))}</p>
+      ${a.status === 'pending' ? `<div class="inv-form-row">
+        <input type="number" data-id-roll min="-10" max="60" placeholder="Correct roll" aria-label="Corrected roll" style="width:7em">
+        <input type="text" data-id-note maxlength="500" placeholder="Note for you (DM only)" aria-label="Note">
+        <label class="check-field"><input type="checkbox" data-id-allow><span>Allow another try if it fails</span></label></div>
+      <div class="dm-action-row"><button type="button" class="btn btn-xs btn-gold" data-h="id-resolve" data-ok="1">Success: reveal</button>
+        <button type="button" class="btn btn-xs" data-h="id-resolve" data-ok="0">No success</button>
+        <button type="button" class="btn btn-xs btn-ghost" data-h="id-resolve" data-ok="">Decide by the roll</button></div>`
+        : '<div class="dm-action-row"><button type="button" class="btn btn-xs" data-h="id-retry">Allow another try</button></div>'}</li>`;
+  return `<section class="card dm-card dm-wide" data-identify-queue><h2>Examine requests${pending.length ? ` (${pending.length})` : ''}</h2>
+    ${pending.length ? `<ul>${pending.map(row).join('')}</ul>` : '<p class="muted">No open requests.</p>'}
+    ${failed.length ? `<details><summary class="small">Recent failed attempts (${failed.length})</summary><ul>${failed.map(row).join('')}</ul></details>` : ''}</section>`;
+}
+async function identifyOptionsDialog(itemId, name, sec) {
+  if (!itemId) return;
+  const ref = await dm.getEditorReference();
+  const x = sec || {};
+  const checks = [...ref.skills.map((k) => [k.id, k.name]), ...ref.tools.map((k) => [k.id, k.name])];
+  const reveal = [['all', 'Everything (identified)'], ['name', 'The true name'], ['description', 'The description'], ['details', 'Herb / potion details'],
+    ['magic', 'That it is magical'], ['rarity', 'Rarity'], ['attunement', 'Attunement'], ['curse', 'The curse']];
+  const box = (list, sel, attr) => `<div class="multi-opts">${list.map(([v, l]) => `<label class="check-field"><input type="checkbox" ${attr} value="${esc(v)}" ${(sel || []).includes(v) ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</div>`;
+  const m = openModal({ title: `Identification: ${name}`, wide: true, body: `
+    <p class="muted small">DM only. Players see the decoy until they identify the item (per character) or you reveal it.</p>
+    <label class="field"><span>Name while unidentified</span><input data-o="unidentified_name" maxlength="80" value="${esc(x.unidentified_name || '')}"></label>
+    <label class="field"><span>Description while unidentified</span><textarea data-o="unidentified_description" maxlength="1000" rows="2">${esc(x.unidentified_description || '')}</textarea></label>
+    <label class="check-field"><input type="checkbox" data-o="show_kind" ${x.face_kind_id ? 'checked' : ''}><span>Players see its type (e.g. Herbs &amp; Plants)</span></label>
+    <label class="field"><span>Examine DC (empty: players cannot examine it)</span><input type="number" data-o="identify_dc" min="1" max="40" value="${esc(String(x.identify_dc ?? ''))}"></label>
+    <fieldset class="field-multi"><legend>Checks that can identify it (none: any check)</legend>${box(checks, x.identify_checks, 'data-o-check')}</fieldset>
+    <fieldset class="field-multi"><legend>A success reveals</legend>${box(reveal, x.identify_reveal || ['all'], 'data-o-reveal')}</fieldset>
+    <label class="check-field"><input type="checkbox" data-o="identify_auto" ${x.identify_auto ? 'checked' : ''}><span>Reveal at once when the roll meets the DC (no confirmation)</span></label>
+    <label class="field"><span>Another attempt after a failure</span><select data-o="identify_retry">${Object.entries({ dm: 'Only when I allow it', once: 'Never (one attempt)', per_long_rest: 'After a long rest', unlimited: 'Any time' })
+      .map(([k, l]) => `<option value="${k}" ${(x.identify_retry || 'dm') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <label class="field"><span>Shown after a failed attempt (may be wrong but plausible)</span><textarea data-o="fail_hint" maxlength="500" rows="2">${esc(x.fail_hint || '')}</textarea></label>`,
+  footer: '<button type="button" class="btn btn-gold" data-o-save>Save</button>' });
+  $('[data-o-save]', m.el).addEventListener('click', async () => {
+    const v = (k) => $(`[data-o="${k}"]`, m.el);
+    const dc = v('identify_dc').value.trim();
+    try {
+      await dm.setItemIdentifyOptions(itemId, {
+        unidentified_name: v('unidentified_name').value, unidentified_description: v('unidentified_description').value, show_kind: v('show_kind').checked,
+        identify_dc: dc === '' ? null : Number(dc), identify_checks: $$('[data-o-check]:checked', m.el).map((c) => c.value),
+        identify_reveal: $$('[data-o-reveal]:checked', m.el).map((c) => c.value), identify_auto: v('identify_auto').checked,
+        identify_retry: v('identify_retry').value, fail_hint: v('fail_hint').value });
+      toast('Identification settings saved.', 'good');
+      m.close();
       show('hidden');
     } catch (err) { toast(err.message, 'bad'); }
   });

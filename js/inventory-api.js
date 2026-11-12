@@ -1,8 +1,8 @@
 // Inventory data access. The ONLY module that talks to Supabase about items, inventories and equipment.
 // Reads come from views (RLS applies: they are security_invoker), every change goes through an RPC.
 // Function names follow the database; where they differ the mapping is written next to the function.
-import { supabase } from './supabase.js?v=24';
-import { onUserCachesCleared } from './read-layer.js?v=24';
+import { supabase } from './supabase.js?v=25';
+import { onUserCachesCleared } from './read-layer.js?v=25';
 
 // ---- Errors -----------------------------------------------------------------------------------
 
@@ -212,6 +212,10 @@ export async function getCatalogItems(ids, { fresh = false } = {}) {
 /** What the signed-in user knows about the (partly) unidentified items of a character: [{inventory_item_id, state, facts, …}].
  *  Players get the disguise and the revealed facts only (get_character_item_knowledge strips the rest on the server). */
 export const getItemKnowledge = (characterId) => rpc('get_character_item_knowledge', { p_character: characterId });
+/** Examine an unidentified item with the TOTAL of a physical roll (the server never rolls and never returns the DC):
+ *  {status: 'pending' | 'succeeded' | 'failed', hint?, revealed?} (20261112000300). requestId makes a retried call idempotent. */
+export const examineItem = (inventoryItemId, checkKey, rollTotal, requestId) =>
+  rpc('examine_inventory_item', { p_inventory_item: inventoryItemId, p_check: checkKey, p_roll: rollTotal, p_request: requestId || null });
 
 const modifierRarityCache = new Map();
 // item_modifiers are read with the user's RLS (homebrew modifiers): forgotten on a user switch

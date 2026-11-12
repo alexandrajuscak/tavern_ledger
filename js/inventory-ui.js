@@ -1,13 +1,13 @@
 // Inventory tab: summary, equipment slots, item list, item detail and the catalog picker.
 // All data comes from inventory-api.js; after every change the authoritative state is re-read from the server
 // (no client-side simulation of splits, merges or quantities).
-import * as api from './inventory-api.js?v=24';
-import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=24';
-import { openHomebrewForm } from './homebrew-form.js?v=24';
-import { galleryIcon } from './item-icon-gallery.js?v=24';
-import { isAnyDM } from './store.js?v=24';
-import { icon, ITEM_ICONS } from './icons.js?v=24';
-import { sectionHead } from './section.js?v=24';
+import * as api from './inventory-api.js?v=25';
+import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=25';
+import { openHomebrewForm } from './homebrew-form.js?v=25';
+import { galleryIcon } from './item-icon-gallery.js?v=25';
+import { isAnyDM } from './store.js?v=25';
+import { icon, ITEM_ICONS } from './icons.js?v=25';
+import { sectionHead } from './section.js?v=25';
 
 const CATEGORIES = [
   ['all', 'All', () => true],
@@ -107,7 +107,8 @@ export function mountInventory(el, opts) {
     const e = s.equipment.find((x) => x.slot_id === slotId);
     return e ? rowById(e.inventory_item_id) || { id: e.inventory_item_id, display_name: 'Unknown item' } : null;
   };
-  const isLegacy = (r) => !r.item_id;
+  // an unidentified instance has item_id null for a player (20261112000300 masks it) but a knowledge state: never a legacy row
+  const isLegacy = (r) => !r.item_id && !r.knowledge_state && !s.knowledge?.get(r.id);
   const isContainer = (r) => {
     const d = detail(r);
     return !!(d && (d.capacity_weight_lb != null || d.capacity_volume_cuft != null || d.weightless_contents))
@@ -122,7 +123,7 @@ export function mountInventory(el, opts) {
   function compatibleSlots(r) {
     if (isLegacy(r) || !s.lookups) return [];
     const ids = new Set(s.lookups.slotRules
-      .filter((x) => x.item_id === r.item_id || (!x.item_id && x.kind_id === r.kind_id && (!x.category_id || x.category_id === r.category_id)))
+      .filter((x) => (r.item_id && x.item_id === r.item_id) || (!x.item_id && x.kind_id === r.kind_id && (!x.category_id || x.category_id === r.category_id)))
       .map((x) => x.slot_id));
     return s.lookups.slots.filter((x) => ids.has(x.id));
   }
@@ -442,6 +443,9 @@ export function mountInventory(el, opts) {
     if (rar) b.push(rarityBadge(rar, magicOf(r)));
     else if (magicOf(r)) b.push('<span class="badge inv-b-magic">Magic</span>');
     if (isLegacy(r)) b.push('<span class="badge inv-b-legacy" title="From the old sheet; not linked to an item definition yet">Old sheet item</span>');
+    const kn = knowledgeOf(r);
+    if (kn) b.push(`<span class="badge inv-b-unknown" title="You do not know everything about this item yet">${kn.state === 'partially_identified' ? 'Partly identified' : 'Unidentified'}</span>`);
+    if (kn?.identify?.last?.status === 'pending') b.push('<span class="badge inv-b-warn">Examined: waiting for the DM</span>');
     b.push(sourceBadge(d));
     if (d?.archived_at) b.push('<span class="badge inv-b-archived" title="The homebrew definition is archived; this entry still works">Archived definition</span>');
     if (needsEquipReview(r)) b.push('<span class="badge inv-b-warn">Check where it is equipped</span>');
@@ -527,6 +531,8 @@ export function mountInventory(el, opts) {
       await act(r.id, () => api.removeInventoryItem(r.id, 1));
     } else if (canStack(r)) {
       await act(r.id, () => api.setInventoryItemQuantity(r.id, r.quantity + 1));
+    } else if (!r.item_id) {
+      toast('You do not know this item well enough to add another. Ask your DM.', 'bad');
     } else {
       await act(r.id, async () => { await api.addInventoryItem(s.inventoryId, r.item_id, 1); toast(`Added another ${r.display_name}.`, 'good'); });
     }
@@ -623,7 +629,8 @@ export function mountInventory(el, opts) {
       : '<p class="muted">Nothing was used up: this item is not consumable.</p>';
     openModal({
       title: res.consumed ? `Used: ${res.name}` : res.name,
-      body: `${lines ? `<ul class="inv-effects">${lines}</ul>` : (res.consumed && !spell ? '<p>No automatic effect.</p>' : '')}${spell}
+      body: `${res.unidentified ? '<p>You do not know what this does yet. Your DM tells you what happens.</p>'
+        : lines ? `<ul class="inv-effects">${lines}</ul>` : (res.consumed && !spell ? '<p>No automatic effect.</p>' : '')}${spell}
         ${lines.includes('Healing') ? '<p class="muted small">Hit points are not changed automatically. Roll the dice and apply the healing on the combat bar.</p>' : ''}${left}`,
       footer: '<button type="button" class="btn btn-gold" data-close>OK</button>',
     });
@@ -693,6 +700,38 @@ export function mountInventory(el, opts) {
     return `<dl class="inv-props">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`;
   }
 
+  // ---- what the character knows about a disguised item, and Examine (20261112000300) ---------------------------------
+  const STATUS_TEXT = { pending: 'waiting for your DM', succeeded: 'you learned something', failed: 'nothing new' };
+  function knowledgeHTML(r) {
+    const k = knowledgeOf(r);
+    if (!k) return '';
+    const idf = k.identify || {};
+    const last = idf.last;
+    const props = (k.properties || []).map((x) => `<li><b>${esc(x.label || x.key)}</b>${x.text ? `: ${esc(x.text)}` : ''}</li>`).join('');
+    const checks = idf.checks || [];
+    const form = idf.can_examine ? `
+        <form class="inv-form" data-form="examine">
+          <h4>Examine</h4>
+          <p class="muted small">Roll the check at the table and enter the total. Your DM decides what you learn.</p>
+          <div class="inv-form-row">
+            ${checks.length ? `<select name="check" aria-label="Check">${checks.map((c) => `<option value="${esc(c.key)}">${esc(c.label)}</option>`).join('')}</select>`
+              : '<input type="text" name="check" maxlength="60" placeholder="Check (e.g. Nature)" aria-label="Check">'}
+            <input type="number" name="roll" min="-10" max="60" step="1" inputmode="numeric" placeholder="Total" aria-label="Total of your roll" required>
+            <button type="submit" class="btn btn-sm btn-gold">Examine</button>
+          </div>
+        </form>` : '';
+    return `<section class="inv-knowledge" aria-label="What you know">
+        <h4>${k.state === 'partially_identified' ? 'Partly identified' : 'Unidentified'}</h4>
+        ${k.details ? itemDetailsHTML({ details: k.details }) : ''}
+        ${props ? `<ul class="small">${props}</ul>` : ''}
+        ${k.curse ? `<p class="inv-note warn">Curse: ${esc(k.curse)}</p>` : ''}
+        ${last ? `<p class="small" data-examine-status="${esc(last.status)}">Last examination (${esc(last.check_label)} ${esc(String(last.roll_total))}): ${esc(STATUS_TEXT[last.status] || last.status)}.</p>` : ''}
+        ${last?.status === 'failed' && last.hint ? `<p class="small inv-hint"><i>${esc(last.hint)}</i></p>` : ''}
+        ${idf.enabled && !idf.can_examine && last?.status !== 'pending' ? '<p class="muted small">You cannot examine it again yet.</p>' : ''}
+        ${form}
+      </section>`;
+  }
+
   function openDetail(id) {
     const r = rowById(id);
     if (!r) return;
@@ -731,7 +770,8 @@ export function mountInventory(el, opts) {
         ${itemDetailsHTML(d)}
         ${r.custom_name ? `<p class="muted small">Custom name of <b>${esc(r.name)}</b>.</p>` : ''}
         ${propsHTML(r)}
-        ${d?.description ? `<p class="inv-desc">${esc(d.description)}</p>` : ''}
+        ${(d?.description || r.description) ? `<p class="inv-desc">${esc(d?.description || r.description)}</p>` : ''}
+        ${knowledgeHTML(r)}
         ${definition}
         ${reviewOf(r).map((x) => `<p class="inv-note warn">${esc(reviewText(x))}</p>`).join('')}
         ${cont ? containerLineHTML(cont) : ''}
@@ -740,7 +780,7 @@ export function mountInventory(el, opts) {
           <div class="inv-form-row">
             <input type="number" name="n" min="1" step="1" inputmode="numeric" value="1" aria-label="Number of pieces">
             ${canStack(r) ? '<button type="submit" class="btn btn-sm" data-q="set">Set to</button>' : ''}
-            <button type="submit" class="btn btn-sm" data-q="add">Add</button>
+            ${r.item_id || canStack(r) ? '<button type="submit" class="btn btn-sm" data-q="add">Add</button>' : ''}
             <button type="submit" class="btn btn-sm" data-q="remove">Remove</button>
           </div>
         </form>
@@ -807,6 +847,18 @@ export function mountInventory(el, opts) {
           else await api.addInventoryItem(s.inventoryId, r.item_id, n);
           toast('Quantity updated.', 'good');
         });
+      } else if (form.dataset.form === 'examine') {
+        const f = form.elements;
+        const roll = Number.parseInt(f.roll.value, 10);
+        if (!f.check.value) { toast('Choose the check you rolled.', 'bad'); return; }
+        if (!Number.isInteger(roll) || roll < -10 || roll > 60) { toast('Enter the total of your roll (-10 to 60).', 'bad'); return; }
+        m.close();
+        const res = await act(r.id, () => api.examineItem(r.id, f.check.value, roll, crypto.randomUUID?.()));
+        if (res) {
+          toast(res.status === 'pending' ? 'Sent to your DM. You will see the result here.'
+            : res.status === 'succeeded' ? 'You learned something about this item.' : `Nothing new.${res.hint ? ` ${res.hint}` : ''}`,
+          res.status === 'failed' ? 'bad' : 'good');
+        }
       } else if (form.dataset.form === 'text') {
         const f = form.elements;
         const details = { custom_name: f.custom_name.value.trim() || null, notes: f.notes.value.trim() ? f.notes.value : null, is_quest_item: f.is_quest_item.checked };

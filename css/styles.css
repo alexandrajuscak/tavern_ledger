@@ -1121,6 +1121,13 @@ input.big-num:focus { border-color: var(--gold) !important; }
 .inv-b-magic { background: rgba(160, 120, 240, 0.18); color: #c7b2f5; }
 .inv-b-legacy { background: var(--panel-3); color: var(--text); }
 .inv-b-warn { background: rgba(240, 160, 70, 0.18); color: #f0c07a; }
+/* a disguised item (Herbs & Plants identification, 20261112000300): text says the state, never colour alone */
+.inv-b-unknown { background: var(--panel-3); border: 1px dashed var(--border); color: var(--muted); }
+.inv-knowledge { margin: 10px 0; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px; }
+.inv-knowledge h4 { margin: 0 0 4px; }
+.inv-knowledge .inv-form { margin-top: 8px; }
+.inv-knowledge input[name="roll"] { width: 6.5em; }
+.inv-hint { color: var(--muted); }
 /* rarity badge: neutral base for a non-magic item, the magic tint stays on magic items (.inv-b-magic.inv-b-rarity) */
 .inv-b-rarity { background: var(--panel-3); border: 1px solid var(--border); border: 1px solid color-mix(in srgb, var(--rarity, var(--muted)) 45%, transparent); color: var(--rarity, var(--muted)); }
 .inv-b-rarity.inv-b-magic { background: rgba(160, 120, 240, 0.18); }
