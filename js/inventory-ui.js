@@ -1015,13 +1015,14 @@ export function mountInventory(el, opts) {
       if (p.dm_content_id) { toast('This item is managed in DM Space: delete or archive it there.', 'bad', 6000); return false; }
       if (!p.archived && await confirmDialog(`${item.name} is in use${why ? ` (${why})` : ''}. It cannot be deleted. Archive it instead? It can no longer be added; every existing entry keeps working.`, { okLabel: 'Archive', danger: true })) {
         try { await api.archiveHomebrewItem(item.id); toast(`Archived ${item.name}.`); return true; } catch (raw) { toast(api.normalizeError(raw).message, 'bad'); }
-      } else if (p.archived) toast(`${item.name} is in use${why ? ` (${why})` : ''} and stays archived.`, 'info', 6000);
+      } else if (p.archived) toast(`${item.name} is still in use${why ? ` (${why})` : ''}. Remove it there first; until then it stays archived.`, 'info', 7000);
       return false;
     }
     return new Promise((resolve) => {
       const dm = openModal({
         title: `Delete ${item.name}?`,
-        body: `<p>Nothing uses this definition. Deleting it cannot be undone.</p>
+        body: `<p>${(p.history || []).length ? `Nothing uses this definition now. Deleting it cannot be undone; its history (${esc(p.history.join(', '))}) stays readable under its name.`
+          : 'Nothing uses this definition. Deleting it cannot be undone.'}</p>
           <label class="field"><span>Type the item name to confirm</span><input data-confirm-name autocomplete="off" aria-describedby="del-hint"></label>
           <p class="muted small" id="del-hint">${esc(item.name)}</p>`,
         footer: '<button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn btn-bad" data-ok disabled>Delete for good</button>',

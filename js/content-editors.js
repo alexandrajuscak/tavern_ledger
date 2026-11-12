@@ -354,27 +354,65 @@ const USAGE_LABEL = {
   seen_forms: 'Wild Shape forms known', form_favorites: 'form favourites', companions: 'companions', transformations: 'active transformations',
   active_encounter_snapshots: 'running or planned encounters', background_assignments: 'characters with this background',
   background_choices: 'saved background choices', lineage_assignments: 'characters with this lineage', lineage_choices: 'saved lineage choices',
-  condition_assignments: 'applied conditions', pending_requests: 'pending change requests', other_content: 'other content refers to it',
+  condition_assignments: 'applied conditions', pending_requests: 'submitted change requests', other_content: 'published content refers to it',
   completed_encounter_snapshots: 'completed encounters (history)', audit_references: 'audit history entries', earlier_assignments: 'earlier assignments (history)',
+  request_history: 'draft or outdated change requests (history)', other_content_history: 'archived or draft content mentions it (history)',
 };
+// history (20261112000100): kept and readable after a delete; only completed encounters still block (a creature stays archived)
+const HISTORY_KEYS = new Set(['inventory_history', 'audit_references', 'earlier_assignments', 'request_history', 'other_content_history', 'completed_encounter_snapshots']);
 export const CLASSIFICATION = {
-  safe_to_delete: ['Safe to delete', 'good'], archive_recommended: ['Archive recommended', 'warn'],
+  safe_to_delete: ['Safe to delete', 'good'], delete_keeps_history: ['Deletable, history kept', 'good'], archive_recommended: ['Archive recommended', 'warn'],
   delete_blocked: ['Delete blocked', 'bad'], new_version_required: ['New version required', 'warn'],
 };
 
 function usageHTML(u) {
   const rows = Object.entries(u.counts || {}).filter(([, n]) => Number(n) > 0);
+  const cur = rows.filter(([k]) => !HISTORY_KEYS.has(k));
+  const hist = rows.filter(([k]) => HISTORY_KEYS.has(k));
+  const list = (r, attr) => `<ul class="small ce-usage-list" ${attr}>${r.map(([k, n]) => `<li><strong>${esc(n)}</strong> ${esc(USAGE_LABEL[k] || k.replace(/_/g, ' '))}</li>`).join('')}</ul>`;
   const [label, tone] = CLASSIFICATION[u.classification] || [u.classification, ''];
   return `<p><span class="ce-chip ce-usage-${esc(tone)}" data-usage-class="${esc(u.classification)}">${esc(label)}</span>
       ${u.edit === 'new_version_required' ? `<span class="ce-chip ce-usage-warn" data-usage-edit>${esc(CLASSIFICATION.new_version_required[0])}</span>` : ''}</p>
     <p class="small">${esc(TYPE[u.content_type]?.label || u.content_type)} · version ${esc(u.version_no || 1)} · Campaign custom${u.archived ? ' · archived' : ''}</p>
     <p class="small"><strong>${Number(u.characters) || 0}</strong> character${Number(u.characters) === 1 ? '' : 's'} use it.</p>
-    ${rows.length ? `<ul class="small ce-usage-list" data-usage-counts>${rows.map(([k, n]) => `<li><strong>${esc(n)}</strong> ${esc(USAGE_LABEL[k] || k.replace(/_/g, ' '))}</li>`).join('')}</ul>`
-      : '<p class="small muted" data-usage-counts>Nothing uses it and nothing refers to it.</p>'}
-    <p class="small">${esc(u.advice || '')}</p>`;
+    <div data-usage-counts>
+      ${cur.length ? `<h4 class="small-h">In use (blocks delete)</h4>${list(cur, 'data-usage-current')}` : ''}
+      ${hist.length ? `<h4 class="small-h">History (kept)</h4>${list(hist, 'data-usage-history')}` : ''}
+      ${rows.length ? '' : '<p class="small muted">Nothing uses it and nothing refers to it.</p>'}
+    </div>
+    <p class="small" data-usage-advice>${esc(u.advice || '')}</p>
+    <div data-usage-where></div>`;
 }
 
-/** The usage report (counts only) with Archive as the alternative and Delete only when the server says it is safe. */
+// where it is used (get_dm_content_usage_detail): one line per place, with the next step
+const qty = (p) => (p.quantity > 1 ? ` (×${p.quantity})` : '');
+const PLACE = {
+  character_inventory: (p) => [`${p.character_name}’s inventory${qty(p)}${p.equipped ? ', equipped' : ''}${p.attuned ? ', attuned' : ''}${p.in_container ? ', in a container' : ''}`,
+    'Remove it from the inventory (or ask the player to drop it).', p.character_id && `#/c/${p.character_id}`],
+  party_stash: (p) => [`Party stash “${p.inventory_name}”${qty(p)}`, 'Remove it from the party stash.'],
+  npc_inventory: (p) => [`NPC inventory “${p.inventory_name}”${qty(p)}`, 'Remove it from the NPC inventory.'],
+  shop: (p) => [`Shop “${p.inventory_name}”${qty(p)}`, 'Remove it from the shop.'],
+  stash: (p) => [`Stash “${p.inventory_name}”${qty(p)}`, 'Remove it from the stash.'],
+  character: (p) => [`${p.character_name}: ${p.use}${p.count > 1 ? ` (×${p.count})` : ''}`, 'Remove it from the character.', p.character_id && `#/c/${p.character_id}`],
+  request: (p) => [`Change request “${p.title}” by ${p.character_name} (${String(p.status || '').replace(/_/g, ' ')})`, 'Approve, reject or return the request first.',
+    p.request_id && `#/dm/approvals/${p.request_id}`],
+  encounter: (p) => [`Encounter “${p.encounter_name}” (${p.status})`,
+    p.status === 'completed' ? 'The encounter history keeps its stat block, so it stays archived.' : 'Finish the encounter or remove the creature from it.',
+    p.encounter_id && `#/combat/e/${p.encounter_id}`],
+  other_content: (p) => [`${TYPE[p.content_type]?.label || p.content_type} “${p.content_name}” (published)`, 'Publish a new version without the reference, or archive that content.'],
+};
+function whereHTML(w) {
+  const places = w?.places || [];
+  if (!places.length && !w?.hidden_places) return '';
+  return `<h4 class="small-h">Where it is used</h4><ul class="small ce-usage-list ce-usage-where" data-usage-places>${places.map((p) => {
+    const [text, next, href] = (PLACE[p.kind] || ((x) => [x.kind, '']))(p);
+    return `<li data-place-kind="${esc(p.kind)}">${href ? `<a href="${esc(href)}">${esc(text)}</a>` : esc(text)}${p.campaign_name ? ` <span class="muted">· ${esc(p.campaign_name)}</span>` : ''}
+      ${next ? `<br><span class="muted">${esc(next)}</span>` : ''}</li>`;
+  }).join('')}${w.truncated ? `<li class="muted">… and ${esc(w.total_places - places.length)} more</li>` : ''}${
+    w.hidden_places ? `<li class="muted">${esc(w.hidden_places)} more in campaigns you do not run</li>` : ''}</ul>`;
+}
+
+/** The usage report: what blocks, what is only history, where it is used; Archive as the alternative, Delete when nothing uses it. */
 export async function openUsage(content, { onChanged, onDeleted } = {}) {
   let u;
   try { u = await dm.getContentUsage(content.id); } catch (err) { toast(err.message, 'bad'); return; }
@@ -382,7 +420,10 @@ export async function openUsage(content, { onChanged, onDeleted } = {}) {
     footer: `<button type="button" class="btn" data-close>Close</button>
       ${u.can_archive ? '<button type="button" class="btn" data-u="archive">Archive instead</button>' : ''}
       ${u.can_delete ? '<button type="button" class="btn btn-bad" data-u="delete">Delete permanently…</button>' : ''}` });
+  // the places (names) arrive after the counts; a failed read only leaves the counts
+  dm.getContentUsageDetail(content.id).then((w) => { const box = $('[data-usage-where]', m.el); if (box) box.innerHTML = whereHTML(w); }).catch(() => {});
   m.el.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-usage-places] a')) { m.close(); return; }   // following a link leaves the dialog
     const a = e.target.closest('[data-u]')?.dataset.u;
     if (!a) return;
     if (a === 'archive') {
@@ -395,16 +436,19 @@ export async function openUsage(content, { onChanged, onDeleted } = {}) {
 
 /** Typed-name permanent delete; the server re-checks every dependency in its own transaction. Resolves true when deleted. */
 async function deleteContentFlow(u) {
+  const kept = u.classification === 'delete_keeps_history';
   const typed = await askName(u.name, { what: TYPE[u.content_type]?.label.toLowerCase() || 'content',
-    detail: `${TYPE[u.content_type]?.label || u.content_type} · version ${u.version_no || 1} · Campaign custom. Nothing uses it and nothing refers to it.
-      Deleting removes the content, all its versions and their catalog entries for good. Archive keeps it readable instead.` });
+    detail: `${TYPE[u.content_type]?.label || u.content_type} · version ${u.version_no || 1} · Campaign custom. ${kept
+      ? 'Nothing uses it now. Its history (inventory events, audit lines, earlier assignments) stays readable under its name.'
+      : 'Nothing uses it and nothing refers to it.'}
+      Deleting removes the content, all its versions and their catalog entries for good.${u.archived ? '' : ' Archive keeps it readable instead.'}` });
   if (typed == null) return false;
   try {
     await dm.deleteUnusedContent(u.content_id, typed);
     toast(`${u.name} deleted.`);
     return true;
   } catch (err) {
-    toast(err.code === 'TLUSE' ? `${err.message} Open its usage to see what refers to it.` : err.message, 'bad', 7000);
+    toast(err.code === 'TLUSE' ? `${err.message} Open its usage to see where it is used.` : err.message, 'bad', 7000);
     return false;
   }
 }
@@ -497,7 +541,8 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
   function draw() {
     const v = current();
     const model = formModel(type, v);
-    const usage = c?.usage;
+    // one source for the header: the usage report once it is loaded (it also counts stashes, requests, other content)
+    const usage = mgmt ? { characters: Number(mgmt.characters) || 0, pending_requests: Number(mgmt.counts?.pending_requests) || 0 } : c?.usage;
     $('[data-ce]', m.el).innerHTML = `
       ${c ? `<div class="ce-status"><span class="ce-chip ce-${esc(c.status)}">${esc(STATUS[c.status] || c.status)}</span>
         <span class="small muted">Version ${esc(v.version_no || 1)}${c.published_version_id && c.published_version_id !== v.id ? ' (draft of a new version)' : ''}
@@ -526,7 +571,7 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
       ${c && contentManagementEnabled() ? '<button type="button" class="btn" data-ce-act="usage">View usage…</button>' : ''}
       ${c && !contentManagementEnabled() && !c.published_version_id ? '<button type="button" class="btn btn-bad" data-ce-act="delete">Delete draft</button>' : ''}
       ${c && !contentManagementEnabled() && type === 'item' && c.published_version_id && !(usage?.characters) && !(usage?.stash_items) ? '<button type="button" class="btn btn-bad" data-ce-act="delete-unused">Delete (unused)…</button>' : ''}
-      ${c && contentManagementEnabled() && mgmt?.can_delete ? '<button type="button" class="btn btn-bad" data-ce-act="delete-any">Delete permanently…</button>' : ''}
+      ${c && contentManagementEnabled() && (mgmt ? mgmt.can_delete : !c.published_version_id) ? '<button type="button" class="btn btn-bad" data-ce-act="delete-any">Delete permanently…</button>' : ''}
       <button type="button" class="btn btn-ghost" data-close>Close</button>`;
     $$('.multi-opts[data-max]', m.el).forEach(limitMulti);
     showTypeSections();
@@ -599,7 +644,7 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
         case 'usage': await openUsage(c, { onChanged: () => { onChanged?.(); m.close(); }, onDeleted: () => { onChanged?.(); m.close(); } }); btn.disabled = false; return;
         case 'delete-any': {
           await refreshMgmt();
-          if (!mgmt?.can_delete) { toast('It is in use or part of the history now: archive it instead.', 'bad'); break; }
+          if (!mgmt?.can_delete) { toast('It is in use: open “View usage…” to see where.', 'bad', 6000); break; }
           if (await deleteContentFlow(mgmt)) { onChanged?.(); m.close(); return; }
           break;
         }

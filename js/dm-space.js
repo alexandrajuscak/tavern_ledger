@@ -458,7 +458,7 @@ async function content(panel, alive) {
           · v${esc(x.version_no || 1)}${x.published_version_no && x.published_version_no !== x.version_no ? ` (v${x.published_version_no} published)` : ''}${x.content_type === 'item' && rarity.get(x.catalog_ref) ? ` ${rarityChipHTML(rarity.get(x.catalog_ref))}` : ''}</span>
           ${x.summary ? `<span class="small">${esc(x.summary)}</span>` : ''}</span>
         <span class="ce-chip ce-${esc(x.status)}">${esc(CSTATUS[x.status] || x.status)}</span>
-        <span class="small muted">${x.usage_characters ? `${x.usage_characters} character${x.usage_characters === 1 ? '' : 's'}` : 'unused'}</span>
+        <span class="small muted">${x.usage_characters ? `${x.usage_characters} character${x.usage_characters === 1 ? '' : 's'}` : 'no characters'}</span>
       </button>${contentManagementEnabled() ? `<button type="button" class="btn btn-xs btn-ghost" data-dm="usage-content" data-id="${esc(x.id)}" aria-label="Usage of ${esc(x.name)}">Usage</button>` : ''}</li>`).join('') : '<li class="muted">Nothing here yet.</li>';
   };
   panel.innerHTML = `

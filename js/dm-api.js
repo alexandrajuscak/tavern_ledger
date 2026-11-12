@@ -51,6 +51,8 @@ export const deleteContent = (id) => rpc('delete_dm_content', { p_content: id })
 export const deleteUnusedItem = (id, confirmName) => rpc('delete_unused_dm_item', { p_content: id, p_confirm_name: confirmName });
 // content management (20261109000300, docs/CONTENT_MANAGEMENT.md)
 export const getContentUsage = (id) => rpc('get_dm_content_usage', { p_content: id });
+/** WHERE content is used (characters, inventories / stashes, requests, encounters, other content): DM / admin only (20261112000100). */
+export const getContentUsageDetail = (id) => rpc('get_dm_content_usage_detail', { p_content: id });
 export const deleteUnusedContent = (id, confirmName) => rpc('delete_unused_dm_content', { p_content: id, p_confirm_name: confirmName });
 export const duplicateOfficial = (type, ref, campaignId) => rpc('duplicate_official_as_homebrew', { p_type: type, p_ref: ref, p_campaign: campaignId });
 export const assignContent = (id, characterIds, mode, options = {}) =>
