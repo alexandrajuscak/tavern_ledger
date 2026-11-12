@@ -4,57 +4,58 @@ import {
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   ACTIVATIONS, ACTIVATION_BY_KEY, CASTING_TIMES, CONDITIONS, CONDITION_BY_NAME,
   weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js?v=23';
+} from './dnd.js?v=24';
 import {
   saver, insertRow, deleteRow, deleteCharacter, applyCharacterHp, subscribeCharacter, subscribeCharacterFluent, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
-} from './store.js?v=23';
-import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=23';
-import { openCoinCalculator, wallet as coinWallet } from './coins.js?v=23';
-import { mountInventory } from './inventory-ui.js?v=23';
-import { exportCharacter, downloadJson } from './transfer.js?v=23';
-import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups } from './inventory-api.js?v=23';
+  isCampaignDM, getCharacterConditions, applyCharacterEffect, updateCharacterEffect, removeCharacterCondition,
+} from './store.js?v=24';
+import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=24';
+import { openCoinCalculator, wallet as coinWallet } from './coins.js?v=24';
+import { mountInventory } from './inventory-ui.js?v=24';
+import { exportCharacter, downloadJson } from './transfer.js?v=24';
+import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups } from './inventory-api.js?v=24';
 import { backgroundCardHTML, openBackgroundPicker, openBackgroundEquipment, openReplaceDuplicate, saveCharacteristics, rollCharacteristic,
-  removeBackground } from './background-ui.js?v=23';
-import { getCharacterBackground } from './background-api.js?v=23';
-import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=23';
-import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=23';
+  removeBackground } from './background-ui.js?v=24';
+import { getCharacterBackground } from './background-api.js?v=24';
+import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=24';
+import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=24';
 import {
   acNote, openAcBreakdown, equippedWeaponsHTML, trackWeaponDetails, toolsHTML, specificProficienciesHTML,
   openProficiencyManager, equipmentNotes,
-} from './derived-ui.js?v=23';
-import { openLevelUp } from './levelup.js?v=23';
-import { mountGovernance } from './request-ui.js?v=23';
-import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=23';
-import { fluentEnabled, beginReadScope, endReadScope, seedReads, prefetchDomain, readNow, knownRevision, noteRevisions, awaitSeed } from './read-layer.js?v=23';
-import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=23';
-import { exportFeats } from './feat-api.js?v=23';
-import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=23';
-import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=23';
-import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=23';
+} from './derived-ui.js?v=24';
+import { openLevelUp } from './levelup.js?v=24';
+import { mountGovernance } from './request-ui.js?v=24';
+import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=24';
+import { fluentEnabled, beginReadScope, endReadScope, seedReads, prefetchDomain, readNow, knownRevision, noteRevisions, awaitSeed } from './read-layer.js?v=24';
+import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=24';
+import { exportFeats } from './feat-api.js?v=24';
+import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=24';
+import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=24';
+import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=24';
 import {
   emptyFilters, filtersHTML, readFilter, sourcesHTML, spellbookListHTML, openSpellDetail, openAddSpell, openSourceEditor, rememberSpellSections,
-} from './spell-ui.js?v=23';
+} from './spell-ui.js?v=24';
 import {
   getClassSummary, getSpellSlots, getClassCatalog, expendStandardSlot, restoreStandardSlot, expendPactSlot, restorePactSlot,
   setSlotState, setCharacterClass, shortRest, longRest, getClassFeatures, getResources, exportClassFeatures, useTemporarySlot,
   restoreTemporarySlot, getStartingEquipmentState, getStartingEquipment, getStates,
-} from './class-api.js?v=23';
-import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=23';
-import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=23';
-import { openStartingEquipment } from './class-setup.js?v=23';
+} from './class-api.js?v=24';
+import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=24';
+import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=24';
+import { openStartingEquipment } from './class-setup.js?v=24';
 import {
   companionsHTML, openAddCompanion, changeCompanionHp, removeCompanionConfirm,
-} from './creature-ui.js?v=23';
-import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=23';
-import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=23';
+} from './creature-ui.js?v=24';
+import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=24';
+import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=24';
 import { selectedOptions, optionCardHTML, reminderListHTML, infusionsPlayHTML, optionSpellsHTML, infusedItemMap, loadPlayTiming, sourceFeatures,
-  sourceCardHTML, sourceReminderListHTML } from './active-features.js?v=23';
+  sourceCardHTML, sourceReminderListHTML } from './active-features.js?v=24';
 import {
   featuresPanelHTML, featureSummaryHTML, restoreDrafts, resourceListHTML, attachFeatureHandlers, hydrateSpellChoices, restResourceLines, restResultText, restSummaryHTML,
   riderDiceRange, statesHTML, glanceHTML,
-} from './feature-ui.js?v=23';
-import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=23';
-import { sectionHTML, sectionHead } from './section.js?v=23';
+} from './feature-ui.js?v=24';
+import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=24';
+import { sectionHTML, sectionHead } from './section.js?v=24';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -1270,12 +1271,51 @@ function avatarHTML() {
 }
 
 const activeConditions = () => (Array.isArray(C().conditions) ? C().conditions : []);
+const conditionText = (x) => (typeof x === 'string' ? x : x?.name || String(x ?? ''));
+
+// The rows of character_conditions the CALLER may see (get_character_conditions, 20261112000200). In memory only: never in B,
+// so neither the bundle cache nor a shared browser's offline copy ever holds the DM's view. null = not loaded (or an older
+// server without the RPC): the chips then show characters.conditions, the server's mirror of the visible rows.
+let condRows = null;
+let condSeq = 0;
+const amConditionDm = () => isAdmin() || isCampaignDM(C().campaign_id);
+const conditionLabel = (k) => (k.kind === 'exhaustion' ? `Exhaustion ${k.level}` : k.name);
+function conditionIcon(k) {
+  if (k.kind === 'condition') return k.icon || 'condition.generic-effect';
+  if (k.kind === 'tag' && k.tag_type === 'curse') return 'condition.cursed';
+  if (k.kind === 'tag' && k.damage_type_id) return `spell.damage.${k.damage_type_id}`;
+  return 'condition.generic-effect';
+}
 
 function conditionsHTML() {
-  const chips = activeConditions().map((name, i) =>
-    `<button type="button" class="condition-chip" data-action="show-condition" data-i="${i}">${esc(name)}</button>`).join('');
-  return `${chips}<button type="button" class="condition-add" data-action="add-condition">+ Condition</button>`;
+  const add = '<button type="button" class="condition-add" data-action="add-condition">+ Condition</button>';
+  if (!condRows) {
+    return activeConditions().map((name, i) =>
+      `<button type="button" class="condition-chip" data-action="show-condition" data-i="${i}">${esc(conditionText(name))}</button>`).join('') + add;
+  }
+  return condRows.map((k) => {
+    const cls = ['condition-chip', k.kind === 'tag' ? 'is-tag' : '', k.hidden ? 'is-hidden' : ''].filter(Boolean).join(' ');
+    return `<button type="button" class="${cls}" data-action="show-condition" data-cid="${esc(k.id)}" data-kind="${esc(k.kind || 'condition')}"${k.hidden ? ' data-hidden="1"' : ''}>`
+      + `${icon(conditionIcon(k), { size: 16 })}${k.hidden ? `${icon('ui.dm-secret', { size: 14 })}<span class="sr-only">(hidden from the player) </span>` : ''}`
+      + `${esc(conditionLabel(k))}${k.duration_text ? `<span class="condition-dur">${esc(k.duration_text)}</span>` : ''}</button>`;
+  }).join('') + add;
 }
+
+async function loadConditions() {
+  const my = ++condSeq;
+  const id = C().id;
+  try {
+    const rows = await getCharacterConditions(id);
+    if (my !== condSeq || !B || C().id !== id) return;
+    condRows = rows;
+  } catch (err) {
+    if (my !== condSeq || isAbortError(err)) return;
+    console.warn('[conditions]', err?.message || err);   // an older server: the stored list stays the source of the chips
+    condRows = null;
+  }
+  refreshCharacterBits();
+}
+const scheduleConditions = debounce(loadConditions, 250);
 
 /** Character-level bits that are not plain inputs: avatar and conditions. */
 // ---- Pending choices ---------------------------------------------------------
@@ -2601,12 +2641,173 @@ async function addFeature(category) {
 }
 
 // ---- Conditions ------------------------------------------------------------
+// character_conditions (20261112000200) is the store: every change goes through an RPC and the server answers with the
+// caller's view. characters.conditions is only written directly on an older server (setConditions, the old path).
 
 function setConditions(list) {
   setRow('characters', C(), { conditions: list });
 }
 
+const TAG_TYPES = [['resistance', 'Resistant to'], ['immunity', 'Immune to'], ['vulnerability', 'Vulnerable to'],
+  ['condition_immunity', 'Immune to a condition'], ['blessing', 'Blessed'], ['curse', 'Cursed'], ['other', 'Other (free text)']];
+const DAMAGE_TAGS = new Set(['resistance', 'immunity', 'vulnerability']);
+const SRD_KEYS = new Set(['blinded', 'charmed', 'deafened', 'frightened', 'grappled', 'incapacitated', 'invisible', 'paralyzed',
+  'petrified', 'poisoned', 'prone', 'restrained', 'stunned', 'unconscious']);
+const condBusy = new Set();
+const capFirst = (x) => x[0].toUpperCase() + x.slice(1);
+
+/** One condition RPC: the answer is the caller's whole list (the chips re-render from it). */
+async function conditionChange(key, fn, done) {
+  if (condBusy.has(key)) return false;
+  condBusy.add(key);
+  const id = C().id;
+  try {
+    const rows = await fn();
+    if (B && C().id === id) { condSeq += 1; condRows = rows; refreshCharacterBits(); }   // newer than any read in flight
+    if (done) toast(done, 'good');
+    return true;
+  } catch (err) {
+    toast(err.message || 'The condition was not changed.', 'bad');
+    return false;
+  } finally { condBusy.delete(key); }
+}
+
+function conditionOptionsHTML(dm) {
+  return `
+    <div class="cond-options">
+      <label class="field"><span>Note (optional)</span><input name="note" maxlength="500" placeholder="e.g. Potion of Fire Resistance"></label>
+      <label class="field"><span>Duration (optional)</span><input name="duration_text" maxlength="80" placeholder="e.g. 1 hour, until dawn"></label>
+      ${dm ? `<label class="cond-hidden-toggle"><input type="checkbox" name="hidden"> ${icon('ui.dm-secret', { size: 16 })}<span>Hidden from the player (DM only)</span></label>
+      <label class="field"><span>DM note (never shown to the player)</span><textarea name="dm_note" rows="2" maxlength="2000"></textarea></label>` : ''}
+    </div>`;
+}
+
 function openConditionPicker() {
+  if (!condRows) { openLegacyConditionPicker(); return; }
+  const dm = amConditionDm();
+  const active = new Set(condRows.filter((k) => k.kind === 'condition').map((k) => k.condition_key));
+  const presets = CONDITIONS.filter((c) => SRD_KEYS.has(c.name.toLowerCase()) && !active.has(c.name.toLowerCase()));
+  const m = openModal({
+    title: dm ? 'Add a condition or tag' : 'Add a condition',
+    wide: true,
+    body: `
+      <form id="cond-form" class="cond-form">
+        <p class="small muted">Conditions and tags are reminders: they never change AC, speed or other values on the sheet.</p>
+        <h3 class="cond-h">Condition</h3>
+        <div class="condition-grid">
+          ${presets.map((c) => `<button type="button" class="condition-option" data-key="${esc(c.name.toLowerCase())}" title="${esc(c.text)}">${icon(`condition.${c.name.toLowerCase()}`, { size: 18 })} ${esc(c.name)}</button>`).join('')}
+        </div>
+        <h3 class="cond-h">Exhaustion</h3>
+        <div class="cond-row">
+          <label class="field"><span>Level</span><select name="level">${[1, 2, 3, 4, 5, 6].map((n) => `<option value="${n}">${n}</option>`).join('')}</select></label>
+          <button type="button" class="btn" data-add-exhaustion>Set Exhaustion</button>
+        </div>
+        <h3 class="cond-h">Tag</h3>
+        <div class="cond-row">
+          <label class="field"><span>Type</span><select name="tag_type">${TAG_TYPES.map(([v, l]) => `<option value="${v}"${v === 'other' ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+          <label class="field" data-damage-field hidden><span>Damage type</span><select name="damage_type_id"><option value="">— any —</option>${DAMAGE_TYPES.map((d) => `<option value="${esc(d)}">${esc(capFirst(d))}</option>`).join('')}</select></label>
+          <label class="field" data-ci-field hidden><span>Condition</span><select name="ci_key"><option value="">—</option>${[...SRD_KEYS].map((k) => `<option value="${k}">${esc(capFirst(k))}</option>`).join('')}</select></label>
+          <label class="field cond-grow"><span>Name</span><input name="name" maxlength="80" placeholder="e.g. Hexed, Raging, Hasted"></label>
+          <button type="submit" class="btn btn-gold" data-add-tag>Add tag</button>
+        </div>
+        <h3 class="cond-h">Details</h3>
+        ${conditionOptionsHTML(dm)}
+      </form>`,
+  });
+  const form = $('#cond-form', m.el);
+  const syncTag = () => {
+    const t = form.elements.tag_type.value;
+    $('[data-damage-field]', form).hidden = !DAMAGE_TAGS.has(t);
+    $('[data-ci-field]', form).hidden = t !== 'condition_immunity';
+  };
+  form.elements.tag_type.addEventListener('change', syncTag);
+  const common = () => {
+    const f = form.elements;
+    const spec = { note: f.note.value.trim() || null, duration_text: f.duration_text.value.trim() || null };
+    if (dm) { spec.hidden = !!f.hidden?.checked; if (f.dm_note?.value.trim()) spec.dm_note = f.dm_note.value.trim(); }
+    return spec;
+  };
+  const send = async (spec, label) => {
+    const what = spec.hidden ? `${label} added (hidden from the player).` : `${label} added.`;
+    if (await conditionChange('add', () => applyCharacterEffect(C().id, spec), what)) m.close();
+  };
+  m.body.addEventListener('click', (e) => {
+    const b = e.target.closest('.condition-option');
+    if (b) { send({ ...common(), kind: 'condition', condition_key: b.dataset.key }, b.textContent.trim()); return; }
+    if (e.target.closest('[data-add-exhaustion]')) {
+      const level = Number(form.elements.level.value);
+      send({ ...common(), kind: 'exhaustion', level }, `Exhaustion ${level}`);
+    }
+  });
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = form.elements;
+    const t = f.tag_type.value;
+    const name = f.name.value.trim();
+    if (t === 'other' && !name) { toast('Name the tag, e.g. Hexed.', 'bad'); f.name.focus(); return; }
+    const spec = { ...common(), kind: 'tag', tag_type: t, name: name || null };
+    if (DAMAGE_TAGS.has(t) && f.damage_type_id.value) spec.damage_type_id = f.damage_type_id.value;
+    if (t === 'condition_immunity' && f.ci_key.value) spec.condition_key = f.ci_key.value;
+    send(spec, name || 'Tag');
+  });
+}
+
+function showCondition(el) {
+  if (!el.dataset.cid) { showLegacyCondition(Number(el.dataset.i)); return; }
+  const k = condRows?.find((x) => x.id === el.dataset.cid);
+  if (!k) return;
+  const dm = amConditionDm();
+  const editable = dm || k.can_edit;
+  const ruleText = k.rule || k.player_text || k.summary
+    || (k.kind === 'tag' ? '' : CONDITION_BY_NAME[String(k.name).toLowerCase()]?.text) || '';
+  const m = openModal({
+    title: conditionLabel(k),
+    body: `
+      <div class="cond-detail">
+        ${k.hidden ? `<p class="dm-secret-text">${icon('ui.dm-secret', { size: 16 })} Hidden from the player. Only the DM sees it.</p>` : ''}
+        ${ruleText ? `<p>${esc(ruleText)}</p>` : ''}
+        ${k.rule_source ? `<p class="small muted">${esc(k.rule_source)} · a reminder only, nothing on the sheet changes.</p>` : ''}
+        ${k.kind === 'tag' && !ruleText ? '<p class="small muted">A tag from your table. A reminder only: nothing on the sheet changes.</p>' : ''}
+        ${k.dm_applied && !dm ? `<p class="small" data-dm-applied>${k.from_combat ? 'Carried over from an encounter.' : 'Applied by your DM.'} Only the DM can change or remove it.</p>` : ''}
+        ${!editable ? `${k.note ? `<p><strong>Note:</strong> ${esc(k.note)}</p>` : ''}${k.duration_text ? `<p><strong>Duration:</strong> ${esc(k.duration_text)}</p>` : ''}` : `
+        <form id="cond-edit" class="cond-options">
+          ${k.kind === 'exhaustion' ? `<label class="field"><span>Exhaustion level</span><select name="level">${[1, 2, 3, 4, 5, 6].map((n) => `<option value="${n}"${n === k.level ? ' selected' : ''}>${n}</option>`).join('')}</select></label>` : ''}
+          <label class="field"><span>Note</span><input name="note" maxlength="500" value="${esc(k.note || '')}"></label>
+          <label class="field"><span>Duration</span><input name="duration_text" maxlength="80" value="${esc(k.duration_text || '')}"></label>
+          ${dm ? `<label class="cond-hidden-toggle"><input type="checkbox" name="hidden"${k.hidden ? ' checked' : ''}> ${icon('ui.dm-secret', { size: 16 })}<span>Hidden from the player (DM only)</span></label>
+          <label class="field"><span>DM note (never shown to the player)</span><textarea name="dm_note" rows="2" maxlength="2000">${esc(k.dm_note || '')}</textarea></label>` : ''}
+        </form>`}
+      </div>`,
+    footer: `
+      <button type="button" class="btn" data-close>${editable ? 'Cancel' : 'Close'}</button>
+      ${k.can_remove ? '<button type="button" class="btn btn-bad" data-remove>Remove</button>' : ''}
+      ${editable ? '<button type="button" class="btn btn-gold" data-save>Save</button>' : ''}`,
+  });
+  $('[data-remove]', m.el)?.addEventListener('click', async () => {
+    if (await conditionChange(`rm:${k.id}`, () => removeCharacterCondition(k.id), `${conditionLabel(k)} removed.`)) m.close();
+  });
+  $('[data-save]', m.el)?.addEventListener('click', async () => {
+    const f = $('#cond-edit', m.el).elements;
+    const patch = {};
+    if (f.level && Number(f.level.value) !== k.level) patch.level = Number(f.level.value);
+    if (f.note.value.trim() !== (k.note || '')) patch.note = f.note.value.trim();
+    if (f.duration_text.value.trim() !== (k.duration_text || '')) patch.duration_text = f.duration_text.value.trim();
+    if (dm && f.hidden && f.hidden.checked !== !!k.hidden) patch.hidden = f.hidden.checked;
+    if (dm && f.dm_note && f.dm_note.value.trim() !== (k.dm_note || '')) patch.dm_note = f.dm_note.value.trim();
+    if (!Object.keys(patch).length) { m.close(); return; }
+    if (await conditionChange(`up:${k.id}`, () => updateCharacterEffect(k.id, patch), 'Saved.')) m.close();
+  });
+}
+
+/** End Concentration (Wild Shape panel): the player's own Concentrating rows, or the old list on an older server. */
+function endConcentration() {
+  if (!condRows) { setConditions(activeConditions().filter((x) => !/^concentrat/i.test(conditionText(x)))); return; }
+  condRows.filter((k) => /^concentrat/i.test(k.name || '') && k.can_remove)
+    .forEach((k) => conditionChange(`rm:${k.id}`, () => removeCharacterCondition(k.id)));
+}
+
+// ---- the old path (a server without 20261112000200): characters.conditions as a list of names --------------------------
+function openLegacyConditionPicker() {
   const active = new Set(activeConditions().map((n) => n.toLowerCase()));
   const presets = CONDITIONS.filter((c) => !active.has(c.name.toLowerCase()));
   const m = openModal({
@@ -2636,7 +2837,7 @@ function openConditionPicker() {
   });
 }
 
-function showCondition(i) {
+function showLegacyCondition(i) {
   const name = activeConditions()[i];
   if (name == null) return;
   const info = CONDITION_BY_NAME[name.toLowerCase()];
@@ -2776,7 +2977,7 @@ const actions = {
     if (choice) toast(`“${choice.type}” marked as done. Remember to add it to the sheet.`, 'good', 4000);
   },
   'add-condition': () => openConditionPicker(),
-  'show-condition': (el) => showCondition(Number(el.dataset.i)),
+  'show-condition': (el) => showCondition(el),
   'remove-portrait': async () => {
     const url = C().portrait_url;
     if (!url) return;
@@ -2904,7 +3105,7 @@ const actions = {
     (r) => `${el.dataset.ability}: ${r.result.available ? 'available' : 'used'}${r.result.roll ? ` (rolled ${r.result.roll}, needs ${r.result.min})` : ''}.`),
   'tf-equip': (el) => tfMutation(`equip:${el.dataset.item}`, (id) => setFormEquipment(id, el.dataset.item, el.dataset.mode),
     () => (el.dataset.mode === 'wear' ? 'The item is worn by the form (its effects apply).' : 'The item merges into the form (no effect).')),
-  'tf-end-concentration': () => setConditions(activeConditions().filter((x) => !/^concentrat/i.test(typeof x === 'string' ? x : x?.name || ''))),
+  'tf-end-concentration': () => endConcentration(),
   'tf-open-combat': () => { showTab('combat', false); $('#combat-transform', root)?.scrollIntoView({ block: 'start' }); },
   'inf-add': () => { if (infusionState) openInfuse({ characterId: C().id, state: infusionState, onDone: async () => { await classesChanged(); } }); },
   'inf-remove': async (el) => { if (await endInfusion(C().id, infusionState, el.dataset.id)) await classesChanged(); },
@@ -3159,6 +3360,8 @@ function onRemote(table, event, nw, old) {
     // ability scores, level, speed, override or the proficiency mirror may have changed; HP, coins and other columns the
     // derived stats never read do not cost a derived re-read (every HP tap did, in every open session: incident 2026-10-23)
     if (derivedColumnChanged(nw)) scheduleDerived();
+    // the server's mirror of the visible conditions changed (the only conditions signal on the legacy ?fluent=0 path)
+    if (nw && 'conditions' in nw && JSON.stringify(nw.conditions) !== JSON.stringify(serverChar?.conditions)) scheduleConditions();
     serverChar = { ...nw };
     if (applyRemote('characters', C(), nw)) {
       syncInputs('characters', C().id);
@@ -3220,6 +3423,7 @@ export function mountSheet(container, bundle, options = {}) {
   B.character.pending_choices ||= [];
   B.character.portrait_url ??= '';
   derived = null;
+  condRows = null;
   profState = null;
   profPending = {};
   lineage = null;
@@ -3283,6 +3487,7 @@ export function mountSheet(container, bundle, options = {}) {
   trackWeaponDetails(root);
   unsubSaver = saver.onStatus((st) => { if (st === 'saved' && derivedDirty) { derivedDirty = false; scheduleDerived(); } });
   loadDerived();
+  loadConditions();
   loadLineage();
   loadBackground();
   loadSpellbook();
@@ -3334,7 +3539,7 @@ const whenIdle = (fn) => (window.requestIdleCallback ? window.requestIdleCallbac
 const SHEET_DOMAIN_READS = ['get_character_proficiencies', 'get_character_lineage', 'get_character_background', 'get_character_feats',
   'get_character_class_summary', 'get_character_spell_slots', 'get_character_class_features', 'get_character_resources',
   'get_character_states', 'get_character_transformation', 'companions', 'get_character_infusions', 'starting_equipment_applied',
-  'primary_class_starting_equipment'];
+  'primary_class_starting_equipment', 'get_character_conditions'];
 const LIST_TABLES = new Set(['notes', 'spell_slots', 'feature_trackers', 'features', 'attacks', 'spells']);
 const pendingLists = new Set();
 
@@ -3344,6 +3549,7 @@ function onRevision(table, rev) {
   if (rev && rev <= knownRevision(table)) return;          // already known: a duplicate or replayed event
   noteRevisions({ [table]: rev });
   if (LIST_TABLES.has(table)) { pendingLists.add(table); refreshListsSoon(); return; }
+  if (table === 'character_conditions') { scheduleConditions(); return; }   // a VISIBLE change (hidden ones write no revision)
   if (table === 'inventory_items' || table === 'character_equipment') {
     if (inventory) { inventory.scheduleRefresh(); return; }  // its onRows re-reads the derived stats
     scheduleDerived();                                        // the panel is not open: AC, attacks and the stored rows only
@@ -3409,6 +3615,7 @@ export function unmountSheet({ keepRealtimeFor = null } = {}) {
   unsubSaver?.();
   unsubSaver = null;
   derived = null;
+  condRows = null;
   profState = null;
   profPending = {};
   derivedSeq += 1;

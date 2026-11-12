@@ -2,13 +2,13 @@
 // Approvals, Party, Content (custom content library + editors), Assign, Hidden, Rules (governance and content policy), Audit.
 // Visible only to campaign DMs and admins; every read and write is checked again by the database.
 
-import { supabase } from './supabase.js?v=23';
-import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=23';
-import * as dm from './dm-api.js?v=23';
-import * as gov from './governance-api.js?v=23';
-import { icon } from './icons.js?v=23';
-import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=23';
-import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=23';
+import { supabase } from './supabase.js?v=24';
+import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=24';
+import * as dm from './dm-api.js?v=24';
+import * as gov from './governance-api.js?v=24';
+import { icon } from './icons.js?v=24';
+import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=24';
+import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=24';
 
 const SECTIONS = [['overview', 'Overview'], ['approvals', 'Approvals'], ['party', 'Party'], ['content', 'Content'], ['assign', 'Assign'],
   ['hidden', 'Hidden'], ['rules', 'Campaign rules'], ['audit', 'Audit log']];
@@ -180,7 +180,7 @@ async function overview(panel, alive) {
     ...(governed ? party.filter((x) => !x.setup_complete).map((x) => ({ severity: 3, character_id: x.id, text: `${x.name} is still in initial setup (builds freely)` })) : []),
   ];
   o.transformations = party.filter((x) => x.transformation).map((x) => ({ character_name: x.name, form: x.transformation }));
-  o.conditions = party.filter((x) => x.conditions.length || x.campaign_conditions.length)
+  o.conditions = party.filter((x) => partyConditionNames(x).length)
     .map((x) => ({ character_name: x.name, conditions: x.conditions, campaign_conditions: x.campaign_conditions }));
   o.locked = party.filter((x) => x.lock_mode !== 'unlocked').map((x) => ({ character_name: x.name, lock_mode: x.lock_mode }));
   const c = o.counts;
@@ -218,7 +218,7 @@ async function overview(panel, alive) {
     <div class="dm-columns">
       <section class="card dm-card"><h2>${icon('ui/play', { size: 22 })}At the table</h2>
         ${o.transformations.length ? `<p class="small"><strong>Wild Shape:</strong> ${o.transformations.map((t) => `${esc(t.character_name)} as ${esc(t.form.creature)} (${t.form.hp_current}/${t.form.hp_max})`).join(' · ')}</p>` : ''}
-        ${o.conditions.length ? `<p class="small"><strong>Conditions:</strong> ${o.conditions.map((x) => `${esc(x.character_name)}: ${esc([...x.conditions, ...x.campaign_conditions.map((k) => (k.hidden ? `${k.name} (hidden)` : k.name))].join(', '))}`).join(' · ')}</p>` : ''}
+        ${o.conditions.length ? `<p class="small"><strong>Conditions:</strong> ${o.conditions.map((x) => `${esc(x.character_name)}: ${esc(partyConditionNames(x).join(', '))}`).join(' · ')}</p>` : ''}
         ${o.locked.length ? `<p class="small"><strong>Locked:</strong> ${o.locked.map((l) => `${esc(l.character_name)} (${esc(gov.LOCK_LABEL[l.lock_mode])})`).join(' · ')}</p>` : ''}
         ${!o.transformations.length && !o.conditions.length && !o.locked.length ? '<p class="muted">No active forms, conditions or locks.</p>' : ''}
         <button type="button" class="btn btn-sm btn-quiet" data-dm="goto" data-to="party">Open the party</button>
@@ -359,7 +359,7 @@ async function party(panel, alive) {
   if (!alive()) return;
   panel.innerHTML = p.characters.length ? `<div class="dm-party">${p.characters.map((c) => {
     const pct = c.hp.max ? Math.max(0, Math.min(100, Math.round((c.hp.current / c.hp.max) * 100))) : 0;
-    const conds = [...(c.conditions || []), ...(c.campaign_conditions || []).map((k) => (k.hidden ? `${k.name} (hidden)` : k.name))];
+    const conds = partyConditionNames(c);
     return `<article class="dm-pc">
       <header class="dm-pc-head"><h3><a href="#/c/${esc(c.id)}">${esc(c.name)}</a></h3>
         <span class="small muted">${esc(c.owner_name || '')}</span>
@@ -404,6 +404,14 @@ function lockDialog(id, name, mode) {
     try { await gov.setCharacterLock(id, $('[name=lock]:checked', m.el).value, $('[data-reason]', m.el).value.trim() || null); toast('Lock saved.', 'good'); m.close(); show(section); }
     catch (err) { toast(err.message, 'bad'); }
   });
+}
+
+/** A character's conditions for the DM: the rows (hidden ones marked). Since 20261112000200 characters.conditions is only the
+ *  mirror of the visible rows, so it is shown only when there are no rows (an older server, or nothing applied). */
+function partyConditionNames(x) {
+  const rows = x.campaign_conditions || [];
+  if (rows.length) return rows.map((k) => (k.hidden ? `${k.name} (hidden)` : k.name));
+  return (x.conditions || []).map((v) => (typeof v === 'string' ? v : v?.name || String(v)));
 }
 
 async function conditionDialog(id, name, hiddenMode) {

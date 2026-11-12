@@ -1,7 +1,7 @@
-import { supabase, announceGovernance } from './supabase.js?v=23';
-import { toast, friendlyError } from './utils.js?v=23';
-import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=23';
-import { fetchView } from './read-layer.js?v=23';
+import { supabase, announceGovernance } from './supabase.js?v=24';
+import { toast, friendlyError } from './utils.js?v=24';
+import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=24';
+import { fetchView } from './read-layer.js?v=24';
 
 export const state = {
   session: null,
@@ -250,6 +250,20 @@ export async function applyCharacterHp(id, op, amount, reason = null) {
   if (error) throw Object.assign(new Error(friendlyError(error, 'Hit points were not changed.')), { code: error.code, raw: error });
   return data;
 }
+
+// ---- Conditions and DM tags (20261112000200, docs/HIDDEN_DM_DATA.md "Conditions and tags on the sheet") ----------------------
+// character_conditions is the one store; characters.conditions is only the server's mirror of the visible rows. The server
+// returns the caller's view: a player never receives a hidden row. Results stay in memory (never in the bundle cache).
+async function conditionRpc(fn, args, fallback) {
+  const { data, error } = await supabase.rpc(fn, args);
+  if (error) throw Object.assign(new Error(friendlyError(error, fallback)), { code: error.code, raw: error });
+  return Array.isArray(data) ? data : [];
+}
+export const getCharacterConditions = (id) => conditionRpc('get_character_conditions', { p_character: id }, 'Conditions could not be loaded.');
+/** spec: {kind: condition|exhaustion|tag, condition_key, level, tag_type, damage_type_id, name, note, duration_text, hidden, dm_note} */
+export const applyCharacterEffect = (id, spec) => conditionRpc('apply_character_effect', { p_character: id, p_spec: spec }, 'The condition was not added.');
+export const updateCharacterEffect = (conditionId, patch) => conditionRpc('update_character_effect', { p_condition: conditionId, p_patch: patch }, 'The condition was not changed.');
+export const removeCharacterCondition = (conditionId) => conditionRpc('remove_character_condition', { p_condition: conditionId }, 'The condition was not removed.');
 
 export async function deleteRow(table, id) {
   saver.discard(table, id);

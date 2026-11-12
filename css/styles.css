@@ -932,6 +932,19 @@ input.big-num:focus { border-color: var(--gold) !important; }
   background: var(--panel-2); cursor: pointer; font-weight: 600; font-size: 0.88rem;
 }
 .condition-option:hover { border-color: var(--crimson); background: var(--crimson-soft); }
+/* character_conditions chips (20261112000200): icon + label, tags teal, DM-only dashed rose, duration as a muted suffix */
+.condition-chip { display: inline-flex; align-items: center; gap: 4px; }
+.condition-chip .tl-icon { flex: none; }
+.condition-chip.is-tag { background: var(--custom-soft); border-color: rgba(79, 186, 176, 0.5); color: #b6ebe5; }
+.condition-chip.is-hidden { border-style: dashed; border-color: var(--dm-secret); background: var(--dm-secret-soft); }
+.condition-dur { color: var(--muted); font-weight: 600; font-size: 0.72rem; }
+.condition-dur::before { content: '· '; }
+.condition-option { display: inline-flex; align-items: center; gap: 6px; }
+.cond-form .cond-h { margin: 14px 0 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.cond-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.cond-row .cond-grow { flex: 1 1 180px; min-width: 0; }
+.cond-options { display: grid; gap: 10px; }
+.cond-hidden-toggle { display: flex; align-items: center; gap: 6px; color: var(--dm-secret); font-weight: 600; }
 
 /* Combat tab groups */
 .add-weapon { margin-top: 10px; }

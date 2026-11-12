@@ -3,11 +3,11 @@
 // loaded only when previewed. Homebrew creatures use the existing DM content lifecycle (draft -> validate -> publish ->
 // new version -> archive): the server validates (_dm_try + _combat_creature_errors) and materializes the catalog row.
 
-import { $, $$, esc, toast, openModal, debounce } from './utils.js?v=23';
-import * as api from './combat-api.js?v=23';
-import * as dm from './dm-api.js?v=23';
-import { icon } from './icons.js?v=23';
-import { glyph } from './combat-icons.js?v=23';
+import { $, $$, esc, toast, openModal, debounce } from './utils.js?v=24';
+import * as api from './combat-api.js?v=24';
+import * as dm from './dm-api.js?v=24';
+import { icon } from './icons.js?v=24';
+import { glyph } from './combat-icons.js?v=24';
 
 const SIZES = ['Tiny', 'Small', 'Medium', 'Large', 'Huge', 'Gargantuan'];
 const TYPES = ['aberration', 'beast', 'celestial', 'construct', 'dragon', 'elemental', 'fey', 'fiend', 'giant', 'humanoid', 'monstrosity', 'ooze', 'plant', 'undead'];

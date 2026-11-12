@@ -1,13 +1,13 @@
 // Inventory tab: summary, equipment slots, item list, item detail and the catalog picker.
 // All data comes from inventory-api.js; after every change the authoritative state is re-read from the server
 // (no client-side simulation of splits, merges or quantities).
-import * as api from './inventory-api.js?v=23';
-import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=23';
-import { openHomebrewForm } from './homebrew-form.js?v=23';
-import { galleryIcon } from './item-icon-gallery.js?v=23';
-import { isAnyDM } from './store.js?v=23';
-import { icon, ITEM_ICONS } from './icons.js?v=23';
-import { sectionHead } from './section.js?v=23';
+import * as api from './inventory-api.js?v=24';
+import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=24';
+import { openHomebrewForm } from './homebrew-form.js?v=24';
+import { galleryIcon } from './item-icon-gallery.js?v=24';
+import { isAnyDM } from './store.js?v=24';
+import { icon, ITEM_ICONS } from './icons.js?v=24';
+import { sectionHead } from './section.js?v=24';
 
 const CATEGORIES = [
   ['all', 'All', () => true],

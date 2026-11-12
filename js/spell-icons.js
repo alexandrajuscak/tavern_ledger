@@ -6,8 +6,8 @@
 // Damage, healing and other effects never choose the primary icon: damage types are shown as colored chips next to it.
 // spellDamage() reads the structured damage (effect rows: spell_effects.damage_mode single / simultaneous / choice; or, where
 // a view has no effect rows (the catalog), the spell's damage-type links: relation always / choice) for those chips and texts.
-import { esc } from './utils.js?v=23';
-import { icon, resolveIcon } from './icons.js?v=23';
+import { esc } from './utils.js?v=24';
+import { icon, resolveIcon } from './icons.js?v=24';
 
 const SCHOOLS = ['abjuration', 'conjuration', 'divination', 'enchantment', 'evocation', 'illusion', 'necromancy', 'transmutation'];
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');

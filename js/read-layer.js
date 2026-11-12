@@ -15,7 +15,7 @@
 //   ?fluent=1 or ?fluent=0 (?fluent=default clears it). The flag changes only how data is fetched, never who may read it:
 //   every read is authorized by the database. If the fluent read functions are missing or fail on the server, the page falls
 //   back to the legacy read path for the rest of the session (never a mix inside one sheet).
-import { FLUENT_READS } from './config.js?v=23';
+import { FLUENT_READS } from './config.js?v=24';
 
 const FLAG_KEY = 'tl-flag:fluent-reads';
 let broken = null;   // the reason the fluent path was switched off for this page session
@@ -58,7 +58,8 @@ export const isFluentUnavailable = (e) => ['PGRST202', 'PGRST203', '42883', '42P
 const BATCHABLE = new Set(['get_character_derived_stats', 'get_character_proficiencies', 'get_character_lineage',
   'get_character_background', 'get_character_feats', 'get_character_class_summary', 'get_character_spell_slots',
   'get_character_class_features', 'get_character_resources', 'get_character_states', 'get_character_transformation',
-  'get_character_infusions', 'get_character_governance', 'get_character_change_requests', 'get_character_spellbook']);
+  'get_character_infusions', 'get_character_governance', 'get_character_change_requests', 'get_character_spellbook',
+  'get_character_conditions']);   // 20261112000200: the caller's conditions (never cached on the server)
 const SEED_TTL_MS = 30000;
 
 let scope = null;   // { characterId, seeds: Map(name -> {data, error, at}), pending: Map(name -> Promise), batch, controller, known, stats }
