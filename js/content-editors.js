@@ -2,13 +2,13 @@
 // type, the lifecycle actions (save draft, validate, preview, publish, new version, archive, restore, duplicate, delete) and a
 // preview of what players will see. The definition is validated and materialized by the database (_dm_try / _dm_materialize).
 
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=23';
-import * as dm from './dm-api.js?v=23';
-import { icon } from './icons.js?v=23';
-import { spellIconHTML } from './spell-icons.js?v=23';
-import { iconPickerHTML } from './item-icon-gallery.js?v=23';
-import { supabase } from './supabase.js?v=23';
-import { CONTENT_MANAGEMENT } from './config.js?v=23';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=24';
+import * as dm from './dm-api.js?v=24';
+import { icon } from './icons.js?v=24';
+import { spellIconHTML } from './spell-icons.js?v=24';
+import { iconPickerHTML } from './item-icon-gallery.js?v=24';
+import { supabase } from './supabase.js?v=24';
+import { CONTENT_MANAGEMENT } from './config.js?v=24';
 
 /** The content management actions (usage report, delete any unused content, duplicate official) are behind js/config.js
  *  CONTENT_MANAGEMENT; 'off' keeps the earlier buttons. The database authorizes every action itself. */
@@ -355,11 +355,12 @@ const USAGE_LABEL = {
   active_encounter_snapshots: 'running or planned encounters', background_assignments: 'characters with this background',
   background_choices: 'saved background choices', lineage_assignments: 'characters with this lineage', lineage_choices: 'saved lineage choices',
   condition_assignments: 'applied conditions', pending_requests: 'submitted change requests', other_content: 'published content refers to it',
-  completed_encounter_snapshots: 'completed encounters (history)', audit_references: 'audit history entries', earlier_assignments: 'earlier assignments (history)',
+  completed_encounter_snapshots: 'completed encounters (history that blocks delete)', audit_references: 'audit history entries', earlier_assignments: 'earlier assignments (history)',
   request_history: 'draft or outdated change requests (history)', other_content_history: 'archived or draft content mentions it (history)',
 };
-// history (20261112000100): kept and readable after a delete; only completed encounters still block (a creature stays archived)
-const HISTORY_KEYS = new Set(['inventory_history', 'audit_references', 'earlier_assignments', 'request_history', 'other_content_history', 'completed_encounter_snapshots']);
+// history (20261112000100): kept and readable after a delete. Completed encounters are history too, but they still BLOCK the
+// delete (a creature in one stays archived), so they are listed under "In use (blocks delete)", not under "History (kept)".
+const HISTORY_KEYS = new Set(['inventory_history', 'audit_references', 'earlier_assignments', 'request_history', 'other_content_history']);
 export const CLASSIFICATION = {
   safe_to_delete: ['Safe to delete', 'good'], delete_keeps_history: ['Deletable, history kept', 'good'], archive_recommended: ['Archive recommended', 'warn'],
   delete_blocked: ['Delete blocked', 'bad'], new_version_required: ['New version required', 'warn'],
