@@ -21,9 +21,10 @@
 --      leaves the supabase_realtime publication (no client subscribes to it; its DELETE events are not RLS-filtered and would
 --      carry the id of a removed hidden row to any subscriber);
 --   8. combat_finish carries Exhaustion with its level (and SRD conditions with their key) instead of a bare name.
--- Cache: character_conditions keeps its tl_cache_rev trigger (mode 'character'); no new table. Every change, hidden or not,
--- invalidates that character's cached reads (a miss, never a leak: tl_cache is per viewer). character_condition_secrets
--- (DM notes, no character_id) gets a skip trigger instead of the global bump (section "cache classification").
+-- Cache: no new table. A hidden-only change must not even invalidate the player's cached reads (cache.hits in the response of
+-- get_character_reads would show it): character_conditions, campaign_audit_events and dm_character_notes count only changes a
+-- player can see (tl_cache.bump_visible); character_condition_secrets (DM notes, no character_id) is skipped instead of the
+-- global bump. No cached read reads any of the four (section "cache classification").
 -- Rollback: supabase/rollback/rollback_character_conditions_unified.sql.
 -- =============================================================================
 
@@ -680,6 +681,43 @@ revoke all on function tl_cache.skip() from public, anon, authenticated;
 drop trigger if exists tl_cache_rev on public.character_condition_secrets;
 create trigger tl_cache_rev after insert or update or delete on public.character_condition_secrets
   for each row execute function tl_cache.skip();
+
+-- The character counter, but only for changes a player can see. A row is hidden when: character_conditions.hidden,
+-- campaign_audit_events.visibility = 'dm', dm_character_notes.revealed_at is null. An UPDATE counts if the old or the new row
+-- is visible. No cached read reads these tables (visible condition changes also reach the cache through the characters
+-- mirror); the bump of visible changes is kept as a safety margin. tg_argv[0] stays 'character' (the coverage test's mode).
+create or replace function tl_cache.bump_visible()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare o jsonb; n jsonb; ids uuid[]; cid uuid; k text;
+begin
+  if tg_op <> 'INSERT' then o := to_jsonb(old); end if;
+  if tg_op <> 'DELETE' then n := to_jsonb(new); end if;
+  if tg_op = 'UPDATE' and o = n then return null; end if;
+  if (o is null or coalesce((o ->> 'hidden')::boolean, false) or o ->> 'visibility' = 'dm' or (o ? 'revealed_at' and o ? 'title' and o ->> 'revealed_at' is null))
+     and (n is null or coalesce((n ->> 'hidden')::boolean, false) or n ->> 'visibility' = 'dm' or (n ? 'revealed_at' and n ? 'title' and n ->> 'revealed_at' is null)) then
+    return null;   -- hidden before and after: nothing a player can see changed
+  end if;
+  ids := array_remove(array[(n ->> 'character_id')::uuid, (o ->> 'character_id')::uuid], null);
+  foreach cid in array ids loop
+    k := 'tl_cache.c' || md5(cid::text || txid_current()::text);
+    continue when current_setting(k, true) = '1';
+    insert into tl_cache.character_rev as r (character_id, rev)
+    select cid, 1 where exists (select 1 from public.characters c where c.id = cid)
+    on conflict (character_id) do update set rev = r.rev + 1;
+    perform set_config(k, '1', true);
+  end loop;
+  return null;
+end $$;
+revoke all on function tl_cache.bump_visible() from public, anon, authenticated;
+do $$
+declare t text;
+begin
+  foreach t in array array['character_conditions', 'campaign_audit_events', 'dm_character_notes'] loop
+    execute format('drop trigger if exists tl_cache_rev on public.%I', t);
+    execute format('create trigger tl_cache_rev after insert or update or delete on public.%I for each row execute function tl_cache.bump_visible(%L)',
+      t, 'character');
+  end loop;
+end $$;
 
 -- ---- grants --------------------------------------------------------------------------------------------------------------
 revoke all on function public._condition_text(jsonb), public._condition_parse(text), public._condition_label(public.character_conditions),

@@ -166,3 +166,8 @@ typed HP value still saves and queues as before.
   group (add copies with "Each rolls" for individual Initiative).
 - **Expired-form heal in the Combat Builder** records no HP event (nothing was applied); a retry with the same request id is
   therefore not deduplicated and, since the form has ended, would heal the normal form.
+- **Cache-miss signal of other hidden DM writes** (20261112000200): hidden conditions, DM notes on conditions, hidden character
+  notes and DM-only audit rows no longer touch the server read cache (`tl_cache.bump_visible` / `tl_cache.skip`), so a player
+  cannot see them as a drop of `cache.hits` in `get_character_reads`. Other DM-only writes still bump a cache counter and can
+  show up the same way (only as "something changed", never its content): `item_secrets` and `inventory_item_knowledge`
+  (global counter: every user's next read misses), and any future table with hidden rows that keeps the plain `tl_cache.bump`.

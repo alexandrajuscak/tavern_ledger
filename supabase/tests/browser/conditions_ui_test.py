@@ -78,6 +78,8 @@ def run(t):
 
         # ---- hidden tag: nothing reaches the player
         pp.wait_for_timeout(1000)
+        warm = ["get_character_derived_stats", "get_character_proficiencies"]
+        pl.rpc("get_character_reads", p_character=ch, p_reads=warm)   # stores the player's cache entries
         frames_before = len(seen["frames"])
         check("LK-B0 the frame capture works: the VISIBLE change arrived as postgres_changes frames",
               any("postgres_changes" in f and "character_revisions" in f for f in seen["frames"]))
@@ -89,6 +91,9 @@ def run(t):
         dp.screenshot(path=str(SHOTS / "conditions_dm.png"))
         pp.wait_for_timeout(4000)
         new_frames = seen["frames"][frames_before:]
+        stc, after = pl.rpc("get_character_reads", p_character=ch, p_reads=warm)
+        check("LK-B5 the hidden change left the player's cached reads valid (no cache-hit drop)",
+              stc == 200 and after["cache"]["hits"] == 2, after.get("cache") if isinstance(after, dict) else after)
         check("LK-B1 the player's DOM never shows the hidden curse", SECRET not in pp.content() and SECRET_NOTE not in pp.content())
         check("LK-B2 no Realtime frame for the hidden change (no postgres_changes event at all)",
               not [f for f in new_frames if "postgres_changes" in f], [f[:200] for f in new_frames if "postgres_changes" in f][:3])

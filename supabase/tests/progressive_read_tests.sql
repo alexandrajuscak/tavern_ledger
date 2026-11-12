@@ -31,6 +31,13 @@ insert into pr select 'trigger mode: character tables', count(*) = 0, coalesce(s
   where c.relnamespace = 'public'::regnamespace and c.relname <> 'characters'
     and exists (select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'character_id' and not a.attisdropped)
     and encode(t.tgargs, 'escape') <> 'character\000';
+-- allow-list (20261112000200): tables with DM-hidden rows count only visible changes (tl_cache.bump_visible, same mode argument)
+insert into pr select 'trigger function: bump, or bump_visible on the hidden-row tables only', count(*) = 0, coalesce(string_agg(c.relname, ', '), '')
+  from pg_class c join pg_trigger t on t.tgrelid = c.oid and t.tgname = 'tl_cache_rev'
+  where c.relnamespace = 'public'::regnamespace and encode(t.tgargs, 'escape') = 'character\000'
+    and t.tgfoid <> 'tl_cache.bump()'::regprocedure
+    and not (c.relname in ('character_conditions', 'campaign_audit_events', 'dm_character_notes')
+             and to_regprocedure('tl_cache.bump_visible()') is not null and t.tgfoid = 'tl_cache.bump_visible()'::regprocedure);
 
 -- 2. equality and hits, as owner and as campaign DM, for every character: first call computes (and stores), second is served
 --    from the cache; both equal the direct RPCs. Characters with a Wild Shape row are never cached.

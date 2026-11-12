@@ -127,6 +127,33 @@ select tl_test.as_root();
 select tl_test.rec('LK17 a DM-note write does not bump the global cache counter (no cache flush for every user)',
   tl_test.cc_grev() = :grev0 and exists (select 1 from pg_trigger where tgrelid = 'public.character_condition_secrets'::regclass
                                           and tgname = 'tl_cache_rev' and tgfoid = 'tl_cache.skip()'::regprocedure));
+-- M1: the player's cached reads survive hidden-only changes (cache.hits would show them), visible changes invalidate them
+create function tl_test.cc_crev(p_char uuid) returns bigint language sql security definer as $$
+  select coalesce((select rev from tl_cache.character_rev where character_id = p_char), 0) $$;
+grant execute on function tl_test.cc_crev(uuid) to public;
+select tl_test.as_root();
+select tl_test.cc_fresh(:'cc1');
+select tl_test.as_user(:'alice');
+select public.get_character_reads(:'cc1', array['get_character_derived_stats', 'get_character_proficiencies']) as r \gset
+select tl_test.as_root();
+select tl_test.cc_crev(:'cc1') as crev0 \gset
+select tl_test.as_user(:'dm');
+select public.apply_character_effect(:'cc1', '{"kind": "tag", "tag_type": "other", "name": "Shadow mark", "hidden": true, "dm_note": "x"}') as r \gset
+select public.update_character_effect(tl_test.cc_id(:'cc1', 'Shadow mark'), '{"note": "deeper"}') as r \gset
+select public.save_dm_note(:'cc1', 'Secret plan', 'The lich is his father') as r \gset
+select public.remove_character_condition(tl_test.cc_id(:'cc1', 'Shadow mark')) as r \gset
+select tl_test.as_user(:'alice');
+select public.get_character_reads(:'cc1', array['get_character_derived_stats', 'get_character_proficiencies']) as r2 \gset
+select tl_test.rec('LK18 hidden-only changes (condition insert / update / delete, DM note, hidden audit rows) leave the player''s cache valid',
+  tl_test.cc_crev(:'cc1') = :crev0 and ((:'r2')::jsonb -> 'cache' ->> 'hits')::int = 2, (:'r2')::jsonb ->> 'cache');
+select tl_test.as_user(:'dm');
+select public.apply_character_effect(:'cc1', '{"kind": "tag", "tag_type": "other", "name": "Open mark"}') as r \gset
+select tl_test.rec('LK19 a visible change still invalidates the cached reads', tl_test.cc_crev(:'cc1') > :crev0);
+select public.remove_character_condition(tl_test.cc_id(:'cc1', 'Open mark')) as r \gset
+select tl_test.as_root();
+select tl_test.cc_fresh(:'cc1');
+select tl_test.cc_revs(:'cc1') as revs0, tl_test.cc_row(:'cc1') as row0 \gset
+select tl_test.as_user(:'dm');
 -- hidden delete: still nothing; then a visible change: exactly one revision
 select tl_test.as_user(:'dm');
 select public.apply_character_effect(:'cc1', '{"kind": "condition", "condition_key": "blinded", "hidden": true}') as r \gset
