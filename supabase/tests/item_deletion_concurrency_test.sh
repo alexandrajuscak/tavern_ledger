@@ -23,7 +23,7 @@ CH=$(q "insert into public.characters (owner_id, name, campaign_id, level, hp_ma
 INV=$(q "select id from public.inventories where character_id = '$CH' and kind = 'character' limit 1")
 deadlocks() { q "select deadlocks from pg_stat_database where datname = current_database()"; }
 before=$(deadlocks)
-won_del=0; won_add=0; both=0; neither=0; raw=0; errs=""; stamped=0; unstamped=0
+won_del=0; won_add=0; both=0; neither=0; raw=0; errs=""; stamped=0; unstamped=0; hist_add=0
 for r in $(seq 1 "$N"); do
   NAME="IDC Herb $TAG $r"
   ID=$( { as "$DM"; echo "select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', '$NAME', 'kind_id', 'herbs_plants', 'campaign_id', '$CAMP')) ->> 'id';"; } | docker exec -i "$DB" psql -U postgres -qAt | tail -1)
@@ -32,8 +32,13 @@ for r in $(seq 1 "$N"); do
     IIX=$( { as "$PL"; echo "select public.add_inventory_item('$INV', '$ID', 1, null, null, '{}');"; } | docker exec -i "$DB" psql -U postgres -qAt | tail -1)
     q "delete from public.inventory_items where id = '$IIX'" >/dev/null
   fi
-  out=$( ( { as "$DM"; echo "select public.delete_custom_item('$ID', '$NAME');"; } | docker exec -i "$DB" psql -U postgres -qAt 2>&1 | grep ERROR | sed 's/^/[del] /' ) &
-         ( { as "$PL"; echo "select public.add_inventory_item('$INV', '$ID', 1, null, null, '{}');"; } | docker exec -i "$DB" psql -U postgres -qAt 2>&1 | grep ERROR | sed 's/^/[add] /' ) &
+  # history rounds hold the first transaction open (pg_sleep) while the other one waits on its locks: r % 4 = 1 the delete
+  # (items row + the stamped inventory_events / cache revision rows) goes first, r % 4 = 3 the add goes first
+  HD=""; HA=""; SD=0; SA=0
+  [ $((r % 4)) = 1 ] && { HD="select pg_sleep(0.8);"; SA=0.3; }
+  [ $((r % 4)) = 3 ] && { HA="select pg_sleep(0.8);"; SD=0.3; }
+  out=$( ( sleep "$SD"; { as "$DM"; echo "begin; select public.delete_custom_item('$ID', '$NAME'); $HD commit;"; } | docker exec -i "$DB" psql -U postgres -qAt 2>&1 | grep ERROR | sed 's/^/[del] /' ) &
+         ( sleep "$SA"; { as "$PL"; echo "begin; select public.add_inventory_item('$INV', '$ID', 1, null, null, '{}'); $HA commit;"; } | docker exec -i "$DB" psql -U postgres -qAt 2>&1 | grep ERROR | sed 's/^/[add] /' ) &
          wait )
   item=$(q "select count(*) from public.items where id = '$ID'")
   rows=$(q "select count(*) from public.inventory_items where item_id = '$ID'")
@@ -41,6 +46,7 @@ for r in $(seq 1 "$N"); do
     [ "$(q "select count(*) from public.inventory_events where item_id is null and metadata -> 'deleted_item' ->> 'id' = '$ID' and metadata -> 'deleted_item' ->> 'name' = '$NAME'")" -ge 2 ] \
       && stamped=$((stamped + 1)) || unstamped=$((unstamped + 1))
   fi
+  [ $((r % 2)) = 1 ] && [ "$item" = "1" ] && [ "$rows" = "1" ] && hist_add=$((hist_add + 1))
   if [ "$item" = "0" ] && [ "$rows" = "0" ]; then won_del=$((won_del + 1));
   elif [ "$item" = "1" ] && [ "$rows" = "1" ]; then won_add=$((won_add + 1));
   elif [ "$item" = "1" ] && [ "$rows" = "0" ]; then neither=$((neither + 1));
@@ -57,7 +63,7 @@ ok() { if [ "$2" = "1" ]; then echo "PASSED  $1"; pass=$((pass + 1)); else echo 
 ok "rounds: delete won $won_del, add won $won_add (each round exactly one winner)" "$([ $((won_del + won_add)) = "$N" ] && echo 1)" "both=$both neither=$neither"
 ok "never a deleted item still referenced by an inventory row" "$([ "$both" = "0" ] && echo 1)" "$both"
 ok "the delete never shows a raw error (only the friendly 'in use, archive it')" "$([ "$raw" = "0" ] && echo 1)" "$errs"
-ok "an item deleted with history keeps it (events unlinked, name stamped): $stamped stamped" "$([ "$unstamped" = "0" ] && echo 1)" "$unstamped without the stamp"
+ok "history rounds: both orders won (delete and stamp $stamped, add $hist_add); a deleted item keeps its history, name stamped"   "$([ "$unstamped" = "0" ] && [ "$stamped" -gt 0 ] && [ "$hist_add" -gt 0 ] && echo 1)" "$unstamped without the stamp, add won $hist_add"
 ok "the same delete twice in parallel: deleted once, the other a friendly not-found" "$([ "$(q "select count(*) from public.items where id = '$ID'")" = "0" ] && [ "$(echo "$twice" | tr -d '\n ')" != "00" ] && echo 1)" "$twice"
 ok "no deadlock ($before -> $after)" "$([ "$after" = "$before" ] && echo 1)" "$before -> $after"
 q "delete from public.characters where campaign_id = '$CAMP'; delete from public.items where campaign_id = '$CAMP';
