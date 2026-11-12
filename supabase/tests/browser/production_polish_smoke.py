@@ -52,7 +52,7 @@ def run():
         info = page.evaluate("() => window.__tavernLedgerReadPath")
         check("PP-01 player signed in on the progressive path (site default)", info.get("path") == "fluent" and info.get("configured") == "on", info)
         v = page.evaluate("() => [...new Set([...document.querySelectorAll('script[src],link[href]')].map((e) => (e.src || e.href).match(/[?]v=(\\d+)/)?.[1]).filter(Boolean))]")
-        check("PP-02 one asset version (?v=21)", v == ["19"], v)
+        check("PP-02 one asset version (?v=21)", v == ["21"], v)
         hero, solo = pl.char_id(HERO), pl.char_id(SOLO)
 
         # icons

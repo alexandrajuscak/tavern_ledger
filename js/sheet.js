@@ -674,10 +674,11 @@ async function loadResources() {
   if (!classFeatures || !classResources) { await loadClasses(); return; }   // nothing to patch yet: the full read
   resEpoch += 1;
   const my = ++resSeq;
+  const clsAt = classSeq;   // a full class read started after this one carries newer resource rows: this answer is dropped
   const id = C().id;
   try {
     const [res, sts] = await Promise.all([getResources(id), getStates(id).catch(() => null)]);
-    if (!B || my !== resSeq || C().id !== id) return;
+    if (!B || my !== resSeq || clsAt !== classSeq || C().id !== id) return;
     classResources = res;
     if (sts) classStates = sts;
     overlayResources();

@@ -3,7 +3,7 @@
 PR-01..06  a resource use / restore (own click or another session) re-reads only the resources and the states: no class
            features, class summary or Wild Shape read; every copy of the counter on the page shows the server value.
 PR-07..09  Home cards read their derived stats through get_character_reads (the server read cache), never directly.
-PR-10..12  the user-scoped catalog caches (spells, lineages, creatures) are dropped when another user signs in on the same page.
+PR-10..12  the user-scoped catalog caches (spells, lineages, creatures, class spell lists) are dropped when another user signs in on the same page.
 Usage: APP_URL=... python performance_release_ui_test.py   (run_browser_local.sh sets the environment)
 """
 import json
@@ -164,14 +164,15 @@ def run(t):
               [r["answer"] if not (r["answer"] or {}).get("reads") else {k: v for k, v in r["answer"].items() if k != "reads"} for r in net.since(i) if r["name"] == "get_character_reads"])
 
         # --- user switch on the same page
-        load = """async () => { const [sp, li, cr] = await Promise.all([import('./js/spell-api.js?v=21'), import('./js/lineage-api.js?v=21'), import('./js/creature-api.js?v=21')]);
-          await Promise.all([sp.getSpellCatalog(), li.getLineageCatalog(), cr.getCreatures()]); return true; }"""
-        cat = lambda rows: sorted({r["name"] for r in rows if r["name"] in ("v_spell_catalog", "v_lineage_catalog", "creatures")})
+        load = """async () => { const [sp, li, cr, cl] = await Promise.all([import('./js/spell-api.js?v=21'), import('./js/lineage-api.js?v=21'), import('./js/creature-api.js?v=21'), import('./js/class-api.js?v=21')]);
+          await Promise.all([sp.getSpellCatalog(), li.getLineageCatalog(), cr.getCreatures(), cl.getSpellListOptions('wizard-spell-list', 1)]); return true; }"""
+        CATS = ["class_spell_list_entries", "creatures", "v_lineage_catalog", "v_spell_catalog"]
+        cat = lambda rows: sorted({r["name"] for r in rows if r["name"] in CATS})
         i = net.mark(); page.evaluate(load)
         first = cat(net.since(i))
         i = net.mark(); page.evaluate(load)
         again = cat(net.since(i))
-        check("PR-10 the catalogs are read once and then served from the session cache", first == ["creatures", "v_lineage_catalog", "v_spell_catalog"] and not again, (first, again))
+        check("PR-10 the catalogs are read once and then served from the session cache", first == CATS and not again, (first, again))
         page.evaluate("async () => { const m = await import('./js/supabase.js?v=21'); await m.supabase.auth.signOut(); }")
         page.wait_for_selector("input[name=email]", timeout=15000)
         page.fill("input[name=email]", other.email); page.fill("input[name=password]", PW); page.click("button[value=signin]")
@@ -179,8 +180,8 @@ def run(t):
         page.wait_for_timeout(500)
         i = net.mark(); page.evaluate(load)
         switched = cat(net.since(i))
-        check("PR-11 another user on the same page: all three catalogs are read again (nothing of the previous user is reused)",
-              switched == ["creatures", "v_lineage_catalog", "v_spell_catalog"], switched)
+        check("PR-11 another user on the same page: all four catalogs (incl. the class spell list) are read again (nothing of the previous user is reused)",
+              switched == CATS, switched)
         check("PR-12 the other user sees no character of the first one", page.locator(".char-card").count() == 0, page.locator(".char-card").count())
 
         check("PR-99 no console errors", not [e for e in s.errors if "Failed to load resource" not in e], s.errors[:5])

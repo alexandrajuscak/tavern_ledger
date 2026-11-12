@@ -11,6 +11,7 @@ import { glyph } from './combat-icons.js?v=21';
 import { openMonsterLibrary, mountLibraryPage, openCreatureEditor, statblockHTML, crText } from './combat-library.js?v=21';
 import { COMBAT_BUILDER } from './config.js?v=21';
 import { compactActiveFeaturesHTML, loadPlayTiming } from './active-features.js?v=21';
+import { onUserCachesCleared } from './read-layer.js?v=21';
 
 /** Is the Combat Builder switched on for this browser (the server checks the DM role again on every call)? */
 export const combatEnabled = () => (COMBAT_BUILDER || 'off') !== 'off';
@@ -75,6 +76,7 @@ export function unmountCombat() {
   root = null;
   announcer = null;
   data = null; selected = null; notices = []; lastAction = null; summaries = {}; busy = new Set(); lastChange = 0; drawer = false;
+  clearDetailCaches();
   document.body.classList.remove('cb-drawer-open');
 }
 
@@ -854,6 +856,9 @@ const statblockCache = {};
 // get_character_reads (server-cached per revision), re-read only for that character after one of its build changes
 const featureCache = {};
 const FEATURE_READS = ['get_character_class_features', 'get_character_resources', 'get_character_feats', 'get_character_lineage'];
+// both hold data the signed-in DM may see (stat block snapshots, character features): forget them on unmount / user switch
+function clearDetailCaches() { for (const c of [statblockCache, featureCache]) for (const k of Object.keys(c)) delete c[k]; }
+onUserCachesCleared(clearDetailCaches);
 
 function charDefenses(d) {
   if (!d) return '';

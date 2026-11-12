@@ -1,7 +1,7 @@
 // Class levels, spell slots, Pact Magic, resources and rests (migration 20261015001700). The rules (total level, proficiency
 // bonus, effective caster level, slot maximums, limits) live in the database; this module only moves data.
 import { supabase } from './supabase.js?v=21';
-import { awaitSeed } from './read-layer.js?v=21';
+import { awaitSeed, onUserCachesCleared } from './read-layer.js?v=21';
 import { friendlyError } from './utils.js?v=21';
 
 export class ClassError extends Error {
@@ -146,6 +146,7 @@ export const importClassFeatures = (characterId, payload) =>
   rpc('import_character_class_features', { p_character: characterId, p_payload: payload });
 
 let spellListCache = {};
+onUserCachesCleared(() => { spellListCache = {}; });   // per user: RLS (can_view_spell) also returns visible custom spells
 /** Spells of one class spell list (for spell choices), optionally of one spell level. */
 export function getSpellListOptions(listId, level = null) {
   const k = `${listId}:${level}`;
