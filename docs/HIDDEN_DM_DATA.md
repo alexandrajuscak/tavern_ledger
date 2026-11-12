@@ -81,3 +81,64 @@ They are **reminders only**: no derived value (AC, speed, saves) reads them. The
   (`tl_cache.skip()`). No cached read reads these tables. See docs/V6_KNOWN_LIMITATIONS.md for the hidden tables not covered.
 - Deploy order: migration first, then the frontend (an older server is detected and the sheet keeps the old list). On a
   rollback, the previous frontend first, then `supabase/rollback/rollback_character_conditions_unified.sql`.
+
+## Identifying items: Examine (Herbs & Plants, 20261112000300)
+
+A disguised item (most often a herb) shows the player only its **decoy** until that **character** identifies it. The player
+rolls a check at the table and enters the **total**; the server never rolls and never returns the DC.
+
+**DM options** (DM-only columns of `item_secrets`): decoy name and description, `face_kind_id` (the type shown while
+unidentified: herbs show Herbs & Plants by default, other items hide their type), `identify_dc` (null: cannot be examined),
+`identify_checks` (skill ids such as `nature`, `medicine`, or tool ids such as `herbalism-kit`; empty: any check),
+`identify_reveal` (`all`, or parts: `name`, `description`, `details`, `magic`, `rarity`, `attunement`, `curse`, property
+keys), `identify_auto` (reveal on roll >= DC without the DM), `identify_retry` (`dm`: only after the DM allows it (default),
+`once`, `per_long_rest`: after a long rest recorded in `character_resource_events`, `unlimited`), `fail_hint` (shown after a
+failure, may be wrong but plausible). Set them in the DM Content item editor ("Identification by players", synced on publish)
+or for any campaign custom item, including herbs made with the Inventory homebrew form, in **DM Space → Hidden →
+Identification settings**. A campaign item with a disguise or a DC leaves the players' catalog (`items.secret`). Official
+catalog rows cannot get options; giving an official item unidentified works only through DM Content (behaviour unchanged).
+
+**Knowledge is per character.** `character_item_knowledge (character, item)` is the record; the character's disguised
+inventory rows (`inventory_item_knowledge`) follow it: name and description become the truth for the parts revealed.
+A new copy of an item the character already identified arrives identified. Transfer applies the receiving character's
+knowledge in the same write; a split copies the knowledge row; a disguised stack merges only with rows of the same name and
+knowledge (stack keys of other items are unchanged). A party stash row keeps its own knowledge.
+
+**Flow.** `examine_inventory_item(row, check, roll total, request id)` (owner of the character): validates the check and the
+retry rule, records an attempt (`item_identify_attempts`, idempotent on the request id). Auto: success reveals at once,
+a lower roll fails at once (hint). Otherwise the attempt is pending: **DM Space → Hidden → Examine requests** shows the true
+name, the decoy, the check, the roll and the DC; `resolve_identify_attempt(attempt, success | null = by the roll, corrected
+roll, DM note, allow retry, reveal)` answers it exactly once (a failed attempt can later get "Allow another try").
+`dm_reveal_item(item, characters | null = every character of the campaign, reveal)` reveals manually; `dm_give_item(item,
+characters, quantity, identified)` gives a campaign custom item (unidentified by default); `set_item_identify_options(item,
+options)` stores the options; `get_campaign_identify_attempts(campaign, status)` is the DM inbox. Every visible change
+(attempt, answer, reveal) writes a `character_revisions` row, so the player's open sheet refreshes; a hidden option change
+writes none and does not touch the cache counters (`item_secrets` → `tl_cache.skip()`).
+
+**What a player reads before a reveal.** `v_inventory_detail` (and the inventory bundle of `get_character_reads`) masks an
+unidentified instance for a non-DM caller: `item_id`, `category_id`, `rarity_id`, `is_magic`, `requires_attunement` are null,
+`kind_id` is the face type, `stackable` / `is_consumable` stay (Use and quantity controls), `knowledge_state` is appended.
+The bundle's catalog part follows the masked rows. `get_character_item_knowledge` adds `kind_id`, `description`, revealed
+`details` and `identify` (`enabled`, `checks` with labels, `can_examine`, `last` attempt with the hint after a failure).
+`use_inventory_item` returns no effects, the face type and no item id for an unidentified item ("your DM tells you what
+happens"). An unidentified add is INSERTED with the disguise, so the Realtime INSERT never carries the true name.
+
+**Residual (documented, not closed).**
+- The raw `inventory_items.item_id` is still readable: REST table select, the Realtime payload of `inventory_items`, and
+  the `?fluent=0` bundle. The same holds for `inventory_events.item_id`, which history stamping of deleted content matches on.
+  Herbs and DM Content have opaque ids (`hb-<uuid>`, `cc-<hex>`) whose catalog row and child tables (effects, stats) stay
+  hidden. An official item assigned unidentified keeps its readable slug (L3, parked).
+- The catalog row is hidden **per user**, not per character: once one of a player's characters (or the party stash) holds an
+  identified copy, that user can read the catalog row through `items` / `v_item_catalog`. The sheet, the view rows, the
+  bundle and the knowledge read stay per character.
+- Auto reveal with unlimited retries lets a player find the DC by trial (the default retry rule is `dm`).
+- Old decoy copies are snapshots: editing the decoy later does not rename copies already handed out.
+- An old official stack of an item that was once assigned unidentified (`items.secret`) merges with new copies only after it
+  is next written (its stored stack key predates the name component).
+
+Tests: `supabase/tests/classes/herb_identification_tests.sql` (HI1–HI32: options, give, INSERT row images, masked view,
+knowledge read, REST closure, `get_character_reads` miss and hit + `tl_cache` rows, use, examine validation, pending,
+DM inbox, corrected roll, retry rules, exactly-once, per character, hidden change without signal, auto + partial reveal,
+merge, split, transfer, stack keys, reveal to one and to all, DM Content path) and `browser/herb_identification_ui_test.py`
+(DM Space settings and give, decoy + Herbs filter, Examine, DM confirm, live reveal, second player still disguised,
+devtools Realtime subscription and network capture without the truth, `?fluent=0`).

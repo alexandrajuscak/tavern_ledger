@@ -117,10 +117,12 @@ def main():
     iref = next(v["catalog_ref"] for v in it["versions"] if v["status"] == "published")
     rpc(dm, "dm_assign_content", p_content=it["id"], p_characters=[fighter], p_mode="inventory", p_options={"identified": False})
     st, rows, _ = call("GET", f"/rest/v1/items?id=eq.{iref}", token=alice)
-    st2, inv, _ = call("GET", f"/rest/v1/v_inventory_detail?character_id=eq.{fighter}&item_id=eq.{iref}&select=name,kind_id", token=alice)
+    # since 20261112000300 the view also masks the item id of an unidentified instance (a player cannot filter by the true id)
+    st2, inv, _ = call("GET", f"/rest/v1/v_inventory_detail?character_id=eq.{fighter}&knowledge_state=eq.unidentified&select=name,kind_id,item_id,is_magic,rarity_id", token=alice)
     st3, know, _ = rpc(alice, "get_character_item_knowledge", p_character=fighter)
-    check("GA23 an unidentified item hides its mechanics, true name and curse",
-          rows == [] and inv == [{"name": "Plain ring", "kind_id": None}] and "It bites" not in json.dumps(know) and f"API Ring {RUN}" not in json.dumps(know), (rows, inv, know))
+    check("GA23 an unidentified item hides its mechanics, true name, item id and curse",
+          rows == [] and inv == [{"name": "Plain ring", "kind_id": None, "item_id": None, "is_magic": None, "rarity_id": None}]
+          and "It bites" not in json.dumps(know) and f"API Ring {RUN}" not in json.dumps(know), (rows, inv, know))
     ii = svc("GET", f"/rest/v1/inventory_items?item_id=eq.{iref}&select=id")[1][0]["id"]
     rpc(dm, "set_item_knowledge", p_inventory_item=ii, p_state="partially_identified", p_revealed=["magic"], p_magic_known=None)
     st, know, _ = rpc(alice, "get_character_item_knowledge", p_character=fighter)
