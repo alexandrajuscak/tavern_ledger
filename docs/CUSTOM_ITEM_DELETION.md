@@ -15,8 +15,9 @@ server rechecks that inside the transaction, under the item row lock.
 ## What counts as "used" (`_item_dependencies`)
 
 character inventories, other inventories (stash, party), owned assets, background starting equipment, character
-proficiencies, items based on it, **any inventory history** (`inventory_events`), pending change requests that mention it, other
-DM content versions. Equipped / attuned / in-container entries are already inventory entries (listed for information).
+proficiencies, items based on it, submitted / returned change requests that mention it (not stale), other DM content versions.
+**Since 2026-11-12 history does not block** (`20261112000100`): inventory history and draft / stale requests are listed as
+`history` (kept); before the delete the events get `metadata.deleted_item` with the name, and the FK nulls only the link. Equipped / attuned / in-container entries are already inventory entries (listed for information).
 Combat has no item references. A foreign-key RESTRICT is the last line of defence and is mapped to the same friendly
 "in use, archive it" error (SQLSTATE `TLUSE`, hint `archive`).
 

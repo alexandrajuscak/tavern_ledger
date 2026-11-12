@@ -1,7 +1,8 @@
 -- =============================================================================
 -- DM / admin content management (20261109000300; docs/CONTENT_MANAGEMENT.md): usage report and classification, permanent delete
--- of unused custom content of every type (re-checked in the transaction, one audit event, repeat-safe), refusal for used or
--- historically referenced content, official content protection, duplicate official as homebrew, permissions and existence leaks.
+-- of unused custom content of every type (re-checked in the transaction, one audit event, repeat-safe), refusal for used content
+-- (history no longer blocks since 20261112000100: delete keeps it; usage detail = where it is used, DM only), a creature in a
+-- completed encounter stays archived, official content protection, duplicate official as homebrew, permissions and existence leaks.
 -- Runs inside the per-class harness (alice = player of :camp, bob = outsider, dm = DM of :camp).
 -- =============================================================================
 \set cmc1 f1e00000-0000-0000-0000-000000000001
@@ -196,10 +197,23 @@ select tl_test.rec('CM22 a never-published draft is safe_to_delete with edit_dra
 select tl_test.as_root();
 delete from public.character_feats where character_id = :'cmc2' and feat_version_id = :'r_feat';
 select tl_test.as_user(:'dm');
-select tl_test.rec('CM23 removed from the character but assigned before: archive_recommended, delete refused',
-  public.get_dm_content_usage(:'d_feat') ->> 'classification' = 'archive_recommended'
-  and tl_test.cm_code(format('select public.delete_unused_dm_content(%L, %L)', :'d_feat', 'Fey Touched (homebrew)')) = 'TLUSE'
-  and tl_test.cm_catalog('feat', :'r_feat'));
+-- 20261112000100: history no longer blocks (before: archive_recommended and TLUSE); the delete keeps it in the audit event
+select tl_test.rec('CM23 removed from the character but assigned before: delete_keeps_history, Delete offered',
+  public.get_dm_content_usage(:'d_feat') ->> 'classification' = 'delete_keeps_history'
+  and (public.get_dm_content_usage(:'d_feat') ->> 'can_delete')::boolean
+  and (public.get_dm_content_usage(:'d_feat') ->> 'history_references')::int > 0,
+  public.get_dm_content_usage(:'d_feat')::text);
+select tl_test.rec('CM23b the delete succeeds; the audit event lists the earlier assignment, the character''s audit lines stay',
+  tl_test.cm_code(format('select public.delete_unused_dm_content(%L, %L)', :'d_feat', 'Fey Touched (homebrew)')) = 'ok'
+  and not tl_test.cm_catalog('feat', :'r_feat') and not tl_test.cm_exists(:'d_feat'));
+select tl_test.as_root();
+select tl_test.rec('CM23c ... audit: assignments [CM Druid], the feat_added line of the character is still there',
+  (select bool_or(a ->> 'character_name' = 'CM Druid' and a ->> 'character_id' = :'cmc2')
+   from public.campaign_audit_events e, jsonb_array_elements(e.before -> 'assignments') a
+   where e.event_type = 'content_deleted' and e.before ->> 'content_id' = :'d_feat')
+  and exists (select 1 from public.campaign_audit_events where character_id = :'cmc2' and after ->> 'catalog_ref' = :'r_feat'),
+  (select before::text from public.campaign_audit_events where event_type = 'content_deleted' and before ->> 'content_id' = :'d_feat'));
+select tl_test.as_user(:'dm');
 select public.archive_dm_content(:'d_spell', 'Retired');
 select tl_test.rec('CM24a archive keeps the existing assignment readable and is reported',
   exists (select 1 from jsonb_array_elements(public.get_character_spellbook(:'cmc1') -> 'spells') s where s ->> 'id' = :'r_spell')
@@ -212,3 +226,125 @@ select public.new_dm_content_version(:'d_spell');
 select tl_test.rec('CM25 a new version of used content is a draft; the character keeps the published version',
   (select status from public.dm_content_versions where id = (select current_version_id from public.dm_content where id = :'d_spell')) = 'draft'
   and exists (select 1 from public.character_spells where character_id = :'cmc1' and spell_version_id = :'r_spell'));
+
+-- ---- 20261112000100: history does not block, real use does; where it is used (DM only); history kept with the name ------------
+select tl_test.as_root();
+insert into public.inventories (kind, name, campaign_id) select 'party_stash', 'CM Party Hoard', :'camp'
+where not exists (select 1 from public.inventories where campaign_id = :'camp' and kind = 'party_stash');
+select name as stash_name from public.inventories where campaign_id = :'camp' and kind = 'party_stash' \gset
+select action_key as gov_action from public.governance_actions order by action_key limit 1 \gset
+select tl_test.as_user(:'dm');
+select public.duplicate_official_as_homebrew('item', 'longsword', :'camp') ->> 'id' as h_item \gset
+select public.publish_dm_content(:'h_item');
+select tl_test.cm_ref(:'h_item') as rh_item \gset
+select public.dm_assign_content(:'h_item', array[:'cmc1']::uuid[], 'inventory', '{}') as h_asg1 \gset
+select tl_test.rec('CM26 an item in a character inventory blocks the delete; the detail names the character and inventory',
+  tl_test.cm_code(format('select public.delete_unused_dm_content(%L, %L)', :'h_item', 'Longsword (homebrew)')) = 'TLUSE'
+  and exists (select 1 from jsonb_array_elements(public.get_dm_content_usage_detail(:'h_item') -> 'places') p
+              where p ->> 'kind' = 'character_inventory' and p ->> 'character_name' = 'CM Wizard' and (p ->> 'blocks')::boolean),
+  :'h_asg1' || public.get_dm_content_usage_detail(:'h_item')::text);
+select public.dm_assign_content(:'h_item', array[:'cmc1']::uuid[], 'stash', '{}') as h_asg2 \gset
+select tl_test.rec('CM27 ... in the party stash too: listed with the stash name',
+  exists (select 1 from jsonb_array_elements(public.get_dm_content_usage_detail(:'h_item') -> 'places') p
+          where p ->> 'kind' = 'party_stash' and p ->> 'inventory_name' = :'stash_name')
+  and public.get_dm_content_usage(:'h_item') ->> 'classification' = 'delete_blocked',
+  :'h_asg2' || public.get_dm_content_usage_detail(:'h_item')::text);
+select tl_test.as_user(:'alice');
+select tl_test.rec('CM28 a player cannot read where content is used (42501)',
+  tl_test.cm_code(format('select public.get_dm_content_usage_detail(%L)', :'h_item')) = '42501');
+select tl_test.as_user(:'bob');
+select tl_test.rec('CM28b an unrelated DM gets "Content not found" from the detail (no names)',
+  tl_test.cm_err(format('select public.get_dm_content_usage_detail(%L)', :'h_item')) = '42501: Content not found');
+select tl_test.as_root();
+select set_config('request.jwt.claim.sub', '', true);
+set local role anon;
+select tl_test.rec('CM28c anonymous: no access to the detail', tl_test.cm_code(format('select public.get_dm_content_usage_detail(%L)', :'h_item')) = '42501');
+reset role;
+-- removed from both inventories (remove events = inventory history) and archived: a dead end before, deletable now
+select tl_test.as_root();
+delete from public.inventory_items where item_id = :'rh_item';
+select tl_test.as_user(:'dm');
+select public.archive_dm_content(:'h_item', 'Retired');
+select tl_test.rec('CM29 archived, only history: delete_keeps_history, Delete offered, no "archive it" advice, no places',
+  public.get_dm_content_usage(:'h_item') ->> 'classification' = 'delete_keeps_history'
+  and (public.get_dm_content_usage(:'h_item') ->> 'can_delete')::boolean and not (public.get_dm_content_usage(:'h_item') ->> 'can_archive')::boolean
+  and public.get_dm_content_usage(:'h_item') ->> 'advice' not ilike '%archive it%'
+  and jsonb_array_length(public.get_dm_content_usage_detail(:'h_item') -> 'places') = 0
+  and (public.get_dm_content_usage_detail(:'h_item') -> 'history' ->> 'inventory_history')::int >= 2,
+  public.get_dm_content_usage(:'h_item')::text);
+-- a player's draft request is history; a submitted request is current use and is listed
+select tl_test.as_root();
+insert into public.change_requests (id, campaign_id, character_id, requested_by, category, action_type, title, status, ops)
+values ('f1e00000-0000-0000-0000-0000000000d1', :'camp', :'cmc1', :'alice', 'inventory', :'gov_action', 'CM draft', 'draft',
+        jsonb_build_array(jsonb_build_object('op', 'add_item', 'item_id', :'rh_item')));
+select tl_test.as_user(:'dm');
+select tl_test.rec('CM30 a draft request only: still deletable (request_history), not counted as current use',
+  (public.get_dm_content_usage(:'h_item') ->> 'can_delete')::boolean
+  and (public.get_dm_content_usage(:'h_item') -> 'counts' ->> 'request_history')::int = 1
+  and (public.get_dm_content_usage(:'h_item') -> 'counts' ->> 'pending_requests')::int = 0);
+select tl_test.as_root();
+update public.change_requests set status = 'submitted', submitted_at = now() where id = 'f1e00000-0000-0000-0000-0000000000d1';
+select tl_test.as_user(:'dm');
+select tl_test.rec('CM31 a submitted request blocks (TLUSE) and is listed with character and status',
+  tl_test.cm_code(format('select public.delete_unused_dm_content(%L, %L)', :'h_item', 'Longsword (homebrew)')) = 'TLUSE'
+  and exists (select 1 from jsonb_array_elements(public.get_dm_content_usage_detail(:'h_item') -> 'places') p
+              where p ->> 'kind' = 'request' and p ->> 'status' = 'submitted' and p ->> 'character_name' = 'CM Wizard'),
+  public.get_dm_content_usage_detail(:'h_item')::text);
+select tl_test.as_root();
+delete from public.change_requests where id = 'f1e00000-0000-0000-0000-0000000000d1';
+-- published, not archived other content naming it blocks; archived other content is history
+update public.dm_content_versions set definition = definition || jsonb_build_object('recipe_refs', jsonb_build_array(:'rh_item'))
+where id = (select published_version_id from public.dm_content where id = :'d_creature');
+select tl_test.as_user(:'dm');
+select tl_test.rec('CM32 the published version of other content names it: blocked, listed as other_content',
+  (public.get_dm_content_usage(:'h_item') -> 'counts' ->> 'other_content')::int = 1
+  and tl_test.cm_code(format('select public.delete_unused_dm_content(%L, %L)', :'h_item', 'Longsword (homebrew)')) = 'TLUSE'
+  and exists (select 1 from jsonb_array_elements(public.get_dm_content_usage_detail(:'h_item') -> 'places') p
+              where p ->> 'kind' = 'other_content' and p ->> 'content_id' = :'d_creature'));
+select public.archive_dm_content(:'d_creature', 'Retired');
+select tl_test.rec('CM33 ... once that content is archived it is only history: deletable',
+  (public.get_dm_content_usage(:'h_item') -> 'counts' ->> 'other_content')::int = 0
+  and (public.get_dm_content_usage(:'h_item') -> 'counts' ->> 'other_content_history')::int = 1
+  and (public.get_dm_content_usage(:'h_item') ->> 'can_delete')::boolean);
+select public.delete_unused_dm_content(:'h_item', 'Longsword (homebrew)') as h_del \gset
+select tl_test.as_root();
+select tl_test.rec('CM34 deleted: the catalog row is gone, inventory history stays with the name stamped, the audit event lists both assignments',
+  not tl_test.cm_catalog('item', :'rh_item') and not tl_test.cm_exists(:'h_item')
+  and (select count(*) from public.inventory_events where metadata -> 'deleted_item' ->> 'id' = :'rh_item'
+       and item_id is null and metadata -> 'deleted_item' ->> 'name' = 'Longsword (homebrew)'
+       and metadata -> 'deleted_item' ->> 'content_id' = :'h_item') >= 4
+  and (select jsonb_array_length(before -> 'assignments') from public.campaign_audit_events
+       where event_type = 'content_deleted' and before ->> 'content_id' = :'h_item') = 2
+  and (:'h_del'::jsonb ->> 'history_kept')::int >= 4,
+  :'h_del');
+-- an unidentified item: the stamp a player can read keeps the disguise, never the true name
+select tl_test.as_user(:'dm');
+select public.duplicate_official_as_homebrew('item', 'dagger', :'camp') ->> 'id' as u_item \gset
+select public.publish_dm_content(:'u_item');
+select tl_test.cm_ref(:'u_item') as ru_item \gset
+select public.dm_assign_content(:'u_item', array[:'cmc1']::uuid[], 'inventory', '{"identified": false}') as u_asg \gset
+select tl_test.as_root();
+delete from public.inventory_items where item_id = :'ru_item';
+select tl_test.as_user(:'dm');
+select public.delete_unused_dm_content(:'u_item', 'Dagger (homebrew)') as u_del \gset
+select tl_test.as_user(:'alice');
+select tl_test.rec('CM35 unidentified item deleted: the player reads its history with the disguise, never the true name',
+  (select count(*) from public.inventory_events where metadata -> 'deleted_item' ->> 'id' = :'ru_item') >= 2
+  and not exists (select 1 from public.inventory_events where metadata::text ilike '%dagger%'),
+  :'u_asg' || :'u_del');
+-- a creature in a completed encounter still stays archived (encounter history blocks); the detail lists the encounter
+select tl_test.as_root();
+delete from public.character_seen_forms where creature_id = :'r_creature';
+update public.dm_content_versions set definition = definition - 'recipe_refs' where id = (select published_version_id from public.dm_content where id = :'d_creature');
+insert into public.combat_encounters (id, campaign_id, name, ruleset, status, completed_at)
+values ('f1e00000-0000-0000-0000-0000000000e1', :'camp', 'CM Old Fight', '2024', 'completed', now());
+insert into public.combat_statblocks (encounter_id, source_kind, source_id, name, snapshot)
+values ('f1e00000-0000-0000-0000-0000000000e1', 'homebrew', :'r_creature', 'CM beast', '{}');
+select tl_test.as_user(:'dm');
+select tl_test.rec('CM36 completed encounter: archive_recommended, delete refused (TLUSE), the encounter is listed',
+  public.get_dm_content_usage(:'d_creature') ->> 'classification' = 'archive_recommended'
+  and not (public.get_dm_content_usage(:'d_creature') ->> 'can_delete')::boolean
+  and tl_test.cm_code(format('select public.delete_unused_dm_content(%L, (select name from public.dm_content where id = %L))', :'d_creature', :'d_creature')) = 'TLUSE'
+  and exists (select 1 from jsonb_array_elements(public.get_dm_content_usage_detail(:'d_creature') -> 'places') p
+              where p ->> 'kind' = 'encounter' and p ->> 'encounter_name' = 'CM Old Fight'),
+  public.get_dm_content_usage(:'d_creature')::text);

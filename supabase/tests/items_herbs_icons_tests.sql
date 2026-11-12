@@ -179,12 +179,22 @@ begin
   perform public.archive_homebrew_item(pg_temp.fx('potion'));
   perform pg_temp.ok('D5 archive instead: archived, the entry keeps working', (select archived_at is not null from public.items where id = pg_temp.fx('potion'))
     and exists (select 1 from public.inventory_items where item_id = pg_temp.fx('potion')));
-  -- removed from the inventory: history still blocks a permanent delete
+  -- removed from the inventory: only history is left, which no longer blocks (20261112000100; before: "archive")
   perform pg_temp.as_admin();
   delete from public.inventory_items where item_id = pg_temp.fx('potion');
   perform pg_temp.as_user(pg_temp.fu('dm'));
   r := public.preview_item_deletion(pg_temp.fx('potion'));
-  perform pg_temp.ok('D6 an item with inventory history is still not deletable (archive)', not (r ->> 'deletable')::boolean and (r -> 'dependencies' ->> 'inventory_history')::int >= 1, r::text);
+  perform pg_temp.ok('D6 an archived item with only inventory history is deletable; the history is listed as kept, not as a reason',
+    (r ->> 'deletable')::boolean and (r -> 'dependencies' ->> 'inventory_history')::int >= 1 and jsonb_array_length(r -> 'reasons') = 0
+    and jsonb_array_length(r -> 'history') = 1 and r ->> 'advice' like '%history stays readable%', r::text);
+  r := public.delete_custom_item(pg_temp.fx('potion'), 'IH Draught of Rest');
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('D6b ... deleted; its inventory events stay, unlinked, with the name stamped in metadata.deleted_item',
+    not exists (select 1 from public.items where id = pg_temp.fx('potion'))
+    and (select count(*) from public.inventory_events where metadata -> 'deleted_item' ->> 'id' = pg_temp.fx('potion')
+         and item_id is null and metadata -> 'deleted_item' ->> 'name' = 'IH Draught of Rest') >= 2
+    and (r ->> 'history_kept')::int >= 2, r::text);
+  perform pg_temp.as_user(pg_temp.fu('dm'));
   r := public.delete_custom_item(pg_temp.fx('herb1'), 'IH Silverleaf');
   perform pg_temp.ok('D7 an unused herb is deleted for good (definition rows cascade)', not exists (select 1 from public.items where id = pg_temp.fx('herb1'))
     and not exists (select 1 from public.homebrew_item_events where item_id = pg_temp.fx('herb1')));

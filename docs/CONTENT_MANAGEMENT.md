@@ -67,6 +67,31 @@ are all counted, so a delete can never silently remove them.
 * One `campaign_audit_events` row (`content_deleted`, visibility dm) with id, type, name, version and catalog ids.
 * A repeated or concurrent delete gets "Content not found": one final result, one audit event.
 
+## History no longer blocks deletion (2026-11-12, `20261112000100_content_deletion_history.sql`)
+
+* **Current use blocks** (`TLUSE`, unchanged): inventory / stash / NPC / shop entries, equipped, attuned, owned assets,
+  starting equipment, proficiencies, items based on it, every assignment, running or planned encounters, a submitted /
+  returned / apply_failed change request that is not stale, and the **published version of other, non-archived content** that
+  names it. `inventory_items.item_id ON DELETE RESTRICT` stays the backstop.
+* **History is kept and does not block**: inventory events, character audit lines, earlier assignments, player draft or stale
+  requests (`request_history`), archived / draft / superseded versions of other content (`other_content_history`). New
+  classification **DELETABLE, HISTORY KEPT** (`delete_keeps_history`, `can_delete = true`). Exception: a creature in a
+  **completed encounter** stays ARCHIVE RECOMMENDED (encounter history).
+* Before the delete, `inventory_events` rows of the item get `metadata.deleted_item = {id, name, content_id, deleted_at}` (the FK
+  then nulls `item_id`; a secret item keeps its disguise there, players can read these rows). The `content_deleted` audit
+  event (DM only) lists the earlier assignments (`before.assignments`), because the `dm_content_events` cascade removes them.
+  The legacy `delete_unused_dm_item` stamps the same way and now writes that audit event too.
+* Text references match exactly (`"<ref>"` or `":<ref>"` followed by a quote): no LIKE wildcards, `-v1` no longer matches `-v10`.
+* `get_dm_content_usage_detail(content)` (same gate as the usage report; player / unrelated DM / anonymous: "Content not found"):
+  **where** it is used — character inventories, party stash / NPC / shop / stash (name), per-character uses, approvable requests
+  (title, status, character), encounters, other published content. Rows in campaigns the caller does not run are only counted.
+* UI: the Usage dialog splits *In use (blocks delete)* from *History (kept)*, lists *Where it is used* with links (character,
+  request, encounter) and the next step; an archived item is never told to "archive it"; the editor header uses the usage
+  report's numbers; Delete permanently of a never-published draft shows at once.
+* Permissions differ on purpose: `delete_unused_dm_content` = any DM of the campaign / admin; legacy `delete_unused_dm_item`
+  (content management off) = author / admin.
+* Rollback: `supabase/rollback/rollback_content_deletion_history.sql` (exact previous bodies; stamps already written stay).
+
 ## Duplicate official as homebrew (`duplicate_official_as_homebrew(type, ref, campaign)`)
 
 Reads one official catalog row (spell, item, feat, creature, background, lineage) and creates a **draft** in the campaign through
