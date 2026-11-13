@@ -12,6 +12,9 @@ marker `?v=32`).
   - **Individual (party sees it)**: the quest belongs to one character (choose it), and the rest of the party sees it too,
     labelled with that character's name ("Yours" for its owner).
   - **Private (DM and one player)**: only you and the player of the chosen character. Other players never receive it.
+    A private (or individual) quest belongs to the **character**, not to the player: if you transfer the character to another
+    player, the new owner sees its private quests and the previous owner no longer does. Give the quest to another character
+    (Edit → Character) before a transfer if it should stay with the old player.
 - **Status**: Active, Completed or Failed. Players see active quests first, then completed, then failed.
 - **Order**: ▲ / ▼ move a quest within its status. Players see the same order.
 - **Objectives**: tick them in the list, or in the editor. **Only the DM ticks objectives** (default decision for this
@@ -47,9 +50,12 @@ The tab reads when it is shown, so it is never part of opening the sheet. There 
   gets an empty list; moving a character into a campaign its owner is not a member of is refused already (governance / the
   characters update policy). `get_campaign_quests(campaign, include_archived)`: DM / admin only,
   with notes and the campaign's characters.
-- **Writes** (DM of the quest's campaign or admin, `42501` otherwise): `dm_save_quest(campaign, quest, expected revision)`
+- **Writes** (DM of the quest's campaign or admin, `42501` otherwise; an unknown quest or objective id gets exactly the same
+  42501 refusal, so ids cannot be probed): `dm_save_quest(campaign, quest, expected revision)`
   (create / edit, objectives as the full ordered list, `40001` on a stale revision), `dm_set_quest_status`,
-  `dm_set_quest_objective`, `dm_archive_quest(quest, archived)`, `dm_reorder_quests(campaign, ids)`. Every function has a
+  `dm_set_quest_objective` (refused with `22023` for an archived objective or quest), `dm_archive_quest(quest, archived)`,
+  `dm_reorder_quests(campaign, ids)` (checks the ids belong to the campaign before locking). Every change, also a notes-only or
+  objectives-only save, moves the quest's `revision`, so a stale second editor gets `40001` instead of overwriting. Every function has a
   fixed `search_path`; anon and PUBLIC cannot execute them.
 - **No side channel.** The tables are not in the `supabase_realtime` publication and have no grants (no REST, no Realtime
   payload). The player read is not in `tl_cache` (`get_character_reads` never reads it); quest data lives only in the
@@ -63,15 +69,16 @@ The tab reads when it is shown, so it is never part of opening the sheet. There 
   so a later release can add a live refresh once every open sheet is `?v=32` or newer.
 - **`?fluent=0`** uses the same RPC.
 - **Deploy order:** migration first, then the frontend. Rollback: the previous frontend (`?v=31`) first, then
-  `rollback_quest_log.sql` (drops the three tables: export them first if they matter).
+  `rollback_quest_log.sql`. The rollback keeps every quest: it drops the functions and renames the three tables to
+  `*_rb_20261114` (inert: RLS on, no grants); its header shows how to copy them back after a reapply.
 
 ## Tests
 
-`supabase/tests/classes/quest_log_tests.sql` (QL1–QL25: DM, owning player, other player of the party, player of another campaign
+`supabase/tests/classes/quest_log_tests.sql` (QL1–QL29: DM, owning player, other player of the party, player of another campaign
 and anon; DM notes never in a player read; REST refused; not in Realtime; RLS and grants; security definer and search_path;
 tick; ordering; objectives archived; validation and stale revision; archive / restore; campaign move both ways; cache counters
 untouched; a deleted character's private quest stays DM-only; membership: no move into a foreign campaign, a removed player
-sees nothing) and `supabase/tests/browser/quest_log_ui_test.py` (QU1–QU10: the DM
+sees nothing; notes-only / objectives-only stale saves 40001; archived objectives; no existence oracle) and `supabase/tests/browser/quest_log_ui_test.py` (QU1–QU10: the DM
 creates a party, an individual and a private quest in DM Space; player A sees all three, player B the party quest and A's
 individual quest only; neither session receives a DM note, B never receives A's private quest (REST, websocket, DOM,
 storage); one lazy request; a ticked objective shows for the player; `?fluent=0`; phone width; no console errors).
