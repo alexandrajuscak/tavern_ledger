@@ -2,9 +2,9 @@
 // The rules live in the database (get_character_derived_stats); this module only turns the structured result into text.
 import { $, esc, toast, openModal } from './utils.js?v=28';
 import * as api from './inventory-api.js?v=28';
+import { weaponCardHTML, unknownWeaponCardHTML } from './weapon-card.js?v=28';
 
 const fmt = (n) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`);
-const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const FORMULA = { unarmored: 'Unarmored', light_armor: 'Light armor', medium_armor: 'Medium armor', heavy_armor: 'Heavy armor' };
 const INACTIVE = { not_equipped: 'not equipped', not_attuned: 'needs attunement', wearing_armor: 'only works without armor',
   using_shield: 'only works without a shield' };
@@ -144,7 +144,6 @@ export function openAcBreakdown(d, { onOverride, onGotoItem }) {
 
 const openDetails = new Set();   // weapon cards whose "How this is calculated" is open, kept across re-renders
 
-/** Cards for equipped weapons (derived attacks; custom attacks stay in the Attacks list). */
 /** Natural weapons from the lineage (claws, horns, bite …): unarmed strikes with Strength, always proficient. */
 function naturalWeaponsHTML(d) {
   return (d?.natural_weapons || []).map((w) => `
@@ -166,59 +165,18 @@ function naturalWeaponsHTML(d) {
     </article>`).join('');
 }
 
-export function equippedWeaponsHTML(d) {
+/**
+ * Cards for equipped weapons (js/weapon-card.js). opts.info(inventoryItemId) -> what the viewer knows about the item (masked
+ * inventory data) or null; opts.infused: Map of Artificer infusions. An equipped item in a hand that the player cannot see in the
+ * catalog (unidentified) gets a card with its decoy only.
+ */
+export function equippedWeaponsHTML(d, opts = {}) {
   const list = d?.equipped_weapon_attacks || [];
   const natural = naturalWeaponsHTML(d);
-  if (!list.length) return natural || '<p class="empty">No weapon equipped. Equip one in the Inventory tab.</p>';
-  return list.map((w) => {
-    const prof = w.proficiency || {};
-    const group = prof.group_name || prof.missing_group_name || '';
-    const magic = w.attack_breakdown.filter((p) => p.effect === 'attack_bonus');
-    const dmgMagic = w.damage_breakdown.filter((p) => p.effect === 'damage_bonus');
-    const profLine = w.proficient
-      ? `${fmt(w.proficiency_bonus)} <span class="muted small">(proficient${prof.matched_by === 'item' ? ' with this weapon' : group ? `: ${esc(group)}` : ''})</span>`
-      : `+0 <span class="muted small">(not proficient${group ? ` with ${esc(group)}` : ''})</span>`;
-    const notes = [];
-    if (!w.proficient) notes.push(`Not proficient with ${group || 'this weapon'}: no proficiency bonus on the attack roll.`);
-    if (w.attack_disadvantage) notes.push('Disadvantage on this attack: you wear armor or a shield you aren’t proficient with.');
-    const key = `weapon:${w.inventory_item_id}`;
-    return `
-    <article class="entry derived-weapon" data-weapon="${esc(w.inventory_item_id)}">
-      <div class="entry-head">
-        <h3 class="entry-name">${esc(w.name)}</h3>
-        <span class="badge">${esc(SLOT[w.slot_id] || w.slot_id)}</span>
-      </div>
-      <div class="roll-row">
-        <div class="roll roll-hit"><span class="roll-label">To hit</span><span class="roll-val" data-attack-bonus>${fmt(w.attack_bonus)}</span></div>
-        <div class="roll roll-dmg dt-${esc(w.damage_type || '')}">
-          <span class="roll-label">Damage</span>
-          <span class="roll-val">${esc(w.damage ?? '—')}</span>
-          <span class="roll-type">${esc(w.damage_type || '')}</span>
-        </div>
-      </div>
-      ${notes.map((n) => `<p class="derived-note"><strong>Note:</strong> ${esc(n)}</p>`).join('')}
-      <details data-details="${esc(key)}" ${openDetails.has(key) ? 'open' : ''}>
-        <summary data-focus-key="${esc(key)}:details">How this is calculated</summary>
-        <table class="ac-table">
-          <tbody>
-            <tr><th scope="row">${ABILITY[w.ability]} modifier <span class="muted small">(${esc(abilityRule(w))})</span></th><td>${fmt(w.ability_modifier)}</td></tr>
-            <tr><th scope="row">Proficiency bonus</th><td>${profLine}</td></tr>
-            ${magic.map((p) => `<tr><th scope="row">${esc(p.source_name)}</th><td>${fmt(p.value)}</td></tr>`).join('')}
-          </tbody>
-          <tfoot><tr><th scope="row">Attack bonus</th><td>${fmt(w.attack_bonus)}</td></tr></tfoot>
-        </table>
-        <p class="small">Damage: ${esc(w.damage_dice || '—')} ${esc(w.damage_type || '')}
-          ${w.versatile_damage ? `(two hands: ${esc(w.versatile_damage)})` : ''}
-          + ${ABILITY[w.ability]} ${fmt(w.ability_modifier)}${dmgMagic.map((p) => ` + ${esc(p.source_name)} ${fmt(p.value)}`).join('')}</p>
-      </details>
-    </article>`;
-  }).join('') + natural;
-}
-
-function abilityRule(w) {
-  if (w.ability_rule === 'finesse_best') return 'finesse: the better of Strength and Dexterity';
-  if (w.ability_rule === 'ranged_dex') return 'ranged weapon';
-  return 'melee weapon';
+  const hidden = (d?.warnings || []).filter((w) => w.code === 'hidden_item' && SLOT[w.slot_id] && w.source_id);
+  if (!list.length && !hidden.length) return natural || '<p class="empty">No weapon equipped. Equip one in the Inventory tab.</p>';
+  return list.map((w) => weaponCardHTML(w, opts.info?.(w.inventory_item_id) || null, { open: openDetails, infused: opts.infused }))
+    .concat(hidden.map((h) => unknownWeaponCardHTML(h.source_id, h.slot_id, opts.info?.(h.source_id) || null))).join('') + natural;
 }
 
 export function trackWeaponDetails(container) {

@@ -88,6 +88,19 @@ requirement is not met`, never below 0. The stored base speed is not changed.
 | `proficient`, `proficiency` | match by the specific item (or its base item) first, then the weapon group |
 | `attack_disadvantage` | true while wearing armor or a shield without proficiency |
 
+**Weapon cards (Play → Attacks, R-A, `js/weapon-card.js`).** Each equipped weapon is a card in the style of the spell cards: icon,
+name, slot, damage-type chip, property chips (group, finesse, versatile with its two-handed dice, reach, thrown / ranged range),
+rarity / magic / attunement / infusion / modifier tags, To hit and Damage, the item description and the player's notes, and the
+unchanged "How this is calculated" breakdown. Rules:
+- The numbers come only from `equipped_weapon_attacks`; nothing is recomputed in the browser.
+- The item facts come only from the masked inventory data the sheet already has (the Inventory panel's rows and the
+  character's knowledge read). An unidentified or partly identified copy shows its decoy name and description and the revealed
+  facts only, never the derived `name` (that is the catalog name). Without the panel's data (fluent path before the Inventory tab
+  was opened) the card shows the stored row's name only and gets the rest when the inventory loads; it never fetches anything.
+- An equipped item in a hand whose catalog row the player cannot read (`hidden_item`) gets a card with its decoy and no numbers.
+- Three empty slots for R-D: `weaponActionsHTML`, `weaponSpecialHTML`, `weaponConditionHTML` (return `''` today).
+- Hooks kept for tests: `.entry.derived-weapon[data-weapon]`, `[data-attack-bonus]`, one `details[data-details]` / `<summary>`.
+
 ## Warnings
 
 | Code | Severity | Meaning |

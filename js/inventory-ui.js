@@ -1296,6 +1296,28 @@ export function mountInventory(el, opts) {
       const box = el.querySelector('.inv-summary');
       if (box && !s.destroyed && s.status === 'ready') box.outerHTML = summaryHTML();
     },
+    /**
+     * What the viewer legitimately knows about one of the loaded rows, for the weapon cards on the Play tab (js/weapon-card.js):
+     * the same masked view as the item list (decoy and revealed facts for a not-identified instance; catalog facts only for a
+     * known one). null while loading or for an unknown row. Never reads anything.
+     */
+    weaponInfo(id) {
+      if (s.destroyed || s.status !== 'ready') return null;
+      const r = rowById(id);
+      if (!r) return null;
+      const k = knowledgeOf(r);
+      const d = k ? null : detail(r);
+      const rarity = rarityOf(r);
+      const facts = k?.facts || {};
+      return {
+        known: !k, state: k?.state || 'identified', name: r.display_name || r.custom_name || r.name, icon: itemIcon(r, ui),
+        rarity, rarityLabel: rarity ? rarityLabel(rarity) : '', magic: magicOf(r),
+        attunement: k ? !!facts.attunement : !!(r.requires_attunement ?? d?.requires_attunement), attuned: !!r.is_attuned,
+        description: k ? (r.description || '') : (d?.description || r.description || ''), notes: r.notes || '',
+        modifiers: k ? [] : (r.modifier_ids || []).filter((m) => !m.startsWith('infusion-'))
+          .map((m) => m.replace(/-plus-/, ' +').replace(/^\w/, (c) => c.toUpperCase())),
+      };
+    },
     /** The crafting rule or the viewer changed (governance state): show or hide the Crafting panel. */
     craftingChanged() { if ((CRAFTING || 'off') === 'on' && !s.destroyed && s.status === 'ready') render(); },
     /** A crafting attempt or recipe changed (character revision): re-read the recipes if the panel is shown. */

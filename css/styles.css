@@ -2754,3 +2754,32 @@ details.combat-group.passive-group > summary { cursor: pointer; }
 .cr-ing-row [data-ing-label] { flex: 1 1 12em; min-width: 0; }
 .cr-queue { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
 .cr-history { padding-left: 1.2em; }
+/* ---- R-A weapon cards in Play (js/weapon-card.js): the spell-card look; the rarity (or a neutral edge) leads the card ------- */
+.wpn-card { --wpn: var(--border-strong); display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 12px 10px 14px; }
+.wpn-card[data-rarity] { --wpn: var(--rarity, var(--border-strong)); }
+.wpn-card[data-rarity="common"] { --rarity: var(--rarity-common); } .wpn-card[data-rarity="uncommon"] { --rarity: var(--rarity-uncommon); }
+.wpn-card[data-rarity="rare"] { --rarity: var(--rarity-rare); } .wpn-card[data-rarity="very_rare"] { --rarity: var(--rarity-very-rare); }
+.wpn-card[data-rarity="legendary"] { --rarity: var(--rarity-legendary); } .wpn-card[data-rarity="artifact"] { --rarity: var(--rarity-artifact); }
+.wpn-card[data-rarity="unique"] { --rarity: var(--rarity-unique); } .wpn-card[data-rarity="unknown"] { --rarity: var(--rarity-unknown); }
+.entry.wpn-card, .play-section .entry.wpn-card { border-left: 4px solid var(--wpn); }
+@supports (background: color-mix(in srgb, red 10%, blue)) {
+  .play-section .entry.wpn-card[data-rarity] { background: color-mix(in srgb, var(--wpn) 7%, var(--surface-2)); }
+}
+.wpn-card.wpn-unknown { border-left-style: dashed; }
+.wpn-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.wpn-top .wpn-icon { width: 36px; height: 36px; flex: none; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4)); }
+.wpn-title { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-card-title); font-weight: 650; overflow-wrap: anywhere; }
+.wpn-slot { flex: none; white-space: nowrap; }
+.wpn-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
+.wpn-tags .badge { margin: 0; }
+.wpn-chip { color: var(--text-2); white-space: nowrap; }
+.wpn-chip.wpn-group { color: var(--text); }
+.wpn-chip.wpn-range { color: var(--text); border-color: var(--border-strong); }
+.wpn-chip.wpn-attuned { color: var(--good); border-color: var(--good); }
+.wpn-chip.wpn-attune { color: var(--gold); border-color: rgba(212, 166, 74, 0.6); }
+.wpn-chip.wpn-unknown-chip { border-style: dashed; }
+.wpn-card .roll-row { margin-top: 2px; }
+.wpn-desc { margin: 0; color: var(--text-2); overflow-wrap: anywhere; white-space: pre-line; }
+.wpn-notes { margin: 0; overflow-wrap: anywhere; }
+@media (min-width: 701px) { .wpn-title { font-family: var(--font-display-medieval); letter-spacing: 0.03em; color: var(--color-title); } }
+@media (max-width: 420px) { .wpn-card .roll { min-width: 0; flex: 1 1 40%; } }

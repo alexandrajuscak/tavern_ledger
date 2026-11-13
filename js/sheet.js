@@ -949,7 +949,7 @@ function renderClasses() {
   put('#play-infusions-slot', infusionsPlayHTML(infusionState));
   put('#option-spells', optionSpellsHTML(selectedOptions(classFeatures, classResources).spell));
   const infSig = JSON.stringify([...infusedItemMap(infusionState)]);
-  if (infSig !== lastInfusedSig) { lastInfusedSig = infSig; inventory?.render?.(); }   // infused-item badges follow the infusion read (only on change)
+  if (infSig !== lastInfusedSig) { lastInfusedSig = infSig; inventory?.render?.(); renderWeapons(); }   // infused-item badges follow the infusion read (only on change)
   put('#sheet-avatar', avatarHTML());
   hydrateSpellChoices(root);
   renderStrip();
@@ -1124,7 +1124,7 @@ function renderDerived(startedAt = 0) {
     el.__html = html;
     if (key) $(`[data-focus-key="${CSS.escape(key)}"]`, el)?.focus();
   };
-  keep('#equipped-weapons', equippedWeaponsHTML(derived));
+  renderWeapons();
   keep('#feature-attacks', featureAttacksHTML());
   keep('#combat-groups', combatGroupsHTML());   // attack riders decide which option cards are not repeated
   keep('#class-features', featuresPanelHTML(classFeatures, { editable: !ctx?.readOnly, derived, states: classStates }));
@@ -1885,6 +1885,32 @@ const playGlanceHTML = () => {
     classStates, { attackFacts: false });
 };
 
+// ---- weapon cards (js/weapon-card.js): the numbers from the derived read, the item facts from the masked inventory data ----------
+/**
+ * What the viewer knows about an equipped weapon's inventory row: the Inventory panel's masked view when it is loaded (decoy and
+ * revealed facts for an unidentified copy), otherwise only the name on the stored row (the decoy for a disguised copy) and
+ * nothing else. Never reads anything.
+ */
+function weaponInfo(inventoryItemId) {
+  const full = inventory?.weaponInfo?.(inventoryItemId);
+  if (full) return full;
+  const r = (B?.inventory || []).find((x) => x.id === inventoryItemId);
+  return r ? { known: null, name: r.custom_name || r.name, attunement: false, attuned: !!r.is_attuned } : null;
+}
+const weaponOpts = () => ({ info: weaponInfo, infused: infusedItemMap(infusionState) });
+/** Re-render the weapon cards only when their markup changed (keeps the focus on an open "How this is calculated"). */
+function renderWeapons() {
+  const el = root && $('#equipped-weapons', root);
+  if (!el) return;
+  const html = equippedWeaponsHTML(derived, weaponOpts());
+  if (el.__html === html) return;
+  const a = document.activeElement;
+  const key = a && el.contains(a) ? a.dataset.focusKey : null;
+  el.innerHTML = html;
+  el.__html = html;
+  if (key) $(`[data-focus-key="${CSS.escape(key)}"]`, el)?.focus();
+}
+
 function combatTabHTML() {
   const group = (cat, kind, label) => `
     <optgroup label="${label}">
@@ -1899,7 +1925,7 @@ function combatTabHTML() {
 
   <section class="play-section" aria-labelledby="play-attacks">
     <h2 class="play-title" id="play-attacks">${icon('ui/attack', { size: 24 })}Attacks</h2>
-    <div id="equipped-weapons" class="entry-list">${equippedWeaponsHTML(derived)}</div>
+    <div id="equipped-weapons" class="entry-list">${equippedWeaponsHTML(derived, weaponOpts())}</div>
     <div id="feature-attacks">${featureAttacksHTML()}</div>
     <div id="attacks-list" class="entry-list">${attacksListHTML()}</div>
     <details class="quiet-details add-weapon">
@@ -3518,6 +3544,7 @@ function mountInventoryPanel() {
     onRows: (rows) => {
       B.inventory = rows.map(legacyInventoryRow);
       cacheLater();
+      renderWeapons();   // the weapon cards get the item facts (icon, rarity, description) from the masked rows
       if (invLoaded) scheduleDerived();   // the first load is not a change: the derived read started on mount covers it
       invLoaded = true;
     },
