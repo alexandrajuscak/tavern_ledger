@@ -201,7 +201,8 @@ switching it off never takes knowledge away.
 
 - **Copy on write, no read-path change.** The record (`character_item_knowledge`) stays per character and the character's
   disguised rows keep following it. Every raise goes through `_identify_apply` (successful examine, the DM's answer,
-  `dm_reveal_item`, `dm_set_item_knowledge` mode `raise`, crafting); it now pushes the character's record to the other characters
+  `dm_reveal_item`, `dm_set_item_knowledge` mode `raise`, crafting); it now pushes the character's record (unless the character is
+  held, see the hold rule) to the other characters
   of the campaign (`_party_share_from` → `_party_apply_to`, which reuses the old body `_identify_apply_one`). Their rows are renamed
   as by any reveal; each changed character gets one `character_revisions` row (open sheets refresh) and a player audit line
   "Your party learned something about an item: <name as they now know it>" with no actor and no hint who identified it.
@@ -209,8 +210,20 @@ switching it off never takes knowledge away.
 - **A failed or pending examine** writes nothing for anyone else.
 - **DM choices win.** `dm_set_item_knowledge` mode `set` ("Set", "Hide from selected") and a lowering through the old per-copy
   editor mark the character **held back** for that item (`held_by_dm`): sharing skips it, and its record is never a source of the
-  party level. An explicit raise of that character (their own success, the DM's reveal) lifts the hold;
-  `dm_release_item_knowledge_hold(item, characters, campaign)` ("let the party share") lifts it and gives them the party level.
+  party level.
+- **The hold rule (v31, owner decision).** A hold is lifted ONLY by `dm_release_item_knowledge_hold(item, characters, campaign)`
+  ("let the party share", which also gives them the party level at once) or when the character's record ends up fully
+  **identified** (their own full success, the DM's "reveal everything"). A **partial** raise never lifts it: the character's own
+  partial examine success or the DM's partial answer (`_identify_apply`), the per-copy editor adding a fact,
+  `dm_set_item_knowledge` mode `raise` with some parts, `dm_reveal_item` with some parts. Neither does a rule switch (off / on),
+  a sync (sheet or DM), a joiner pull, or another character's reveal: party sharing never raises a held character, and a held
+  character's partial facts never spread. Example (owner decision a): the DM hides an item from B, reveals only its name to B, and
+  later A identifies it: B stays at "name only" until the DM releases B or reveals everything to B. In the DM's bulk calls the one
+  party share at the end comes from the first raised character that is not held. "Set" is the DM's exact choice and always holds,
+  also a "Set → Everything" (the character then simply is no source until a release).
+- **The hold follows the character (m4).** It is stored per character and item, not per campaign: a character moved to another
+  campaign stays held there for that (official) item until that campaign's DM releases it or reveals everything. Conservative and
+  data-safe; homebrew items belong to one campaign, so this only concerns official items.
 - **Joiners** (a new character in the campaign, or `campaign_id` changed) get the union of the non-held records of the other
   characters, for items of no campaign or of that campaign (trigger `characters_party_knowledge`).
 - Skipped targets: a held character; a character who holds only undisguised copies (sees everything already). Party stash /
@@ -222,9 +235,16 @@ switching it off never takes knowledge away.
   `set_campaign_identification_sharing(campaign, on)`, `dm_release_item_knowledge_hold(item, characters, campaign)`,
   `dm_sync_party_knowledge(campaign)`; the character's owner, DM or an admin: `sync_party_knowledge(character)` (counts only).
   `dm_set_item_knowledge` also returns `party_share`, `shared_with` and per character `held`.
-- **Data at deploy:** holds are derived from the DM's past `set` calls that nothing changed afterwards (and from a last history
-  event that lowered knowledge); then every campaign is caught up (raise only, idempotent). Preview it read-only on production
-  first: `scripts/fluent/party_share_preview.sql` (ids and counts only).
+- **Data at deploy:** holds are derived by replaying the hold rule over the history (`_ik_derived_holds()`): a hold point is a
+  DM audit line with mode `set` or ANY history event that took knowledge away; a lift is a later DM `release` line or a later
+  event that reached `identified`; held = the latest hold point has no lift after it (so "hide, then a partial reveal" stays
+  held, whatever the DM did last). Then every campaign is caught up (raise only, idempotent); a held character is never raised.
+  Preview it read-only on production first: `scripts/fluent/party_share_preview.sql` (as postgres; a READ ONLY transaction,
+  rolled back; ids and counts only, no item names): one `held` line per record that will be held and one `row` line per record
+  the catch-up will change. Limit: before this release a "Hide" of a character who knew nothing yet changed nothing and wrote
+  nothing, so such a hide cannot be derived; when the DM then revealed part of the item to that character, the catch-up gives it
+  the party level. The preview marks those rows `DM-PARTIAL` (the DM's latest choice for that character was a partial reveal
+  that the catch-up exceeds): review them before the deploy (the DM can hide the item from them again afterwards).
 - **Locking (never wait on another character).** Inside the examiner's or the DM's transaction, a character that is not the
   transaction's own target is touched only in a subtransaction with a 200 ms `lock_timeout` (restored) and NOWAIT locks in the
   order of the existing RPCs: `characters` (key share) → `tl_cache.character_rev` → its rows (id order) → their row knowledge →
@@ -236,7 +256,8 @@ switching it off never takes knowledge away.
   `party_share_pending`: one row per character and item (merged: union of facts, the higher level), plain ids, no foreign keys,
   no grants. It is applied in the target's own context, with no actor and the usual history / audit line: the target's next
   `_identify_apply`, `sync_party_knowledge(character)` (the sheet calls it on open and after an inventory refresh, at most every
-  20 s; one indexed lookup when nothing waits) and **DM Space → Campaign rules → Sync party knowledge**. It is dropped, never
+  20 s; one indexed lookup when nothing waits; m2: kept as one small POST per sheet open, because nothing the open already reads
+  can tell whether a share waits: `party_share_pending` feeds no cached bundle on purpose, so a flag there would go stale) and **DM Space → Campaign rules → Sync party knowledge**. It is dropped, never
   applied, when the target is held back, left the campaign or was deleted (also removed by the join / leave / delete trigger),
   the rule is off, or a DM wrote that character's knowledge of the item after the row was made. Every DM write of a (character,
   item) deletes that pair's pending shares (without waiting: a row another transaction holds is skipped and dropped at apply). A pending share never lifts a hold and never lowers anything.
@@ -252,8 +273,13 @@ switching it off never takes knowledge away.
 - A share never lowers a copy (the target's row knowledge is part of the union) and closes the target's pending examine attempts
   as "Learned from the party" (no resolver). A joiner gets one summary audit line; the joiner trigger never aborts the insert or
   the join (an error is only a warning, busy items stay pending).
+- **Monitoring after the deploy (m3).** `tl_cache.bump_item_knowledge` takes other holders' cache counters NOWAIT; outside a
+  party share, a busy one falls back to ONE global cache bump (`tl_cache.global_rev`), which invalidates every cached bundle (each
+  character's next read recomputes it). Rare (only a short lock window), but a global bump is the pattern behind the earlier
+  statement-timeout incident: watch `tl_cache.global_rev` for a few days after the deploy (it should move rarely).
 - Rollback: `supabase/rollback/rollback_party_item_knowledge.sql` (keeps what characters learned; drops the rule, the holds and
-  the history source). Tests: `supabase/tests/classes/party_knowledge_tests.sql` (PK1–PK24). `herb_identification_tests` and
+  the history source). Tests: `supabase/tests/classes/party_knowledge_tests.sql` (PK1–PK31 and the reviewer's RV1–RV6; PK31
+  checks that the deploy-time derivation finds exactly the live holds). `herb_identification_tests` and
   `item_reveal_tests` switch the rule off for their campaign: they cover the per-character model.
 
 ## Crafting (20261113000100)
