@@ -240,3 +240,119 @@ select tl_test.rec('IR16 backfill: the consistent pair gets its record, the conf
   :bf1 >= 1 and :bf2 = 0 and tl_test.ir_ck(:'r3', :'relic') = 'unidentified:' and tl_test.ir_ck(:'r2', :'odd') is null and :'same_a' and :'same_b'
   and (select count(*) from public.inventory_item_knowledge k join public.inventory_items ii on ii.id = k.inventory_item_id where ii.item_id in (:'relic', :'odd')) = 3,
   :bf1 || '/' || :bf2);
+
+-- ---- review round 2 ------------------------------------------------------------------------------------------------------------
+-- B1: another user's PERSONAL homebrew (no campaign) is out of reach of the DM functions unless a copy is held in the campaign
+\set rx f4b00000-0000-0000-0000-000000000004
+insert into public.characters (id, owner_id, name, campaign_id, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp_max, hp_current, speed) values
+  (:'rx', :'bob', 'Reveal B elsewhere', null, 1, 10, 12, 12, 10, 14, 10, 10, 10, 30);
+select 'hb-' || gen_random_uuid() as priv \gset
+insert into public.items (id, name, kind_id, owner_id, description) values (:'priv', 'Bobs Private Blade', 'gear', :'bob', 'Private truth.');
+insert into public.item_secrets (item_id, properties) values (:'priv', '[{"key": "edge", "label": "Private edge"}]');
+select tl_test.as_user(:'bob');
+select tl_test.give(:'rx', :'priv') as priv_row \gset
+select tl_test.as_root();
+-- a record of a campaign character alone (e.g. it once held the item) does not open it either
+insert into public.character_item_knowledge (character_id, item_id, state, revealed) values (:'r1', :'priv', 'unidentified', '{}');
+select tl_test.ir_events(:'priv') as pv_ev0 \gset
+select tl_test.as_user(:'dm');
+select tl_test.ir_code(format('select public.get_item_knowledge_overview(%L, %L)', :'priv', :'camp')) as pv_ov \gset
+select tl_test.ir_code(format('select public.dm_set_item_knowledge(%L, array[%L]::uuid[], ''{name}'', ''raise'', %L)', :'priv', :'r1', :'camp')) as pv_raise \gset
+select tl_test.ir_code(format('select public.dm_set_item_knowledge(%L, array[%L]::uuid[], ''{}'', ''set'', %L)', :'priv', :'r1', :'camp')) as pv_set \gset
+select tl_test.ir_code(format('select public.get_item_knowledge_overview(''no-such-item'', %L)', :'camp')) as pv_none \gset
+select public.get_campaign_knowledge_items(:'camp')::text as pv_list \gset
+select tl_test.as_root();
+select tl_test.rec('IR17a B1 another user''s personal item not held in the campaign: overview, raise and set answer P0002 like an unknown id; the picker omits it; nothing written',
+  :'pv_ov' = 'P0002' and :'pv_raise' = 'P0002' and :'pv_set' = 'P0002' and :'pv_none' = 'P0002' and position(:'priv' in :'pv_list') = 0
+  and position('Bobs Private' in :'pv_list') = 0 and tl_test.ir_events(:'priv') = :pv_ev0 and tl_test.ir_ck(:'r1', :'priv') = 'unidentified:',
+  concat_ws(',', :'pv_ov', :'pv_raise', :'pv_set', :'pv_none'));
+-- bob brings it into the campaign (his character r2 holds a copy): now the DM of the campaign may manage it here
+select tl_test.as_user(:'bob');
+select tl_test.give(:'r2', :'priv') as priv_row2 \gset
+select tl_test.as_user(:'dm');
+select tl_test.ir_code(format('select public.get_item_knowledge_overview(%L, %L)', :'priv', :'camp')) as pv_ov2 \gset
+select public.dm_set_item_knowledge(:'priv', array[:'r1']::uuid[], '{name}', 'raise', :'camp') as pv_raise2 \gset
+select public.get_campaign_knowledge_items(:'camp')::text as pv_list2 \gset
+select tl_test.as_root();
+select tl_test.rec('IR17b B1 held in the campaign: overview allowed, the raise works, the picker lists it',
+  :'pv_ov2' = 'ok' and (:'pv_raise2'::jsonb ->> 'changed')::int = 1 and tl_test.ir_ck(:'r1', :'priv') = 'partially_identified:name'
+  and position(:'priv' in :'pv_list2') > 0, :'pv_raise2');
+
+-- M2: "raise" on a character holding only an undisguised copy writes nothing; a mixed holder (plain + disguised) is raised
+select tl_test.as_user(:'dm');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Clearleaf', 'kind_id', 'herbs_plants', 'category_id', 'plant-flower',
+  'campaign_id', :'camp', 'stackable', true, 'description', 'Clear truth.')) ->> 'id' as clear \gset
+select public.dm_give_item(:'clear', array[:'r2']::uuid[], 1, true);
+select tl_test.as_root();
+select set_config('tl_rev.r' || md5(:'r2' || 'inventory_items' || txid_current()::text), '', true);
+select tl_test.ir_revs(:'r2') as m2_rv0 \gset
+select tl_test.ir_audits(:'r2') as m2_au0 \gset
+select tl_test.ir_events(:'clear') as m2_ev0 \gset
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge(:'clear', array[:'r2']::uuid[], '{name}', 'raise') as m2_rz \gset
+select public.dm_set_item_knowledge(:'clear', array[:'r2']::uuid[], '{all}', 'raise') as m2_rz_all \gset
+select public.get_item_knowledge_overview(:'clear', :'camp') as m2_ov \gset
+select tl_test.as_root();
+select tl_test.rec('IR18a M2 raise on a holder of an undisguised copy: unchanged and skipped; no record, history, audit or revision; overview: holds an undisguised copy',
+  (:'m2_rz'::jsonb ->> 'changed')::int = 0 and (:'m2_rz_all'::jsonb ->> 'changed')::int = 0
+  and :'m2_rz'::jsonb -> 'results' -> 0 ->> 'skipped' = 'holds an undisguised copy' and tl_test.ir_ck(:'r2', :'clear') is null
+  and tl_test.ir_events(:'clear') = :m2_ev0 and tl_test.ir_audits(:'r2') = :m2_au0 and tl_test.ir_revs(:'r2') = :m2_rv0
+  and tl_test.ir_rowk(:'r2', :'clear') = '-:'
+  and (select x -> 'effective' ->> 'source' from jsonb_array_elements(:'m2_ov'::jsonb -> 'characters') x where x ->> 'character_id' = :'r2') = 'undisguised_copy',
+  :'m2_rz');
+select tl_test.as_user(:'dm');
+select public.set_item_identify_options(:'clear', '{"unidentified_name": "Murky leaf"}');
+select public.dm_give_item(:'clear', array[:'r2']::uuid[], 1, false);
+select public.dm_set_item_knowledge(:'clear', array[:'r2']::uuid[], '{all}', 'raise') as m2_mixed \gset
+select tl_test.as_root();
+select tl_test.rec('IR18b M2 a mixed holder (undisguised + disguised copy) is still raised: the disguised copy becomes identified',
+  (:'m2_mixed'::jsonb ->> 'changed')::int = 1 and position('unidentified' in tl_test.ir_rowk(:'r2', :'clear')) = 0
+  and split_part(tl_test.ir_ck(:'r2', :'clear'), ':', 1) = 'identified', tl_test.ir_rowk(:'r2', :'clear') || ' ' || :'m2_mixed');
+
+-- M1: the rows and the record are locked NOWAIT; a busy lock answers with the DM-facing message. The harness is one session,
+-- so the handler path is asserted on the function text here (the two-session check is in the round 2 report).
+select tl_test.rec('IR19 M1 dm_set_item_knowledge locks rows and record NOWAIT and maps lock_not_available to a P0001 message',
+  (select (length(d) - length(replace(d, 'nowait', ''))) / 6 = 2 and position('when lock_not_available' in d) > 0
+          and position('The player is examining this item right now' in d) > 0
+   from (select pg_get_functiondef('public.dm_set_item_knowledge(text, uuid[], text[], text, uuid)'::regprocedure) as d) f));
+
+-- derived stats: hiding equipped armour a player could see takes it out of THEIR numbers (the DM's view keeps it)
+\set rd f4b00000-0000-0000-0000-000000000005
+insert into public.characters (id, owner_id, name, campaign_id, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp_max, hp_current, speed) values
+  (:'rd', :'alice', 'Reveal Armoured', :'camp', 1, 16, 12, 12, 10, 14, 10, 10, 10, 30);
+select 'hb-' || gen_random_uuid() as plate \gset
+insert into public.items (id, name, kind_id, category_id, base_item_id, owner_id, campaign_id, is_magic, rarity_id, description)
+values (:'plate', 'Moon Plate', 'armor', 'heavy-armor', 'plate', :'dm', :'camp', true, 'rare', 'Shines.');
+select tl_test.as_user(:'alice');
+select tl_test.give(:'rd', :'plate', 'armor') as plate_row \gset
+select (public.get_character_derived_stats(:'rd') -> 'armor_class' ->> 'value')::int as ac0 \gset
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge(:'plate', array[:'rd']::uuid[], '{}', 'set');
+select public.get_item_knowledge_overview(:'plate', :'camp') as pl_ov \gset
+select (public.get_character_derived_stats(:'rd') -> 'armor_class' ->> 'value')::int as ac_dm \gset
+select tl_test.as_user(:'alice');
+select (public.get_character_derived_stats(:'rd') -> 'armor_class' ->> 'value')::int as ac1 \gset
+select public.get_character_derived_stats(:'rd') -> 'armor_class' ->> 'base_formula' as ac1_formula \gset
+select tl_test.as_root();
+select tl_test.rec('IR20 hiding equipped armour: still equipped, but the player''s AC falls back to unarmoured (18 -> 11); the DM still reads 18; the overview reports equipped_rows',
+  :ac0 = 18 and :ac1 = 11 and :'ac1_formula' = 'unarmored' and :ac_dm = 18
+  and exists (select 1 from public.character_equipment where inventory_item_id = :'plate_row')
+  and (select (x ->> 'equipped_rows')::int from jsonb_array_elements(:'pl_ov'::jsonb -> 'characters') x where x ->> 'character_id' = :'rd') = 1,
+  :ac0 || ' -> ' || :ac1 || ' (DM ' || :ac_dm || ')');
+
+-- M5: the Hidden tab's count
+select tl_test.as_user(:'dm');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Countroot', 'kind_id', 'herbs_plants', 'category_id', 'plant-flower',
+  'campaign_id', :'camp', 'stackable', true, 'description', 'Counted.')) ->> 'id' as cnt \gset
+select public.set_item_identify_options(:'cnt', '{"unidentified_name": "Brown root", "identify_dc": 12}');
+select public.dm_give_item(:'cnt', array[:'r1']::uuid[], 1, false);
+select public.get_campaign_pending_examine_count(:'camp') as pc0 \gset
+select tl_test.as_user(:'alice');
+select public.examine_inventory_item((tl_test.ir_row(:'r1', :'cnt')).id, 'nature', 9, gen_random_uuid());
+select tl_test.ir_code(format('select public.get_campaign_pending_examine_count(%L)', :'camp')) as pc_alice \gset
+select tl_test.as_user(:'dm');
+select public.get_campaign_pending_examine_count(:'camp') as pc1 \gset
+select jsonb_array_length(public.get_campaign_identify_attempts(:'camp', 'pending')) as pc_list \gset
+select tl_test.as_root();
+select tl_test.rec('IR21 M5 the pending examine count: +1 after an examine, equals the pending list, DM-only (42501 for a player)',
+  :pc1 = :pc0 + 1 and :pc1 = :pc_list and :'pc_alice' = '42501', :pc0 || '/' || :pc1 || '/' || :pc_list || ' ' || :'pc_alice');

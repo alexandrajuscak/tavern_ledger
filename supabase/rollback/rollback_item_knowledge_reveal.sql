@@ -12,6 +12,8 @@ drop trigger if exists item_knowledge_log on public.character_item_knowledge;
 drop function if exists public.dm_set_item_knowledge(text, uuid[], text[], text, uuid);
 drop function if exists public.get_item_knowledge_overview(text, uuid);
 drop function if exists public.get_campaign_knowledge_items(uuid);
+drop function if exists public.get_campaign_pending_examine_count(uuid);
+drop function if exists public._ik_item_in_campaign(text, uuid);
 drop function if exists public._item_knowledge_backfill();
 drop function if exists public._ik_fingerprint(uuid, text);
 drop function if exists public._ik_rank(text, text[]);

@@ -10,7 +10,9 @@
 --   lower level also disguises the character's undisguised rows of the item (they get a knowledge row first, so the sync
 --   reaches them). Refused for official items (copy to campaign homebrew first). An unchanged character writes nothing.
 -- * get_item_knowledge_overview(item, campaign): DM-only "who knows what" (record, rows, effective level, divergence, stash
---   rows, history). get_campaign_knowledge_items(campaign): the DM's item picker.
+--   rows, history). get_campaign_knowledge_items(campaign): the DM's item picker. Another user's personal homebrew (no
+--   campaign) is reachable by these three only while a copy of it is held in the campaign (_ik_item_in_campaign).
+-- * get_campaign_pending_examine_count(campaign): the Hidden tab's badge (a count, not the list).
 -- * _item_knowledge_backfill(): copies unambiguous row knowledge of character rows into missing records (never deletes, never
 --   syncs rows; a record alone changes nothing a player sees). Production held 0 row-knowledge rows at the time of writing.
 -- Untouched on purpose (parked, docs/night/DESIGN_hidden_items_reveal.md): _item_visible, v_inventory_detail, _character_read,
@@ -88,6 +90,22 @@ as $$
               when cardinality(coalesce(p_revealed, '{}')) > 0 then 1 else 0 end;
 $$;
 
+-- may the DM of p_campaign manage this item here? Campaign items: their own campaign (checked by the callers). Official items:
+-- any campaign. Another user's PERSONAL homebrew (owner set, no campaign): only while a copy of it is held in the campaign (a
+-- character's, the stash's or the shop's), the scope of the item picker; otherwise the callers answer 'Item not found', as for
+-- an unknown id, so neither its existence nor its secrets leak.
+create function public._ik_item_in_campaign(p_item text, p_campaign uuid)
+returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select exists (select 1 from public.items it where it.id = p_item
+                 and (it.owner_id is null or it.campaign_id is not null
+                      or exists (select 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+                                 left join public.characters c on c.id = inv.character_id
+                                 where ii.item_id = it.id and coalesce(inv.campaign_id, c.campaign_id) = p_campaign)));
+$$;
+
 -- ---- 3. DM: set / raise what characters know -------------------------------------------------------------------------------
 create function public.dm_set_item_knowledge(p_item text, p_characters uuid[], p_reveal text[], p_mode text default 'set',
                                              p_campaign uuid default null)
@@ -96,7 +114,7 @@ language plpgsql security definer
 set search_path = public, pg_temp
 as $$
 declare it public.items; camp uuid; is_full boolean; rev text[]; st text; cid uuid; ck public.character_item_knowledge;
-  fp0 text; fp1 text; changed boolean; plain int; d record; shown text; owner_uid uuid; out jsonb := '[]'; n int := 0;
+  fp0 text; fp1 text; changed boolean; plain int; skip_plain boolean; d record; shown text; owner_uid uuid; out jsonb := '[]'; n int := 0;
 begin
   if auth.uid() is null then raise exception 'Not authenticated' using errcode = '42501'; end if;
   select * into it from public.items where id = p_item;
@@ -108,6 +126,7 @@ begin
   if camp is null or not (public.is_admin() or public.is_campaign_dm(camp)) then
     raise exception 'Only the DM of the campaign can change what characters know about an item' using errcode = '42501';
   end if;
+  if not public._ik_item_in_campaign(p_item, camp) then raise exception 'Item not found' using errcode = 'P0002'; end if;
   if p_mode is null or p_mode not in ('set', 'raise') then raise exception 'Unknown mode (set or raise)' using errcode = '22023'; end if;
   if p_characters is null or cardinality(p_characters) = 0 then raise exception 'Choose at least one character' using errcode = '22023'; end if;
   if cardinality(p_characters) > 100 then raise exception 'Too many characters' using errcode = '22023'; end if;
@@ -128,12 +147,30 @@ begin
   select * into d from public._item_decoy(p_item);
 
   foreach cid in array array(select distinct x from unnest(p_characters) x order by 1) loop
-    -- the character's rows of the item first (id order), then its record: the order examine and _identify_apply use
-    perform 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
-     where inv.character_id = cid and ii.item_id = p_item order by ii.id for update of ii;
-    select * into ck from public.character_item_knowledge where character_id = cid and item_id = p_item for update;
+    -- the character's rows of the item (id order), then its record, both NOWAIT: examine locks the examined row, then the record,
+    -- then the other rows, and _identify_apply locks the record before the rows. Waiting here could deadlock (40P01); a busy
+    -- row or record answers at once with a message the DM can act on (P0001: not rewritten into the generic text by the UI).
+    begin
+      perform 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+       where inv.character_id = cid and ii.item_id = p_item order by ii.id for update of ii nowait;
+      select * into ck from public.character_item_knowledge where character_id = cid and item_id = p_item for update nowait;
+    exception when lock_not_available then
+      raise exception 'The player is examining this item right now, try again in a moment' using errcode = 'P0001',
+        hint = 'Nothing was changed.';
+    end;
     fp0 := public._ik_fingerprint(cid, p_item);
-    if p_mode = 'raise' then
+    -- raise: a character who holds an undisguised copy (and no disguised one) already sees everything; a record would only be
+    -- LOWER than what the player sees, so nothing is written (no record, history, audit or revision)
+    skip_plain := p_mode = 'raise'
+      and exists (select 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+                  where inv.character_id = cid and ii.item_id = p_item
+                    and not exists (select 1 from public.inventory_item_knowledge k where k.inventory_item_id = ii.id))
+      and not exists (select 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+                      join public.inventory_item_knowledge k on k.inventory_item_id = ii.id
+                      where inv.character_id = cid and ii.item_id = p_item);
+    if skip_plain then
+      null;
+    elsif p_mode = 'raise' then
       -- never lowers: skipped when the character already knows at least this much
       if not (coalesce(ck.state = 'identified', false)
               or (not is_full and (cardinality(rev) = 0 or coalesce(ck.character_id is not null and rev <@ ck.revealed, false)))) then
@@ -178,7 +215,8 @@ begin
     select owner_id into owner_uid from public.characters where id = cid;
     out := out || jsonb_build_array(jsonb_build_object('character_id', cid, 'changed', changed,
       'state', coalesce(ck.state, 'unidentified'), 'revealed', to_jsonb(coalesce(ck.revealed, '{}'::text[])),
-      'warning', case when it.owner_id is not distinct from owner_uid and coalesce(ck.state, 'unidentified') <> 'identified'
+      'skipped', case when skip_plain then 'holds an undisguised copy' end,
+      'warning', case when not skip_plain and it.owner_id is not distinct from owner_uid and coalesce(ck.state, 'unidentified') <> 'identified'
                       then 'The player created this item and can still look it up in the catalog' end));
   end loop;
   return jsonb_build_object('item_id', p_item, 'mode', p_mode, 'changed', n, 'results', out);
@@ -198,6 +236,7 @@ begin
   select * into it from public.items where id = p_item;
   if it.id is null then raise exception 'Item not found' using errcode = 'P0002'; end if;
   if it.campaign_id is not null and it.campaign_id <> p_campaign then raise exception 'The item belongs to another campaign' using errcode = '22023'; end if;
+  if not public._ik_item_in_campaign(p_item, p_campaign) then raise exception 'Item not found' using errcode = 'P0002'; end if;
   select * into d from public._item_decoy(p_item);
   return jsonb_build_object(
     'item', jsonb_build_object('id', it.id, 'name', it.name, 'kind_id', it.kind_id, 'official', it.owner_id is null, 'secret', it.secret,
@@ -209,7 +248,7 @@ begin
         'record', (select jsonb_build_object('state', ck.state, 'revealed', to_jsonb(ck.revealed), 'updated_at', ck.updated_at,
                      'updated_by', (select coalesce(p.display_name, 'someone') from public.profiles p where p.id = ck.updated_by))
                    from public.character_item_knowledge ck where ck.character_id = c.id and ck.item_id = it.id),
-        'rows', r.n_rows, 'quantity', r.qty, 'plain_rows', r.n_plain, 'disguised_rows', r.n_disg,
+        'rows', r.n_rows, 'quantity', r.qty, 'plain_rows', r.n_plain, 'disguised_rows', r.n_disg, 'equipped_rows', r.n_eq,
         'shown_names', to_jsonb(r.names),
         'effective', case
           when r.n_plain > 0 then jsonb_build_object('state', 'identified', 'revealed', '[]'::jsonb, 'source', 'undisguised_copy')
@@ -227,6 +266,7 @@ begin
         select count(ii.id)::int as n_rows, coalesce(sum(ii.quantity), 0)::int as qty,
                count(ii.id) filter (where k.inventory_item_id is null)::int as n_plain,
                count(ii.id) filter (where k.inventory_item_id is not null)::int as n_disg,
+               count(ii.id) filter (where exists (select 1 from public.character_equipment e where e.inventory_item_id = ii.id))::int as n_eq,
                coalesce(array_agg(distinct coalesce(nullif(ii.custom_name, ''), ii.name)) filter (where ii.id is not null), '{}') as names,
                (array_agg(k.state order by public._ik_rank(k.state, k.revealed), ii.id) filter (where k.inventory_item_id is not null))[1] as low_state,
                (array_agg(array_to_string(k.revealed, chr(31)) order by public._ik_rank(k.state, k.revealed), ii.id) filter (where k.inventory_item_id is not null))[1] as low_rev_txt,
@@ -234,7 +274,7 @@ begin
         from public.inventories inv join public.inventory_items ii on ii.inventory_id = inv.id
         left join public.inventory_item_knowledge k on k.inventory_item_id = ii.id
         where inv.character_id = c.id and ii.item_id = it.id) r0
-      cross join lateral (select r0.n_rows, r0.qty, r0.n_plain, r0.n_disg, r0.names, r0.low_state,
+      cross join lateral (select r0.n_rows, r0.qty, r0.n_plain, r0.n_disg, r0.n_eq, r0.names, r0.low_state,
                                  coalesce(string_to_array(nullif(r0.low_rev_txt, ''), chr(31)), '{}') as low_revealed) r
       where c.campaign_id = p_campaign) x),
     'stash', (select coalesce(jsonb_agg(jsonb_build_object('inventory_id', inv.id, 'inventory_kind', inv.kind, 'inventory_name', inv.name,
@@ -284,8 +324,24 @@ begin
         where ii.item_id is not null and coalesce(inv.campaign_id, c.campaign_id) = p_campaign
       union select i2.id from public.items i2 where i2.campaign_id = p_campaign and i2.owner_id is not null and i2.archived_at is null
       union select ck.item_id from public.character_item_knowledge ck join public.characters c on c.id = ck.character_id where c.campaign_id = p_campaign)
+      -- another user's personal homebrew only while a copy is held here (a record alone does not open it; same rule as the overview)
+      and public._ik_item_in_campaign(it.id, p_campaign)
     order by 3 desc, 2, 1
     limit 500) z);
+end $$;
+
+-- the number of examine requests waiting for the DM (the Hidden tab's badge; the full list is get_campaign_identify_attempts)
+create function public.get_campaign_pending_examine_count(p_campaign uuid)
+returns int
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if auth.uid() is null or p_campaign is null or not (public.is_admin() or public.is_campaign_dm(p_campaign)) then
+    raise exception 'Only a DM of the campaign can see examine attempts' using errcode = '42501';
+  end if;
+  return (select count(*)::int from public.item_identify_attempts x join public.characters c on c.id = x.character_id
+          where c.campaign_id = p_campaign and x.status = 'pending');
 end $$;
 
 -- ---- 5. backfill: unambiguous row knowledge of character rows -> missing records --------------------------------------------
@@ -341,10 +397,10 @@ end $$;
 
 -- ---- 6. grants --------------------------------------------------------------------------------------------------------------
 revoke all on function public._item_knowledge_log(), public._ik_fingerprint(uuid, text), public._ik_rank(text, text[]),
-  public._item_knowledge_backfill() from public, anon, authenticated;
+  public._ik_item_in_campaign(text, uuid), public._item_knowledge_backfill() from public, anon, authenticated;
 revoke all on function public.dm_set_item_knowledge(text, uuid[], text[], text, uuid), public.get_item_knowledge_overview(text, uuid),
-  public.get_campaign_knowledge_items(uuid) from public, anon;
+  public.get_campaign_knowledge_items(uuid), public.get_campaign_pending_examine_count(uuid) from public, anon;
 grant execute on function public.dm_set_item_knowledge(text, uuid[], text[], text, uuid), public.get_item_knowledge_overview(text, uuid),
-  public.get_campaign_knowledge_items(uuid) to authenticated, service_role;
+  public.get_campaign_knowledge_items(uuid), public.get_campaign_pending_examine_count(uuid) to authenticated, service_role;
 
 notify pgrst, 'reload schema';
