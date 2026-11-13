@@ -601,12 +601,13 @@ async function hidden(panel, alive) {
             <div class="multi-opts">${keys.map((k) => `<label class="check-field"><input type="checkbox" data-k-rev value="${esc(k)}" ${(it.revealed || []).includes(k) ? 'checked' : ''}><span>Reveal ${esc((secret.properties || []).find((x) => x.key === k)?.label || k)}</span></label>`).join('')}</div>
             <button type="button" class="btn btn-sm btn-gold" data-h="knowledge">Save what the player knows</button>
             ${identifySummaryHTML(it.identify)}
-            <div class="dm-action-row">${it.identify?.secrets_editable ? `<button type="button" class="btn btn-xs" data-h="identify-opts" data-item="${esc(it.item_id)}" data-name="${esc(it.true_name)}">Identification settings…</button>` : ''}
+            <div class="dm-action-row">${it.identify?.content_id ? `<button type="button" class="btn btn-xs" data-h="identify-content" data-content="${esc(it.identify.content_id)}" title="DM Content: its identification is set in the Content editor">Identification settings (Content)…</button>`
+              : it.identify?.secrets_editable ? `<button type="button" class="btn btn-xs" data-h="identify-opts" data-item="${esc(it.item_id)}" data-name="${esc(it.true_name)}">Identification settings…</button>` : ''}
               ${it.item_id ? `<button type="button" class="btn btn-xs" data-h="reveal-all" data-item="${esc(it.item_id)}" data-name="${esc(it.true_name)}">Reveal to every character</button>` : ''}</div></div>`;
         }).join('') : '<p class="muted">No unidentified or partly identified items. Assign an item as unidentified from Assign, or give one below.</p>'}
       </section>
       <section class="card dm-card dm-wide"><h2>Give a campaign item unidentified</h2>
-        ${custom.length ? `<p class="muted small">Custom items of this campaign (DM Content and campaign homebrew, e.g. herbs). ${esc(name)} gets the disguise; set the decoy and the Examine check in Identification settings.</p>
+        ${custom.length ? `<p class="muted small">Custom items of this campaign (DM Content and campaign homebrew, e.g. herbs). ${esc(name)} gets the disguise; set the decoy and the Examine check in Identification settings (for DM Content they open the Content editor: one place for its settings).</p>
         <div class="inv-form-row" data-give>
           <select data-give-item aria-label="Item">${custom.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.secrets?.identify_dc ? ` (DC ${esc(String(x.secrets.identify_dc))})` : x.secrets?.unidentified_name ? ' (disguised)' : ''}</option>`).join('')}</select>
           <input type="number" data-give-qty min="1" max="999" value="1" aria-label="Quantity" style="width:5em">
@@ -628,9 +629,16 @@ async function hidden(panel, alive) {
         const box = b.closest('[data-ii]');
         await dm.setItemKnowledge(box.dataset.ii, $('[data-k-state]', box).value, $$('[data-k-rev]:checked', box).map((x) => x.value));
       }
-      if (b.dataset.h === 'identify-opts' || b.dataset.h === 'give-opts') {
+      if (b.dataset.h === 'identify-opts' || b.dataset.h === 'give-opts' || b.dataset.h === 'identify-content') {
         const id = b.dataset.item || $('[data-give-item]', panel).value;
         const item = custom.find((x) => x.id === id);
+        // DM Content: ONE source of truth, the content definition (the server refuses the direct dialog for it)
+        const contentId = b.dataset.content || (b.dataset.h === 'give-opts' ? item?.content_id : null);
+        if (contentId) {
+          await openContentEditor({ content: { id: contentId }, campaignId, focus: 'identify', onChanged: () => show('hidden'),
+            onAssign: (c) => { assignPreset = { contentId: c.id }; show('assign'); } });
+          return;
+        }
         const own = h.item_secrets.find((x) => x.item_id === id);
         await identifyOptionsDialog(id, b.dataset.name || item?.name || '', item?.secrets || own || null);
         return;

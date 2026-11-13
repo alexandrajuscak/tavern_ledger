@@ -92,7 +92,11 @@ export async function getCampaignCustomItems(campaignId) {
   const secrets = ids.length ? await supabase.from('item_secrets').select('*').in('item_id', ids) : { data: [] };
   if (secrets.error) throw new DmError(friendlyError(secrets.error), secrets.error);
   const by = new Map((secrets.data || []).map((x) => [x.item_id, x]));
-  return data.map((x) => ({ ...x, secrets: by.get(x.id) || null }));
+  // DM Content keeps its identification options in the content definition (edited in the Content editor, 20261112000300)
+  const versions = ids.length ? await supabase.from('dm_content_versions').select('content_id, catalog_ref').in('catalog_ref', ids) : { data: [] };
+  if (versions.error) throw new DmError(friendlyError(versions.error), versions.error);
+  const content = new Map((versions.data || []).map((x) => [x.catalog_ref, x.content_id]));
+  return data.map((x) => ({ ...x, secrets: by.get(x.id) || null, content_id: content.get(x.id) || null }));
 }
 export const exportDmBackup = (campaignId) => rpc('export_campaign_dm_backup', { p_campaign: campaignId });
 

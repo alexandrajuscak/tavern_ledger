@@ -168,6 +168,54 @@ def run(t):
             ok = P.wait(lambda: TRUE in pp.locator("#panel-inventory").inner_text(), 15000)
         check("H10 ?fluent=0: the identified herb shows on the legacy read path", ok)
 
+        # ---- the second player on ?fluent=0: an UNidentified row shows the decoy, never the truth
+        P2 = Sheet(br, pl2, tab="inventory")
+        p2 = P2.page
+        p2.goto(f"{APP}?fluent=0#/c/{ch2}")
+        P2.wait(lambda: p2.locator(".tab").count() > 0)
+        if DECOY not in p2.locator("#panel-inventory").inner_text():
+            p2.locator('.tab[data-tab="inventory"]').click()
+        ok = P2.wait(lambda: DECOY in p2.locator("#panel-inventory").inner_text(), 15000)
+        check("H11 ?fluent=0: the second player's unidentified herb shows the decoy, and the page never holds the truth",
+              ok and not any(s in p2.content() for s in SECRETS), p2.locator("#panel-inventory").inner_text()[:300])
+        P2.ctx.close()
+
+        # ---- DM Content: one source of truth (the Content editor); the DM Space button opens it; a republish keeps the options
+        st, cc = dm.rpc("create_dm_content", p_type="item", p_campaign=camp, p_request_id=str(uuid.uuid4()), p_fields={
+            "name": f"Ghostcap {RUN}", "summary": "A pale mushroom.", "definition": {
+                "item": {"kind_id": "herbs_plants", "category_id": "plant-fungus", "stackable": True},
+                "hidden": {"unidentified_name": "Pale mushroom", "identify_dc": 12, "identify_checks": ["nature", "herbalism-kit"],
+                           "identify_reveal": ["name", "description"], "identify_auto": True, "identify_retry": "per_long_rest",
+                           "fail_hint": "Probably edible.", "show_kind": False}}})
+        assert st == 200, (st, cc)
+        st, pub = dm.rpc("publish_dm_content", p_content=cc["id"])
+        assert st == 200, (st, pub)
+        ref1 = q(f"select v.catalog_ref from public.dm_content c join public.dm_content_versions v on v.id = c.published_version_id where c.id = '{cc['id']}'")
+        cols = ("concat_ws('|', identify_dc, identify_checks::text, identify_reveal::text, identify_auto, identify_retry, fail_hint, "
+                "coalesce(face_kind_id, '-'), unidentified_name)")
+        before = q(f"select {cols} from public.item_secrets where item_id = '{ref1}'")
+        st, direct = dm.rpc("set_item_identify_options", p_item=ref1, p_options={"identify_dc": 5})
+        dp.goto(APP + "#/dm/overview")
+        dp.goto(APP + "#/dm/hidden")
+        D.wait(lambda: dp.locator("[data-give-item]").count() == 1)
+        dp.select_option("[data-give-item]", ref1)
+        dp.locator('[data-h="give-opts"]').click()
+        ok = D.wait(lambda: dp.locator('.modal [data-ce-section="identify"]').count() == 1 and dp.locator(".modal [data-ce-focus-hint]").count() == 1)
+        check("H12 DM Content: the direct option RPC is refused; DM Space opens the Content editor at Identification (with the New version hint)",
+              st >= 400 and ok and dp.locator(".modal [data-o-save]").count() == 0, (st, direct))
+        dp.locator('.modal [data-ce-act="newversion"]').click()
+        D.wait(lambda: dp.locator('.modal [data-ce-act="publish"]').count() == 1)
+        dp.locator('.modal [data-ce-act="publish"]').click()
+        dp.locator(".modal [data-ok]").last.click()
+        D.wait(lambda: q(f"select count(*) from public.dm_content_versions where content_id = '{cc['id']}' and status = 'published'") == "1"
+               and q(f"select v.catalog_ref from public.dm_content c join public.dm_content_versions v on v.id = c.published_version_id where c.id = '{cc['id']}'") != ref1)
+        ref2 = q(f"select v.catalog_ref from public.dm_content c join public.dm_content_versions v on v.id = c.published_version_id where c.id = '{cc['id']}'")
+        after2 = q(f"select {cols} from public.item_secrets where item_id = '{ref2}'")
+        after1 = q(f"select {cols} from public.item_secrets where item_id = '{ref1}'")
+        check("H13 the editor round trip: New version + Publish without touching the form keeps every identification option (and the decoy)",
+              ref2 != ref1 and after2 == before and after1 == before, (before, after2, after1))
+        dp.keyboard.press("Escape")
+
         errs = [e for e in P.errors + D.errors if "Failed to load resource" not in e]
         check("Z1 no console errors", not errs, errs[:5])
         check("Z2 no request left this machine", not P.remote and not D.remote, (P.remote + D.remote)[:3])

@@ -120,7 +120,7 @@ function schemaFor(type, ref) {
         ['definition.hidden.unidentified_description', 'Description while unidentified', 'area'], ['definition.hidden.curse', 'Curse (stays secret until you reveal it)', 'area'],
         ['definition.hidden.properties', 'Secret properties (reveal them one by one)', 'rows', { row: [['key', 'Key', 'text'], ['label', 'Name', 'text'], ['text', 'What it does', 'text']] }]] },
       // 20261112000300: players can Examine an unidentified copy with the total of their roll; you confirm unless automatic
-      { title: 'Identification by players (DM only)', dm: true, fields: [['definition.hidden.identify_dc', 'Examine DC (empty: players cannot examine it)', 'num'],
+      { title: 'Identification by players (DM only)', dm: true, key: 'identify', fields: [['definition.hidden.identify_dc', 'Examine DC (empty: players cannot examine it)', 'num'],
         ['definition.hidden.identify_checks', 'Checks that can identify it (none ticked: any check)', 'multi', { options: [...ref.skills.map((x) => [x.id, x.name]), ...ref.tools.map((x) => [x.id, x.name])] }],
         ['definition.hidden.identify_reveal', 'A success reveals (nothing ticked: everything)', 'multi', { options: [['all', 'Everything (identified)'], ['name', 'The true name'], ['description', 'The description'],
           ['details', 'Herb / potion details'], ['magic', 'That it is magical'], ['rarity', 'Rarity'], ['attunement', 'Attunement'], ['curse', 'The curse']] }],
@@ -301,6 +301,9 @@ function readForm(form, type, base) {
 function formModel(type, v) {
   const m = { name: v.name, summary: v.summary, player_text: v.player_text, dm_notes: v.dm_notes, ruleset: v.ruleset || '2024', definition: structuredClone(v.definition || {}) };
   const d = m.definition;
+  if (type === 'item' && d.hidden && d.hidden.kind_face == null && typeof d.hidden.show_kind === 'boolean') {
+    d.hidden.kind_face = d.hidden.show_kind ? 'show' : 'hide';   // the editor has no show_kind field: keep its meaning on save
+  }
   if (type === 'feat') {
     const asi = (d.choices || []).find((c) => c.key === 'asi');
     if (asi) m.asi = { from: asi.config?.from, amount: asi.config?.amount, max: asi.config?.max };
@@ -535,7 +538,7 @@ function askName(name, { what = 'item', detail = 'Nothing uses this item yet. De
 }
 
 /** Open the editor of one content item (or create a new one: content = {content_type, campaign_id}). */
-export async function openContentEditor({ content, campaignId, onChanged, onAssign }) {
+export async function openContentEditor({ content, campaignId, onChanged, onAssign, focus = null }) {
   const ref = await dm.getEditorReference();
   let c = content?.id ? await dm.getContent(content.id) : null;
   const type = c?.content_type || content.content_type;
@@ -563,7 +566,7 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
       ${(v.validation?.warnings || []).length ? `<div class="gov-banner"><ul>${v.validation.warnings.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>` : ''}
       <form class="ce-form" data-ce-form ${editable() ? '' : 'inert'}>
         <label class="field"><span>Name</span><input name="name" required maxlength="80" value="${esc(model.name || '')}"></label>
-        ${schemaFor(type, ref).map((sec) => `<fieldset class="ce-section ${sec.dm ? 'dm-only-field' : ''}" ${sec.for ? `data-ce-for="${esc(sec.for)}"` : ''}><legend>${esc(sec.title)}</legend>
+        ${schemaFor(type, ref).map((sec) => `<fieldset class="ce-section ${sec.dm ? 'dm-only-field' : ''}" ${sec.for ? `data-ce-for="${esc(sec.for)}"` : ''} ${sec.key ? `data-ce-section="${esc(sec.key)}"` : ''}><legend>${esc(sec.title)}</legend>
           <div class="ce-grid">${sec.fields.map((f) => fieldHTML(f, model)).join('')}</div></fieldset>`).join('')}
       </form>
       <section class="ce-preview" data-ce-preview hidden aria-live="polite"></section>`;
@@ -585,6 +588,12 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
       <button type="button" class="btn btn-ghost" data-close>Close</button>`;
     $$('.multi-opts[data-max]', m.el).forEach(limitMulti);
     showTypeSections();
+    // opened from DM Space for one section (e.g. 'identify'): show it, and how to change a published version
+    const sec = focus && $(`[data-ce-section="${focus}"]`, m.el);
+    if (sec) {
+      if (!editable()) sec.insertAdjacentHTML('beforebegin', '<p class="gov-banner small" data-ce-focus-hint>To change how players identify it: “New version”, change “Identification by players”, then “Publish to campaign”. Copies players already hold follow the published settings.</p>');
+      sec.scrollIntoView({ block: 'start' });
+    }
   }
   // item: only the stats section of the chosen type (Weapon, Armor, Ammunition) is shown, and only it is sent (readForm)
   function showTypeSections() {
