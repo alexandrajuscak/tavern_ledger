@@ -712,14 +712,17 @@ function hideWarning(ov, ids, level) {
   const target = reveal.includes('all') ? 3 : rankOf('partially_identified', reveal);
   const lowered = ov.characters.filter((c) => ids.includes(c.character_id) && rankOf(c.effective?.state, c.effective?.revealed) > target);
   if (!lowered.length) return null;
-  const others = ov.characters.filter((c) => !ids.includes(c.character_id) && c.plain_rows > 0);
-  const stash = (ov.stash || []).filter((s) => !s.disguised);
+  // who still sees the real item: an undisguised copy, or copies whose knowledge is 'identified' (a stash row keeps the knowledge
+  // it had when it was deposited; state 'identified' covers both cases, the overview reports a plain row as identified)
+  const others = ov.characters.filter((c) => !ids.includes(c.character_id)
+    && (c.plain_rows > 0 || (c.effective?.source === 'rows' && c.effective?.state === 'identified')));
+  const stash = (ov.stash || []).filter((s) => s.state === 'identified');
   const equipped = lowered.filter((c) => c.equipped_rows > 0);
   if (it.secret && !others.length && !stash.length && !equipped.length) return null;
   const out = [`Hide “${it.name}” from ${namesOf(lowered)}? ${level === 'none' ? `They will see only “${it.decoy_name}”.`
     : `They will know only: ${LEVELS.find(([k]) => k === level)[1].toLowerCase()}.`}`];
-  if (others.length) out.push(`${namesOf(others)} still ${others.length > 1 ? 'hold' : 'holds'} an undisguised copy and will still see the real item; their players keep it in the “Add item” catalog.`);
-  if (stash.length) out.push(`The ${[...new Set(stash.map((s) => s.inventory_name || s.inventory_kind))].join(', ')} still ${stash.length > 1 ? 'hold' : 'holds'} an undisguised copy: every party member will still see the real item there, and it stays in their “Add item” catalog.`);
+  if (others.length) out.push(`${namesOf(others)} still ${others.length > 1 ? 'hold' : 'holds'} a copy that shows the real item and will still see it; their players keep it in the “Add item” catalog.`);
+  if (stash.length) out.push(`${[...new Set(stash.map((s) => s.inventory_name || s.inventory_kind))].join(', ')} still ${stash.length > 1 ? 'hold' : 'holds'} a copy that shows the real item: every party member will still see it there, and it stays in their “Add item” catalog.`);
   if (!others.length && !stash.length && !it.secret) out.push('The item leaves the players’ “Add item” catalog in this campaign.');
   if (equipped.length) out.push(`${namesOf(equipped)} ${equipped.length > 1 ? 'have' : 'has'} it equipped: on the player’s sheet it stops counting until you reveal it again (armour falls back to unarmoured AC); your DM view still shows the full numbers.`);
   return out.join('\n');

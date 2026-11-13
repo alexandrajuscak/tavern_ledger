@@ -171,6 +171,10 @@ def run(t):
             "name": plain, "kind_id": "herbs_plants", "category_id": "plant-flower", "campaign_id": camp, "stackable": True,
             "description": "Bright."}, p_stats={})
         st2, _ = dm.rpc("dm_give_item", p_item=hb2["id"], p_characters=[cha, chb], p_quantity=1, p_identified=True)
+        # a party stash copy that was identified before it was deposited (keeps its 'identified' knowledge row, B6)
+        q(f"with s as (insert into public.inventories (kind, campaign_id, name) values ('party_stash', '{camp}', 'IR Stash {RUN}') returning id),"
+          f" r as (insert into public.inventory_items (inventory_id, item_id, quantity, name, description) select s.id, '{hb2['id']}', 1, '{plain}', 'Bright.' from s returning id)"
+          f" insert into public.inventory_item_knowledge (inventory_item_id, state, revealed, true_name) select r.id, 'identified', '{{}}', '{plain}' from r;")
         dp.goto(APP + "#/dm/hidden")
         D.wait(lambda: dp.locator(f'[data-rv-item] option[value="{hb2["id"]}"]').count() == 1)
         dp.select_option("[data-rv-item]", hb2["id"])
@@ -182,9 +186,12 @@ def run(t):
         dp.locator(".modal [data-close]").first.click()
         dp.wait_for_timeout(800)
         st3, rows_a2 = call("GET", f"/rest/v1/v_inventory_detail?character_id=eq.{cha}&item_id=eq.{hb2['id']}&select=name", token=pa.jwt, key=ANON)
-        check("R17 Hide confirm names who still sees the real item (B holds an undisguised copy); Cancel changes nothing",
-              st == 200 and st2 == 200 and f"IR Beta {RUN}" in ct and "still holds an undisguised copy" in ct
+        check("R17 Hide confirm names who still sees the real item (B's undisguised copy, the identified stash copy); Cancel changes nothing",
+              st == 200 and st2 == 200 and f"IR Beta {RUN} still holds a copy that shows the real item" in ct
+              and f"IR Stash {RUN} still holds a copy that shows the real item" in ct
               and "leaves the players" not in ct and st3 == 200 and rows_a2 and rows_a2[0]["name"] == plain, ct[:400])
+        # the test's own stash (its row of a synthetic item would block the isolation cleanup of the item)
+        q(f"delete from public.inventories where kind = 'party_stash' and campaign_id = '{camp}' and name = 'IR Stash {RUN}';")
 
         # ---- legacy path for B
         bp.goto(f"{APP}?fluent=0#/c/{chb}")

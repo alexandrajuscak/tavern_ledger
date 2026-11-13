@@ -173,8 +173,8 @@ as "custom" and is kept.
 - `get_item_knowledge_overview(item, campaign)` and `get_campaign_knowledge_items(campaign)`: DM-only reads. Another user's
   personal homebrew (no campaign) is reachable through these and `dm_set_item_knowledge` only while a copy is held in the
   campaign; otherwise they answer "Item not found" (`P0002`), exactly as for an unknown id.
-- Before "Set" / "Hide" takes knowledge away, DM Space says who will still see the real item (other characters' undisguised
-  copies, an undisguised party stash copy) and warns when a chosen character has the item equipped: the player's sheet stops
+- Before "Set" / "Hide" takes knowledge away, DM Space says who will still see the real item (other characters whose copies
+  show it, a party stash / shop copy that shows it: undisguised, or identified before it was deposited) and warns when a chosen character has the item equipped: the player's sheet stops
   counting it (equipped armour falls back to unarmoured AC; derived stats read the catalog row as the player), while the DM's
   view keeps the full numbers.
 - `item_knowledge_events`: append-only history of every record change, from every path (examine, DM answer, reveal, set,
