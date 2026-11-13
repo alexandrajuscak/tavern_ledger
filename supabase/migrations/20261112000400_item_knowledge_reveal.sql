@@ -21,12 +21,12 @@
 -- =============================================================================
 
 -- ---- 1. history ------------------------------------------------------------------------------------------------------------
--- no foreign keys: the history outlives the record (a deleted character / item keeps its audit trail; deletes are not logged)
+-- it lives and goes with the record: a deleted character or item takes its history along (deletes are not logged)
 create table public.item_knowledge_events (
   id           bigint generated always as identity primary key,
   campaign_id  uuid,
-  character_id uuid not null,
-  item_id      text not null,
+  character_id uuid not null references public.characters (id) on delete cascade,
+  item_id      text not null references public.items (id) on delete cascade,
   old_state    text,
   old_revealed text[],
   new_state    text not null,
@@ -36,6 +36,7 @@ create table public.item_knowledge_events (
 );
 create index item_knowledge_events_item on public.item_knowledge_events (item_id, created_at desc);
 create index item_knowledge_events_campaign on public.item_knowledge_events (campaign_id, created_at desc);
+create index item_knowledge_events_character on public.item_knowledge_events (character_id);
 alter table public.item_knowledge_events enable row level security;
 revoke all on public.item_knowledge_events from anon, authenticated;
 -- the coverage rule of the cache (progressive_read_tests): a table with character_id carries bump('character'). Free here: a
