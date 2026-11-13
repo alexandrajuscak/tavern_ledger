@@ -1,15 +1,15 @@
 // Inventory tab: summary, equipment slots, item list, item detail and the catalog picker.
 // All data comes from inventory-api.js; after every change the authoritative state is re-read from the server
 // (no client-side simulation of splits, merges or quantities).
-import * as api from './inventory-api.js?v=30';
-import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=30';
-import { openHomebrewForm } from './homebrew-form.js?v=30';
-import { galleryIcon } from './item-icon-gallery.js?v=30';
-import { isAnyDM } from './store.js?v=30';
-import { icon, ITEM_ICONS } from './icons.js?v=30';
-import { sectionHead } from './section.js?v=30';
-import { CRAFTING } from './config.js?v=30';
-import { customIconUrl } from './custom-icons.js?v=30';
+import * as api from './inventory-api.js?v=31';
+import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=31';
+import { openHomebrewForm } from './homebrew-form.js?v=31';
+import { galleryIcon } from './item-icon-gallery.js?v=31';
+import { isAnyDM } from './store.js?v=31';
+import { icon, ITEM_ICONS } from './icons.js?v=31';
+import { sectionHead } from './section.js?v=31';
+import { CRAFTING } from './config.js?v=31';
+import { customIconUrl } from './custom-icons.js?v=31';
 
 const CATEGORIES = [
   ['all', 'All', () => true],
@@ -227,7 +227,7 @@ export function mountInventory(el, opts) {
   function attachCrafting() {
     if (!craftingAllowed()) return;
     if (crafting) { crafting.attach($('[data-crafting-slot]', el)); return; }
-    craftingLoad ||= import('./crafting.js?v=30').then((m) => {
+    craftingLoad ||= import('./crafting.js?v=31').then((m) => {
       if (s.destroyed) return;
       crafting = m.createPlayerCrafting({ characterId: opts.characterId, onInventoryChanged: () => scheduleRefresh() });
       if (craftingAllowed()) crafting.attach($('[data-crafting-slot]', el));

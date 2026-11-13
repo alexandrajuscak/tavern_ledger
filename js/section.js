@@ -1,8 +1,8 @@
 // Page sections (docs/UI_COMPONENTS.md "Section"): one pattern for the major groups of a sheet section.
 // Level 1 surface, h2 title with a decorative icon (the title carries the meaning), optional short description, count and
 // one contextual action. Nested groups inside use h3 (sectionHead({ level: 3 })).
-import { esc } from './utils.js?v=30';
-import { icon } from './icons.js?v=30';
+import { esc } from './utils.js?v=31';
+import { icon } from './icons.js?v=31';
 
 /**
  * Section header. title and desc are trusted HTML fragments built by the caller; count is a number or short text.
