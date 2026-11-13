@@ -1,8 +1,8 @@
 // Class levels, spell slots, Pact Magic, resources and rests (migration 20261015001700). The rules (total level, proficiency
 // bonus, effective caster level, slot maximums, limits) live in the database; this module only moves data.
-import { supabase } from './supabase.js?v=27';
-import { awaitSeed, onUserCachesCleared } from './read-layer.js?v=27';
-import { friendlyError } from './utils.js?v=27';
+import { supabase } from './supabase.js?v=28';
+import { awaitSeed, onUserCachesCleared } from './read-layer.js?v=28';
+import { friendlyError } from './utils.js?v=28';
 
 export class ClassError extends Error {
   constructor(message, raw) { super(message); this.raw = raw; this.needsConfirm = raw?.hint === 'confirm_required'; }

@@ -2,13 +2,13 @@
 // type, the lifecycle actions (save draft, validate, preview, publish, new version, archive, restore, duplicate, delete) and a
 // preview of what players will see. The definition is validated and materialized by the database (_dm_try / _dm_materialize).
 
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=27';
-import * as dm from './dm-api.js?v=27';
-import { icon } from './icons.js?v=27';
-import { spellIconHTML } from './spell-icons.js?v=27';
-import { iconPickerHTML } from './item-icon-gallery.js?v=27';
-import { supabase } from './supabase.js?v=27';
-import { CONTENT_MANAGEMENT } from './config.js?v=27';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=28';
+import * as dm from './dm-api.js?v=28';
+import { icon } from './icons.js?v=28';
+import { spellIconHTML } from './spell-icons.js?v=28';
+import { iconPickerHTML } from './item-icon-gallery.js?v=28';
+import { supabase } from './supabase.js?v=28';
+import { CONTENT_MANAGEMENT } from './config.js?v=28';
 
 /** The content management actions (usage report, delete any unused content, duplicate official) are behind js/config.js
  *  CONTENT_MANAGEMENT; 'off' keeps the earlier buttons. The database authorizes every action itself. */
@@ -369,6 +369,7 @@ const USAGE_LABEL = {
   condition_assignments: 'applied conditions', pending_requests: 'submitted change requests', other_content: 'published content refers to it',
   completed_encounter_snapshots: 'completed encounters (history that blocks delete)', audit_references: 'audit history entries', earlier_assignments: 'earlier assignments (history)',
   request_history: 'draft or outdated change requests (history)', other_content_history: 'archived or draft content mentions it (history)',
+  crafting_recipes: 'crafting recipes use it',
 };
 // history (20261112000100): kept and readable after a delete. Completed encounters are history too, but they still BLOCK the
 // delete (a creature in one stays archived), so they are listed under "In use (blocks delete)", not under "History (kept)".
@@ -413,6 +414,7 @@ const PLACE = {
     p.status === 'completed' ? 'The encounter history keeps its stat block, so it stays archived.' : 'Finish the encounter or remove the creature from it.',
     p.encounter_id && `#/combat/e/${p.encounter_id}`],
   other_content: (p) => [`${TYPE[p.content_type]?.label || p.content_type} “${p.content_name}” (published)`, 'Publish a new version without the reference, or archive that content.'],
+  crafting_recipe: (p) => [`Crafting recipe “${p.recipe_name}” (${p.recipe_status})`, 'Change the recipe to use another item (DM Space → Crafting).'],
 };
 function whereHTML(w) {
   const places = w?.places || [];

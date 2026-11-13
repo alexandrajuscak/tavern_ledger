@@ -1,13 +1,14 @@
 // Inventory tab: summary, equipment slots, item list, item detail and the catalog picker.
 // All data comes from inventory-api.js; after every change the authoritative state is re-read from the server
 // (no client-side simulation of splits, merges or quantities).
-import * as api from './inventory-api.js?v=27';
-import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=27';
-import { openHomebrewForm } from './homebrew-form.js?v=27';
-import { galleryIcon } from './item-icon-gallery.js?v=27';
-import { isAnyDM } from './store.js?v=27';
-import { icon, ITEM_ICONS } from './icons.js?v=27';
-import { sectionHead } from './section.js?v=27';
+import * as api from './inventory-api.js?v=28';
+import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=28';
+import { openHomebrewForm } from './homebrew-form.js?v=28';
+import { galleryIcon } from './item-icon-gallery.js?v=28';
+import { isAnyDM } from './store.js?v=28';
+import { icon, ITEM_ICONS } from './icons.js?v=28';
+import { sectionHead } from './section.js?v=28';
+import { CRAFTING } from './config.js?v=28';
 
 const CATEGORIES = [
   ['all', 'All', () => true],
@@ -199,6 +200,7 @@ export function mountInventory(el, opts) {
           if (s.destroyed) return;
           Object.assign(s, data, { status: 'ready', error: null });
           opts.onRows?.(s.rows);
+          crafting?.refresh();   // what the recipes can use follows the inventory
         } catch (raw) {
           if (s.destroyed) return;
           s.error = api.normalizeError(raw);
@@ -211,6 +213,21 @@ export function mountInventory(el, opts) {
     try { await s.refreshing; } finally { s.refreshing = null; }
   }
   const scheduleRefresh = debounce(() => { if (!s.destroyed) refresh(); }, 400);
+
+  // ---- crafting (docs/CRAFTING_V1.md): only with CRAFTING = 'on', for the character's owner, when the campaign rule allows it.
+  // js/crafting.js is imported on first use; with the shipped 'off' nothing is loaded and nothing is rendered.
+  let crafting = null;
+  let craftingLoad = null;
+  const craftingAllowed = () => (CRAFTING || 'off') === 'on' && !!opts.crafting?.allowed?.();
+  function attachCrafting() {
+    if (!craftingAllowed()) return;
+    if (crafting) { crafting.attach($('[data-crafting-slot]', el)); return; }
+    craftingLoad ||= import('./crafting.js?v=28').then((m) => {
+      if (s.destroyed) return;
+      crafting = m.createPlayerCrafting({ characterId: opts.characterId, onInventoryChanged: () => scheduleRefresh() });
+      if (craftingAllowed()) crafting.attach($('[data-crafting-slot]', el));
+    }).catch((err) => console.warn('[crafting]', err?.message || err));
+  }
 
   /** Run a mutation once per key (double-click safe), report errors, then re-read the server state. */
   async function act(key, fn, { refreshAfter = true } = {}) {
@@ -252,6 +269,7 @@ export function mountInventory(el, opts) {
             ${equipmentHTML()}
             ${attunementHTML()}
             ${quickUseHTML()}
+            ${craftingAllowed() ? '<div data-crafting-slot></div>' : ''}
             ${containersHTML()}
             ${legacyHTML()}
           </div>
@@ -259,6 +277,7 @@ export function mountInventory(el, opts) {
         </div>
       </div>`;
     assignFocusKeys();
+    attachCrafting();
     window.scrollTo(0, scrollKeep);
     // keep focus on the same control across re-renders; a modal closed meanwhile may be waiting to return focus here
     const pending = takePendingFocusKey();
@@ -1277,8 +1296,13 @@ export function mountInventory(el, opts) {
       const box = el.querySelector('.inv-summary');
       if (box && !s.destroyed && s.status === 'ready') box.outerHTML = summaryHTML();
     },
+    /** The crafting rule or the viewer changed (governance state): show or hide the Crafting panel. */
+    craftingChanged() { if ((CRAFTING || 'off') === 'on' && !s.destroyed && s.status === 'ready') render(); },
+    /** A crafting attempt or recipe changed (character revision): re-read the recipes if the panel is shown. */
+    refreshCrafting() { crafting?.refresh(); },
     destroy() {
       s.destroyed = true;
+      crafting?.destroy();
       el.removeEventListener('click', onClick);
       el.removeEventListener('toggle', onToggle, true);
     },

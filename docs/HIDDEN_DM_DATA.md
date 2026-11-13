@@ -191,3 +191,18 @@ idempotency, raise vs set, whole party, undo, hiding an undisguised copy, the DM
 personal item, raise on an undisguised holder, the NOWAIT locks, equipped armour after a hide, the examine count) and
 `browser/item_reveal_ui_test.py`. `scripts/fluent/item_visibility_snapshot.sql` is a read-only hash of what each character's
 owner and each user (every profile and campaign member) sees (run it before and after a deploy; the outputs must be identical).
+
+## Crafting (20261113000100)
+
+DM-only in crafting ([CRAFTING_V1.md](CRAFTING_V1.md)): a recipe's DC (`check_dc`), the DM's recipe notes (`dm_notes`), the
+critical-success and failure results, and an attempt's private DM note (`dm_private_note`). The four crafting tables have no
+grants for players. Their only reads are RPCs, and the player read (`get_character_recipes`, the attempt answers) never
+contains these fields.
+
+A secret item the character does not know is shown as the DM's label, never its name or id. Only rows the character fully
+knows (no knowledge row, or an identified one) count as ingredients. The player read is identical with or without an
+unidentified matching row, and any unidentified selected row gets one fixed refusal. A result made "unidentified" is inserted
+already disguised.
+
+Tests: `supabase/tests/classes/crafting_tests.sql` (CR9, CR10, CR12) and `browser/crafting_ui_test.py` (CF-13 to CF-16: REST /
+RPC bodies, websocket frames, DOM and storage of the player's page).

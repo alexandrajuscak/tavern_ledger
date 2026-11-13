@@ -1,9 +1,9 @@
 // Internal icon gallery for custom items (docs/CUSTOM_ITEM_ICONS.md). Only registered icons can be chosen: the database
 // stores the registry key (items.icon_key, checked by items_icon_key_check), never a URL, SVG or HTML. No uploads.
 // Resolution when shown: the item's own key -> its category default -> the generic icon (icons.js fallback chain).
-import { esc } from './utils.js?v=27';
-import { icon } from './icons.js?v=27';
-import { ICON_REGISTRY } from './icon-registry.js?v=27';
+import { esc } from './utils.js?v=28';
+import { icon } from './icons.js?v=28';
+import { ICON_REGISTRY } from './icon-registry.js?v=28';
 
 export const ITEM_ICON_GALLERY = [
   ['potion.generic', 'Potion'], ['potion.healing', 'Healing potion'], ['potion.mana', 'Blue potion'], ['potion.poison', 'Poison'],

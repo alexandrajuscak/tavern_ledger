@@ -76,7 +76,7 @@ the rules: `p_expected_revision`).
 
 ## Action catalog
 
-`governance_actions` (69 actions). Decisions per preset; *Most a player can get* caps any override; *Request* = whether a
+`governance_actions` (70 actions; `inventory.craft` since 20261113000100). Decisions per preset; *Most a player can get* caps any override; *Request* = whether a
 refused change can be sent as a request; *Lock class* decides which lock blocks it.
 
 **content**
@@ -159,6 +159,7 @@ refused change can be sent as a request; *Lock class* decides which lock blocks 
 | Equip and unequip | `inventory.equip` | player | player | player | player | yes | inventory_instance |
 | Attunement | `inventory.attune` | player | player | **approval** | player | yes | inventory_instance |
 | Item custom name and notes | `inventory.instance_notes` | player | player | player | player | yes | identity |
+| Crafting (docs/CRAFTING_V1.md) | `inventory.craft` | disabled | disabled | disabled | player | no | inventory_acquire |
 
 **runtime**
 

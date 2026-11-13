@@ -82,7 +82,7 @@ def run(t):
         B.wait(lambda: DECOY in inv_text(B), 15000)
         bp.evaluate("""async () => {
             window.__leak = []; window.__leakStatus = '';
-            const m = await import('./js/supabase.js?v=27');
+            const m = await import('./js/supabase.js?v=28');
             m.supabase.channel('leak-probe-all').on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_items' },
               (x) => window.__leak.push(JSON.stringify(x))).subscribe((s) => { window.__leakStatus = s; });
         }""")

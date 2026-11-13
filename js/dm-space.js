@@ -2,16 +2,20 @@
 // Approvals, Party, Content (custom content library + editors), Assign, Hidden, Rules (governance and content policy), Audit.
 // Visible only to campaign DMs and admins; every read and write is checked again by the database.
 
-import { supabase } from './supabase.js?v=27';
-import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=27';
-import * as dm from './dm-api.js?v=27';
-import * as gov from './governance-api.js?v=27';
-import { icon } from './icons.js?v=27';
-import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=27';
-import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=27';
+import { supabase } from './supabase.js?v=28';
+import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=28';
+import * as dm from './dm-api.js?v=28';
+import * as gov from './governance-api.js?v=28';
+import { icon } from './icons.js?v=28';
+import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=28';
+import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=28';
+import { CRAFTING } from './config.js?v=28';
 
+// Crafting (docs/CRAFTING_V1.md) only when js/config.js CRAFTING is not 'off'; its module is loaded on demand (never with 'off')
+const craftingOn = () => (CRAFTING || 'off') !== 'off';
 const SECTIONS = [['overview', 'Overview'], ['approvals', 'Approvals'], ['party', 'Party'], ['content', 'Content'], ['assign', 'Assign'],
-  ['hidden', 'Hidden'], ['rules', 'Campaign rules'], ['audit', 'Audit log']];
+  ['hidden', 'Hidden'], ...(craftingOn() ? [['crafting', 'Crafting']] : []), ['rules', 'Campaign rules'], ['audit', 'Audit log']];
+const craftingModule = () => import('./crafting.js?v=28');
 const CAT_LABEL = { identity: 'Character identity', core_build: 'Core build', feats_choices: 'Feats and choices', spells: 'Spells', inventory: 'Inventory',
   runtime: 'Gameplay', content: 'Content', dm_control: 'DM control' };
 const MODES = {
@@ -76,6 +80,28 @@ async function hiddenBadge() {
     const n = await dm.getPendingExamineCount(forCampaign);   // a count only: this runs on every DM Space realtime event
     if (forCampaign === campaignId) setHiddenBadge(Number(n) || 0);
   } catch { /* the badge is optional */ }
+  craftBadge();
+}
+
+// the number of crafting attempts waiting for the DM (only when Crafting is on)
+function setCraftBadge(n) {
+  const t = root && $('[data-dm-section="crafting"]', root);
+  if (t) t.innerHTML = `Crafting${n ? ` <span class="dm-count" data-craft-count title="Crafting attempts waiting for you">${n}</span>` : ''}`;
+}
+async function craftBadge() {
+  if (!craftingOn()) return;
+  const forCampaign = campaignId;
+  try {
+    const n = await (await craftingModule()).pendingCraftCount(forCampaign);
+    if (forCampaign === campaignId) setCraftBadge(Number(n) || 0);
+  } catch { /* the badge is optional */ }
+}
+
+// ---- crafting (docs/CRAFTING_V1.md) --------------------------------------------------------------------------------------------
+async function crafting(panel, alive) {
+  const m = await craftingModule();
+  if (!alive()) return;
+  await m.dmCraftingPanel(panel, alive, { campaignId, onCount: setCraftBadge, reload: () => { if (alive()) show('crafting'); } });
 }
 
 function frame() {
@@ -112,7 +138,7 @@ function show(sec) {
   old.replaceWith(panel);
   panel.innerHTML = '<div class="center-wrap"><div class="spinner"></div></div>';
   const my = ++seq;
-  const render = { overview, approvals, party, content, assign, hidden, rules, audit }[sec];
+  const render = { overview, approvals, party, content, assign, hidden, crafting, rules, audit }[sec];
   render(panel, () => my === seq && root).catch((err) => { if (my === seq && root) panel.innerHTML = `<p class="gov-error" role="alert">${esc(err.message)}</p>`; });
 }
 
@@ -878,6 +904,9 @@ async function rules(panel, alive) {
   if (!alive()) return;
   const RANK = { player_managed: 0, approval_required: 1, dm_only: 2, disabled: 3 };
   const choices = (a) => Object.keys(RANK).filter((d) => RANK[d] >= RANK[a.max_player] && (d !== 'approval_required' || a.can_request));
+  // the crafting rule is listed only when the Crafting feature is on (js/config.js): with 'off' this tab looks exactly as before
+  // (the save sends only the selects that changed, so a hidden row keeps its value)
+  if (!craftingOn()) g.actions = g.actions.filter((a) => a.key !== 'inventory.craft');
   const cats = [...new Set(g.actions.map((a) => a.category))];
   panel.innerHTML = `
     ${g.report ? `<div class="gov-banner">${esc(g.report.note)}</div>` : ''}${!g.configured ? '<div class="gov-banner">Not configured yet: the campaign behaves like “Relaxed”. Saving creates its rules.</div>' : ''}

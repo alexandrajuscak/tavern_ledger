@@ -205,7 +205,7 @@ Details: [CREATURE_DATA_MODEL.md](CREATURE_DATA_MODEL.md), [TRANSFORMATION_ENGIN
 <!-- 20261019 governance/feats/content -->
 ## Campaign governance, requests, feats, DM content, hidden data (migrations 20261019000100–000700)
 
-- **Governance** (`…0100`): `governance_actions` (69 actions with per-preset decisions, `max_player`, lock class),
+- **Governance** (`…0100`): `governance_actions` (70 actions since 20261113000100 added `inventory.craft`, with per-preset decisions, `max_player`, lock class),
   `campaign_governance` (preset, custom base, prerequisite / note / edit settings, content policy, revision),
   `campaign_policy_overrides`, `character_governance` (lock, setup), `governance_migration_report`,
   `campaign_audit_events`. Gate `_gov_gate` in 75 RPCs; direct-write triggers on `characters` and its child tables.

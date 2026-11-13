@@ -99,4 +99,6 @@ echo "== Performance release 2026-11: resource-only refresh, Home cards through 
 (cd supabase/tests/browser && "$PY" performance_release_ui_test.py) || RC=1
 echo "== Forgot password + email links: flag off / on, PKCE and token_hash reset links, expired links, magic link user switch"
 (cd supabase/tests/browser && "$PY" auth_reset_ui_test.py) || RC=1
+echo "== Crafting v1: flag off (no UI, no request), DM recipe + pending queue, player craft with a typed roll, DM approve with an edited roll, live inventory, leak checks"
+(cd supabase/tests/browser && "$PY" crafting_ui_test.py) || RC=1
 exit $RC

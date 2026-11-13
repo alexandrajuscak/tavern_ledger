@@ -1,4 +1,7 @@
-# Potion and herbal crafting: future design (not implemented)
+# Potion and herbal crafting: future design
+
+**Crafting v1 is implemented (behind flags, off by default): see [CRAFTING_V1.md](CRAFTING_V1.md).** The phases below are the
+original design notes; v1 covers phases 1 to 3 except tool proficiency checks and crafting time (a note only).
 
 This release only prepares the data: Herbs & Plants as a kind, potion metadata, and on **every** item optional
 `details.ingredient_tags`, `details.recipe_refs`, `details.preparation` (and `details.ingredients` on potions). No crafting
