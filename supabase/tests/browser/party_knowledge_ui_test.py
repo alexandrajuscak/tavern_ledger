@@ -9,6 +9,8 @@ metric_weapon_cards_ui_test.py).
    before A identified it.
 Usage: APP_URL=... python party_knowledge_ui_test.py   (run_browser_local.sh sets the environment)
 """
+import re
+import time
 import uuid
 
 from playwright.sync_api import sync_playwright
@@ -20,6 +22,8 @@ q = iso.psql
 HERB, HERB_DESC = f"Sunwort {RUN}", f"Hums at dawn {RUN}"
 GHOST, GHOST_DESC = f"Ghost Lily {RUN}", f"Whispers secrets {RUN}"
 MOSS = f"Moonmoss {RUN}"
+BARK = f"Silverbark {RUN}"
+GIFT = f"Gift Lantern {RUN}"
 
 
 def storage(page):
@@ -73,6 +77,10 @@ def run():
       f"insert into public.party_share_pending (campaign_id, target_character_id, item_id, state, revealed, source_character_id)"
       f" values ('{camp}', '{chb}', '{moss}', 'identified', '{{}}', '{cha}');")
     ia = inv(pa, cha)
+    # RA2b: a second herb A identifies while B's inventory read is held in flight (deterministic race)
+    bark = homebrew(dm, camp, BARK, "herbs_plants", "Shines", {"category_id": "plant-flower", "stackable": True})
+    assert dm.rpc("set_item_identify_options", p_item=bark, p_options={"unidentified_name": "Dull bark", "identify_dc": 10, "identify_auto": True})[0] == 200
+    assert dm.rpc("dm_give_item", p_item=bark, p_characters=[cha, chb], p_quantity=1, p_identified=False)[0] == 200
 
     with sync_playwright() as p:
         br = p.chromium.launch(channel="msedge", headless=True)
@@ -111,7 +119,69 @@ def run():
         check("RA3 REQUIRED the never-identified lily: no REST body, websocket frame, DOM, page source, storage or REST / RPC answer of B carries its truth",
               not leaks(everything, (GHOST, GHOST_DESC)) and cat == [] and "Pale flower" in bp.locator("#panel-inventory").inner_text(),
               leaks(everything, (GHOST, GHOST_DESC)))
+        # ---- RA2b deterministic race: B's next inventory read is answered with data from BEFORE A's identify; the identify
+        # commits (and its revision event reaches B) while that read is still in flight. The sheet must read again.
+        armed = {"on": True, "held": 0}
+
+        def hold_read(route):
+            body = route.request.post_data or ""
+            if not (armed["on"] and "inventory_bundle" in body):
+                route.continue_()
+                return
+            armed["on"] = False
+            resp = route.fetch()                       # executed now: the server answers with the pre-identify state
+            _, rows2 = call("GET", f"/rest/v1/inventory_items?inventory_id=eq.{ia}&item_id=eq.{bark}&select=id", token=pa.jwt)
+            armed["ex"] = pa.rpc("examine_inventory_item", p_inventory_item=rows2[0]["id"], p_check="nature", p_roll=15,
+                                 p_request=str(uuid.uuid4()))
+            time.sleep(1.5)                            # the revision event arrives while this read is still in flight
+            armed["held"] += 1
+            route.fulfill(response=resp)
+        bp.route("**/rest/v1/rpc/get_character_reads", hold_read)
+        q(f"insert into public.character_revisions (character_id, source_table) values ('{chb}', 'inventory_items');")   # starts a read
+        live2 = B.wait(lambda: BARK in bp.locator("#panel-inventory").inner_text(), timeout=15000)
+        bp.unroute("**/rest/v1/rpc/get_character_reads")
+        check("RA2b deterministic race: an identify that commits while B's inventory read is in flight still shows on B's sheet (read again)",
+              armed["held"] == 1 and armed.get("ex", (0,))[0] == 200 and live2,
+              (armed, bp.locator("#panel-inventory").inner_text()[:300]))
         B.close()
+
+        # ---- RA2c the Realtime gap (root cause of the intermittent RA2): 'SUBSCRIBED' comes before Realtime delivers postgres
+        # changes ("Subscribed to PostgreSQL", seconds later when Realtime is cold). A change committed in that gap is never
+        # delivered. Emulated deterministically: B's sheet channel gets no change frames until its "Subscribed to PostgreSQL"
+        # frame, which is held while the DM gives B an item. The sheet must catch up once changes are live.
+        B2 = Sheet(br, pb, tab="inventory")
+        b2 = B2.page
+        gap = {"hold": True, "held": None, "ws": None, "dropped": 0}
+
+        def ws_route(ws):
+            server = ws.connect_to_server()
+            gap["ws"] = ws
+
+            def from_server(msg):
+                m = msg if isinstance(msg, str) else str(msg)
+                if gap["hold"] and "realtime:sheet-" in m and "Subscribed to PostgreSQL" in m:
+                    gap["held"] = msg
+                    return
+                if gap["hold"] and "realtime:sheet-" in m and '"postgres_changes"' in m and '"data"' in m:
+                    gap["dropped"] += 1   # not live yet: Realtime would not have delivered it
+                    return
+                ws.send(msg)
+            server.on_message(from_server)
+            ws.on_message(lambda msg: server.send(msg))
+        b2.route_web_socket(re.compile(r".*/realtime/v1/websocket.*"), ws_route)
+        b2.reload()                                   # the app opened its one Realtime socket at sign-in: open it again, routed
+        b2.wait_for_selector(".char-card, .empty-state, a.brand", timeout=20000)
+        B2.open(chb)
+        B2.wait(lambda: gap["held"] is not None and "Pale flower" in b2.locator("#panel-inventory").inner_text(), timeout=20000)
+        gift = homebrew(dm, camp, GIFT, "herbs_plants", "A small lantern", {"category_id": "plant-flower", "stackable": True})
+        gst, gres = dm.rpc("dm_give_item", p_item=gift, p_characters=[chb], p_quantity=1, p_identified=True)
+        b2.wait_for_timeout(1500)   # the change frame (if any) arrives inside the gap and is not delivered
+        gap["hold"] = False
+        gap["ws"].send(gap["held"])  # Realtime: changes are live now
+        live3 = B2.wait(lambda: GIFT in b2.locator("#panel-inventory").inner_text(), timeout=15000)
+        check("RA2c Realtime gap: a change committed after the sheet opened but before Realtime delivers changes still shows (catch-up once live)",
+              gap["held"] is not None and gst == 200 and live3, (gap["dropped"], gst, b2.locator("#panel-inventory").inner_text()[:300]))
+        B2.close()
         br.close()
     report()
 
