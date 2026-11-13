@@ -1,8 +1,8 @@
 // Lineage UI: the Bio-tab card, the guided picker and the summaries on the Stats and Spells tabs.
 // Data-driven: every lineage, version, trait and choice comes from the database; nothing here knows a specific lineage.
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=28';
-import * as api from './lineage-api.js?v=28';
-import { getCampaignGovernance } from './governance-api.js?v=28';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=29';
+import * as api from './lineage-api.js?v=29';
+import { getCampaignGovernance } from './governance-api.js?v=29';
 
 const CATEGORY = { standard: 'Standard', custom: 'Custom', exotic: 'Exotic', monstrous: 'Monstrous' };
 const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };

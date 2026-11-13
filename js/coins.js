@@ -1,8 +1,8 @@
 // Coin calculator (docs/GAMEPLAY_POLISH_AUDIT.md, "Coins"): spend or gain coins in one atomic server transaction
 // (adjust_character_coins, migration 20261031000100). The preview below uses the SAME deterministic algorithm as the server;
 // the server is authoritative (it re-reads the wallet under a row lock and refuses a wallet that changed meanwhile).
-import { supabase } from './supabase.js?v=28';
-import { $, $$, esc, toast, openModal, friendlyError } from './utils.js?v=28';
+import { supabase } from './supabase.js?v=29';
+import { $, $$, esc, toast, openModal, friendlyError } from './utils.js?v=29';
 
 export const COINS = ['pp', 'gp', 'ep', 'sp', 'cp'];                 // display order
 const ASC = ['cp', 'sp', 'ep', 'gp', 'pp'];                          // ascending value

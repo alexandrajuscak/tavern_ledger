@@ -22,4 +22,4 @@ Owner decision (phase 2, R-A): the DM plays with US measures as in the rules; ea
   placeholders) stay US. With US nothing observes the page. Numbers printed apart from their unit (the Speed tile, Walking
   speed, the turn guide) use `distanceNumber` / `distanceUnit` and refresh on the switch.
 - Tests: `supabase/tests/js/units.test.mjs` (79 text cases incl. negatives + helpers; `node supabase/tests/js/units.test.mjs`, or
-  in the browser), `supabase/tests/browser/ra_release_ui_test.py` (switch, speed / weight / spell range and back).
+  in the browser), `supabase/tests/browser/metric_weapon_cards_ui_test.py` (switch, speed / weight / spell range and back).

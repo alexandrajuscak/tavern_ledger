@@ -2,20 +2,20 @@
 // Approvals, Party, Content (custom content library + editors), Assign, Hidden, Rules (governance and content policy), Audit.
 // Visible only to campaign DMs and admins; every read and write is checked again by the database.
 
-import { supabase } from './supabase.js?v=28';
-import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=28';
-import * as dm from './dm-api.js?v=28';
-import * as gov from './governance-api.js?v=28';
-import { icon } from './icons.js?v=28';
-import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=28';
-import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=28';
-import { CRAFTING } from './config.js?v=28';
+import { supabase } from './supabase.js?v=29';
+import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=29';
+import * as dm from './dm-api.js?v=29';
+import * as gov from './governance-api.js?v=29';
+import { icon } from './icons.js?v=29';
+import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=29';
+import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=29';
+import { CRAFTING } from './config.js?v=29';
 
 // Crafting (docs/CRAFTING_V1.md) only when js/config.js CRAFTING is not 'off'; its module is loaded on demand (never with 'off')
 const craftingOn = () => (CRAFTING || 'off') !== 'off';
 const SECTIONS = [['overview', 'Overview'], ['approvals', 'Approvals'], ['party', 'Party'], ['content', 'Content'], ['assign', 'Assign'],
   ['hidden', 'Hidden'], ...(craftingOn() ? [['crafting', 'Crafting']] : []), ['rules', 'Campaign rules'], ['audit', 'Audit log']];
-const craftingModule = () => import('./crafting.js?v=28');
+const craftingModule = () => import('./crafting.js?v=29');
 const CAT_LABEL = { identity: 'Character identity', core_build: 'Core build', feats_choices: 'Feats and choices', spells: 'Spells', inventory: 'Inventory',
   runtime: 'Gameplay', content: 'Content', dm_control: 'DM control' };
 const MODES = {

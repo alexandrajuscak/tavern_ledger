@@ -383,7 +383,7 @@ def run(t):
         # 10/30 sign-out: reads stop, channels are removed
         go(page, chars["C"], wait=False)
         page.wait_for_timeout(300)
-        page.evaluate("async () => { const m = await import('./js/supabase.js?v=28'); await m.supabase.auth.signOut(); }")
+        page.evaluate("async () => { const m = await import('./js/supabase.js?v=29'); await m.supabase.auth.signOut(); }")
         page.wait_for_selector("input[name=email]", timeout=15000)
         check("30 sign-out removes every Realtime subscription of the user", wait_until(lambda: subs_for(pl.id) == 0, 15), subs_for(pl.id))
         check("10 sign-out: no sheet is rendered afterwards", page.locator(".sheet-root").count() == 0)

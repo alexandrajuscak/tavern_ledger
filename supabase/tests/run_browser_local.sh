@@ -58,6 +58,8 @@ echo "== Herbs & Plants identification (decoy, Examine with a physical roll, DM 
 (cd supabase/tests/browser && "$PY" herb_identification_ui_test.py) || RC=1
 echo "== per-character item reveal (DM Space Who knows what: reveal to one / party, partial, undo; player B never receives the truth)"
 (cd supabase/tests/browser && "$PY" item_reveal_ui_test.py) || RC=1
+echo "== metric display and weapon cards (US / Metric switch, converter unit tests, weapon cards incl. an unidentified weapon)"
+(cd supabase/tests/browser && "$PY" metric_weapon_cards_ui_test.py) || RC=1
 echo "== player-first redesign (typography, sections, bottom navigation, home cards, icons, Build, Wild Shape vitals, DM Needs you)"
 (cd supabase/tests/browser && "$PY" ux_redesign_ui_test.py) || RC=1
 (cd supabase/tests/browser && "$PY" ui_refinement_ui_test.py) || RC=1

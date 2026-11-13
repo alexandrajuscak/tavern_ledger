@@ -1,8 +1,8 @@
 // Creature catalog, transformations (Wild Shape) and companions (migration 20261017000800). The rules (which forms are
 // allowed, costs, hit point carry-over) live in the database; this module only moves data.
-import { supabase } from './supabase.js?v=28';
-import { awaitSeed, onUserCachesCleared } from './read-layer.js?v=28';
-import { friendlyError } from './utils.js?v=28';
+import { supabase } from './supabase.js?v=29';
+import { awaitSeed, onUserCachesCleared } from './read-layer.js?v=29';
+import { friendlyError } from './utils.js?v=29';
 
 class CreatureError extends Error {}
 
