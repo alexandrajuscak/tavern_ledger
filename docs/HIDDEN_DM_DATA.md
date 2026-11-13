@@ -23,6 +23,7 @@ includes hidden data; `export_campaign_dm_backup` (DM only) does.
 | `items.secret` + `_item_visible` | the catalog row of an item that has an unidentified instance is hidden unless the player holds an identified instance | the item |
 | `dm_content.dm_notes`, `dm_content_versions` hidden parts | nothing (players read published content through the catalog and `get_content_public_info`) | everything |
 | `change_request_private_notes` | nothing | notes on a request |
+| `quest_dm_notes`, private `quests` (20261114000400) | nothing / a private quest only on its target character ([QUEST_LOG.md](QUEST_LOG.md)) | everything |
 
 An unidentified item instance carries only the disguise the DM chose (its custom name and description); the real item
 row is invisible to the player until identified (`set_item_knowledge(inventory item, 'identified')` restores the true
