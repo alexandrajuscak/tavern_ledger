@@ -58,8 +58,10 @@ export function fmtWeight(lb, metric = isMetric()) {
 
 // ---- free text --------------------------------------------------------------------------------------------------------------------
 // A number: 1,000 / 1000 / 2.5 / .5 is not used in the rules; never part of a word, a dice expression (1d10), a fraction or a range
-// handled elsewhere (the look-behind refuses a letter, digit, '.', '/', ',' or '-' right before it: "1d10", "CR 1/2", "x-5").
-const N = String.raw`(?<![\w./,\-])(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)`;
+// handled elsewhere (the look-behind refuses a letter, digit, '.', '/', ',' right before it, or a hyphen right after a word or
+// digit: "1d10", "CR 1/2", "x-5", "5-6"). A minus sign before the number is fine: "Speed -10 ft", "Speed −10 ft".
+const N = String.raw`(?<![\w./,])(?<!\w[-–])(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)`;
+const M = String.raw`(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)`;   // the second number of a pair
 const parse = (s) => Number(String(s).replace(/,/g, ''));
 const RULES = [
   // ranges with a unit: "150/600 ft", "20/60 feet"
@@ -68,6 +70,11 @@ const RULES = [
   // "range 150/600" without a unit (weapon property text): always feet in the rules
   [/\b(range\s+)(\d{1,4})\s*\/\s*(\d{1,4})\b(?!\s*(?:\/|ft|feet|foot|m\b|meters?|km))/gi,
     (m, pre, a, b) => `${pre}${num(feetToMeters(parse(a)))}/${num(feetToMeters(parse(b)))} m`],
+  // two numbers sharing one unit: "5-by-5-foot", "10 x 10 ft", "10 × 10 ft", "10 by 10 feet", "2 or 3 feet", "15-20 ft", "15–20 ft"
+  [new RegExp(`${N}-by-${M}-(foot|feet|ft)(?![a-z])`, 'gi'),
+    (m, a, b) => `${num(feetToMeters(parse(a)))}-by-${num(feetToMeters(parse(b)))}-meter`],
+  [new RegExp(`${N}(\\s*(?:x|×|by|or|to)\\s*|\\s*[-–]\\s*)${M}(\\s*)(feet|foot|ft)(?![a-z])`, 'gi'),
+    (m, a, mid, b, sp, u) => `${num(feetToMeters(parse(a)))}${mid}${num(feetToMeters(parse(b)))}${sp}${/^ft$/i.test(u) ? 'm' : 'meters'}`],
   // "5-foot", "10-foot-radius", "60-foot-long", "1-mile"
   [new RegExp(`${N}-(foot|feet|ft)(?![a-z])`, 'gi'), (m, a) => `${num(feetToMeters(parse(a)))}-meter`],
   [new RegExp(`${N}-(miles?)(?![a-z])`, 'gi'), (m, a) => `${num(milesToKm(parse(a)))}-km`],
@@ -80,6 +87,8 @@ const RULES = [
   }],
   [new RegExp(`${N}(\\s*)(miles?|mi\\.)(?![a-z])`, 'gi'), (m, a, sp, u) => `${num(milesToKm(parse(a)))}${sp}km${u === 'mi.' ? '.' : ''}`],
   [new RegExp(`${N}(\\s*)(inch(?:es)?)(?![a-z])`, 'gi'), (m, a, sp) => `${num(inchesToCm(parse(a)))}${sp}cm`],
+  // "12 in." only with the period followed by a space, the end or punctuation: never the word "in" ("3 in a row")
+  [new RegExp(`${N}(\\s*)in\\.(?=\\s|$|[,;:)])`, 'gi'), (m, a, sp) => `${num(inchesToCm(parse(a)))}${sp}cm.`],
   [new RegExp(`${N}(\\s*)(lbs?\\.?|pounds?)(?![a-z])`, 'gi'), (m, a, sp, u) => {
     const v = poundsToKg(parse(a));
     if (/^pound/i.test(u)) return `${num(v)}${sp}${v === 1 ? 'kilogram' : 'kilograms'}`;
@@ -91,7 +100,7 @@ const RULES = [
 export function metricText(text) {
   if (text == null) return text;
   let s = String(text);
-  if (!/\d/.test(s) || !/(ft|feet|foot|mile|mi\.|inch|lb|pound|range)/i.test(s)) return s;
+  if (!/\d/.test(s) || !/(ft|feet|foot|mile|mi\.|inch|in\.|lb|pound|range)/i.test(s)) return s;
   // "square feet" / "cubic feet": protect the whole measure first
   const kept = [];
   s = s.replace(/\d[\d,.]*\s*(?:square|cubic|sq\.?|cu\.?)\s*(?:feet|foot|ft)\b/gi, (m) => { kept.push(m); return `\u0000${kept.length - 1}\u0000`; });

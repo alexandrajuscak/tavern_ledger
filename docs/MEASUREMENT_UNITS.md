@@ -12,7 +12,8 @@ Owner decision (phase 2, R-A): the DM plays with US measures as in the rules; ea
 - **Convention** (official metric D&D): 5 ft = 1.5 m (1 ft = 0.3 m: 30 ft = 9 m, 60 ft = 18 m, 120 ft = 36 m), 1 mile = 1.5 km,
   1 lb = 0.5 kg, 1 inch = 2.5 cm. Gallons and pints stay as they are. At most two decimals.
 - **One conversion:** `js/units.js` `metricText(text)` converts free text: "60 feet", "30 ft.", "5-foot", "10-foot-radius",
-  "1,000 feet", "150/600 ft", "(range 20/60)", "1 mile", "6 inches", "5 lb.", "3 pounds". It never touches dice ("1d10"), DCs,
+  "1,000 feet", "150/600 ft", "(range 20/60)", "10 x 10 ft", "2 or 3 feet", "15-20 ft", "5-by-5-foot", "Speed -10 ft",
+  "1 mile", "6 inches", "12 in.", "5 lb.", "3 pounds". It never touches dice ("1d10"), the word "in", DCs,
   levels, CR fractions, money, "square feet" / "cubic feet" (not linear), or numbers without a unit.
   `fmtDistance(ft)`, `distanceNumber(ft)`, `fmtWeight(lb)` serve places that print a stored number.
 - **How the screen follows:** with Metric on, a display layer (`startUnitsDisplay`, started in `js/app.js`) shows every visible
@@ -20,5 +21,5 @@ Owner decision (phase 2, R-A): the DM plays with US measures as in the rules; ea
   originals. Inputs, text areas, selects, editable areas, code and `[data-units-skip]` are never touched; attributes (tooltips,
   placeholders) stay US. With US nothing observes the page. Numbers printed apart from their unit (the Speed tile, Walking
   speed, the turn guide) use `distanceNumber` / `distanceUnit` and refresh on the switch.
-- Tests: `supabase/tests/js/units.test.mjs` (60 text cases incl. negatives + helpers; `node supabase/tests/js/units.test.mjs`, or
+- Tests: `supabase/tests/js/units.test.mjs` (76 text cases incl. negatives + helpers; `node supabase/tests/js/units.test.mjs`, or
   in the browser), `supabase/tests/browser/ra_release_ui_test.py` (switch, speed / weight / spell range and back).
