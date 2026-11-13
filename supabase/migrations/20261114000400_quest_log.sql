@@ -190,14 +190,15 @@ language plpgsql security definer
 set search_path = public, pg_temp
 as $$
 declare q public.quests; qid uuid; v_title text; v_desc text; v_status text; v_vis text; v_target uuid; o jsonb; i int := 0;
-  oid uuid; otext text; odone boolean; keep uuid[] := '{}';
+  oid uuid; otext text; odone boolean; keep uuid[] := '{}'; touched boolean := false; core boolean := false; nrows int;
 begin
   perform public._quest_dm_gate(p_campaign);
   if p_quest is null or jsonb_typeof(p_quest) <> 'object' then raise exception 'Quest data missing' using errcode = '22023'; end if;
   qid := nullif(p_quest ->> 'id', '')::uuid;
   if qid is not null then
     select * into q from public.quests where id = qid for update;
-    if q.id is null or q.campaign_id <> p_campaign then raise exception 'Quest not found' using errcode = 'P0002'; end if;
+    -- an unknown quest and a quest of another campaign get the same refusal as a non-DM (no existence oracle)
+    if q.id is null or q.campaign_id <> p_campaign then perform public._quest_dm_gate(null); end if;
     if p_expected_revision is not null and p_expected_revision <> q.revision then
       raise exception 'This quest was changed meanwhile. Reload and try again.' using errcode = '40001';
     end if;
@@ -235,12 +236,15 @@ begin
     update public.quests set title = v_title, description = v_desc, status = v_status, visibility = v_vis, target_character_id = v_target,
       revision = revision + 1, updated_by = auth.uid(), updated_at = now()
     where id = q.id returning * into q;
+    core := true;
   end if;
 
   if p_quest ? 'dm_notes' then
     insert into public.quest_dm_notes as n (quest_id, body, updated_by) values (q.id, coalesce(p_quest ->> 'dm_notes', ''), auth.uid())
     on conflict (quest_id) do update set body = excluded.body, updated_by = excluded.updated_by, updated_at = now()
       where n.body is distinct from excluded.body;
+    get diagnostics nrows = row_count;
+    touched := touched or nrows > 0;
   end if;
 
   if p_quest ? 'objectives' then
@@ -256,15 +260,24 @@ begin
           done_at = case when o ? 'done' and odone and not done then now() when o ? 'done' and not odone then null else done_at end,
           done_by = case when o ? 'done' and odone and not done then auth.uid() when o ? 'done' and not odone then null else done_by end
         where id = oid and (seq, body, archived_at, done) is distinct from (i, otext, null::timestamptz, case when o ? 'done' then odone else done end);
+        touched := touched or found;
       else
         insert into public.quest_objectives (quest_id, seq, body, done, done_at, done_by)
         values (q.id, i, otext, odone, case when odone then now() end, case when odone then auth.uid() end)
         returning id into oid;
+        touched := true;
       end if;
       keep := keep || oid;
     end loop;
     update public.quest_objectives set archived_at = now()
     where quest_id = q.id and archived_at is null and not (id = any (keep));
+    get diagnostics nrows = row_count;
+    touched := touched or nrows > 0;
+  end if;
+  -- a notes-only or objectives-only edit is a change too: it moves the revision, so a stale second editor gets 40001
+  -- (the core update above already moved it once; a new quest keeps revision 1)
+  if touched and not core and qid is not null then
+    update public.quests set revision = revision + 1, updated_by = auth.uid(), updated_at = now() where id = q.id;
   end if;
   return public._quest_dm_json(q.id);
 end $$;
@@ -277,8 +290,7 @@ as $$
 declare q public.quests;
 begin
   select * into q from public.quests where id = p_quest for update;
-  if q.id is null then raise exception 'Quest not found' using errcode = 'P0002'; end if;
-  perform public._quest_dm_gate(q.campaign_id);
+  perform public._quest_dm_gate(q.campaign_id);   -- unknown quest: campaign null -> the same 42501 as "not yours"
   if p_status is null or p_status not in ('active', 'completed', 'failed') then raise exception 'Unknown status' using errcode = '22023'; end if;
   if q.status <> p_status then
     update public.quests set status = p_status, revision = revision + 1, updated_by = auth.uid(), updated_at = now() where id = q.id;
@@ -295,10 +307,13 @@ as $$
 declare o public.quest_objectives; q public.quests;
 begin
   select * into o from public.quest_objectives where id = p_objective;
-  if o.id is null then raise exception 'Objective not found' using errcode = 'P0002'; end if;
   select * into q from public.quests where id = o.quest_id for update;
-  perform public._quest_dm_gate(q.campaign_id);
+  perform public._quest_dm_gate(q.campaign_id);   -- unknown objective: the same 42501 as "not yours"
   if p_done is null then raise exception 'Done or not done?' using errcode = '22023'; end if;
+  select * into o from public.quest_objectives where id = p_objective;   -- current row, under the quest lock
+  if o.archived_at is not null or q.archived_at is not null then
+    raise exception 'This objective or its quest is archived: restore it first' using errcode = '22023';
+  end if;
   update public.quest_objectives set done = p_done, done_at = case when p_done then now() end, done_by = case when p_done then auth.uid() end
   where id = o.id and done is distinct from p_done;
   if found then
@@ -316,8 +331,7 @@ as $$
 declare q public.quests;
 begin
   select * into q from public.quests where id = p_quest for update;
-  if q.id is null then raise exception 'Quest not found' using errcode = 'P0002'; end if;
-  perform public._quest_dm_gate(q.campaign_id);
+  perform public._quest_dm_gate(q.campaign_id);   -- unknown quest: campaign null -> the same 42501 as "not yours"
   if coalesce(p_archived, true) and q.archived_at is null then
     update public.quests set archived_at = now(), archived_by = auth.uid(), revision = revision + 1, updated_by = auth.uid(), updated_at = now()
     where id = q.id;
@@ -341,9 +355,10 @@ begin
   perform public._quest_dm_gate(p_campaign);
   if coalesce(cardinality(p_quests), 0) = 0 or cardinality(p_quests) > 500 then raise exception 'Between 1 and 500 quests' using errcode = '22023'; end if;
   if cardinality(p_quests) <> (select count(distinct x) from unnest(p_quests) x) then raise exception 'A quest is listed twice' using errcode = '22023'; end if;
-  perform 1 from public.quests q where q.id = any (p_quests) order by q.id for update;
+  -- check first, lock only rows of this campaign (a foreign id is never locked); unknown or foreign ids: the same 42501
   select count(*) into n from public.quests q where q.id = any (p_quests) and q.campaign_id = p_campaign;
-  if n <> cardinality(p_quests) then raise exception 'Quest not found' using errcode = 'P0002'; end if;
+  if n <> cardinality(p_quests) then perform public._quest_dm_gate(null); end if;
+  perform 1 from public.quests q where q.id = any (p_quests) and q.campaign_id = p_campaign order by q.id for update;
   update public.quests q set sort_order = x.ord * 10, revision = q.revision + 1, updated_by = auth.uid(), updated_at = now()
   from unnest(p_quests) with ordinality as x(id, ord)
   where q.id = x.id and q.sort_order is distinct from x.ord * 10;

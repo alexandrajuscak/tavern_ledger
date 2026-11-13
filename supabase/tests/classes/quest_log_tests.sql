@@ -159,6 +159,49 @@ select tl_test.rec('QL18 validation: target required, target must be in the camp
   :'v_no_target' = '22023' and :'v_other_camp' = '22023' and :'v_stale' = '40001' and :'v_blank' = '22023' and :'v_wrong_camp' = '42501',
   concat_ws('/', :'v_no_target', :'v_other_camp', :'v_stale', :'v_blank', :'v_wrong_camp'));
 
+-- ---- 4b. stale guard covers notes-only and objectives-only edits; no existence oracle; archived objectives -------------------
+select tl_test.as_user(:'dm');
+select (public.get_campaign_quests(:'camp') -> 'quests') as dmq2 \gset
+select (select (q ->> 'revision')::int from jsonb_array_elements((:'dmq2')::jsonb) q where q ->> 'id' = :'qva') as rv0 \gset
+select (public.dm_save_quest(:'camp', jsonb_build_object('id', :'qva', 'dm_notes', 'laptop notes'), :rv0) ->> 'revision')::int as rv1 \gset
+select tl_test.qcode(format('select public.dm_save_quest(%L, %L, %s)', :'camp', jsonb_build_object('id', :'qva', 'dm_notes', 'phone notes'), :rv0)) as stale_notes \gset
+select public.dm_save_quest(:'camp', jsonb_build_object('id', :'qva', 'objectives', jsonb_build_array(jsonb_build_object('id', :'obj_secret', 'text', 'Secret step'),
+  jsonb_build_object('text', 'Laptop step'))), :rv1) as sv2 \gset
+select ((:'sv2')::jsonb ->> 'revision')::int as rv2, (select o ->> 'id' from jsonb_array_elements((:'sv2')::jsonb -> 'objectives') o where o ->> 'text' = 'Laptop step') as obj_laptop \gset
+select tl_test.qcode(format('select public.dm_save_quest(%L, %L, %s)', :'camp', jsonb_build_object('id', :'qva', 'objectives', '[]'::jsonb), :rv1)) as stale_objs \gset
+select (public.dm_save_quest(:'camp', jsonb_build_object('id', :'qva', 'dm_notes', 'laptop notes', 'objectives',
+  jsonb_build_array(jsonb_build_object('id', :'obj_secret', 'text', 'Secret step'), jsonb_build_object('id', :'obj_laptop', 'text', 'Laptop step'))), :rv2) ->> 'revision')::int as rv3 \gset
+select tl_test.as_root();
+select tl_test.rec('QL26 a notes-only save moves the revision; a stale save after it (old revision) is refused 40001, notes kept',
+  :rv1 = :rv0 + 1 and :'stale_notes' = '40001' and (select body = 'laptop notes' from public.quest_dm_notes where quest_id = :'qva'),
+  concat_ws('/', :rv0, :rv1, :'stale_notes'));
+select tl_test.rec('QL27 an objectives-only save moves the revision; a stale save is refused 40001, new objective kept; an unchanged save does not move it',
+  :rv2 = :rv1 + 1 and :'stale_objs' = '40001' and :rv3 = :rv2
+  and (select archived_at is null from public.quest_objectives where quest_id = :'qva' and body = 'Laptop step'),
+  concat_ws('/', :rv1, :rv2, :'stale_objs', :rv3));
+select id as obj_arch from public.quest_objectives where quest_id = :'qp' and archived_at is not null limit 1 \gset
+select tl_test.as_user(:'dm');
+select tl_test.qcode(format('select public.dm_set_quest_objective(%L, true)', :'obj_arch')) as tick_arch_obj \gset
+select public.dm_archive_quest(:'qva') is not null as qva_arch \gset
+select tl_test.qcode(format('select public.dm_set_quest_objective(%L, true)', :'obj_secret')) as tick_arch_quest \gset
+select public.dm_archive_quest(:'qva', false) is not null as qva_back \gset
+select tl_test.qcode(format('select public.dm_set_quest_status(%L, ''failed'')', gen_random_uuid())) as unk_status \gset
+select tl_test.qcode(format('select public.dm_archive_quest(%L)', gen_random_uuid())) as unk_archive \gset
+select tl_test.qcode(format('select public.dm_set_quest_objective(%L, true)', gen_random_uuid())) as unk_tick \gset
+select tl_test.qcode(format('select public.dm_save_quest(%L, %L)', :'camp', jsonb_build_object('id', gen_random_uuid(), 'title', 'x'))) as unk_save \gset
+select tl_test.qcode(format('select public.dm_reorder_quests(%L, array[%L]::uuid[])', :'camp', gen_random_uuid())) as unk_reorder \gset
+select tl_test.raises(format('select public.dm_set_quest_status(%L, ''failed'')', gen_random_uuid())) as unk_msg \gset
+select tl_test.as_user(:'eve');
+select tl_test.raises(format('select public.dm_set_quest_status(%L, ''failed'')', :'qp')) as foreign_msg \gset
+select tl_test.qcode(format('select public.dm_reorder_quests(%L, array[%L]::uuid[])', :'camp2', :'qp')) as foreign_reorder \gset
+select tl_test.as_root();
+select tl_test.rec('QL28 ticking an archived objective or an objective of an archived quest is refused (22023)',
+  :'tick_arch_obj' = '22023' and :'tick_arch_quest' = '22023', :'tick_arch_obj' || '/' || :'tick_arch_quest');
+select tl_test.rec('QL29 an unknown quest / objective id gets exactly the refusal of a foreign one (42501, same message: no existence oracle)',
+  :'unk_status' = '42501' and :'unk_archive' = '42501' and :'unk_tick' = '42501' and :'unk_save' = '42501' and :'unk_reorder' = '42501'
+  and :'foreign_reorder' = '42501' and :'unk_msg' = :'foreign_msg',
+  concat_ws('/', :'unk_status', :'unk_archive', :'unk_tick', :'unk_save', :'unk_reorder', :'foreign_reorder', :'unk_msg', :'foreign_msg'));
+
 -- ---- 5. archive / restore --------------------------------------------------------------------------------------------------
 select tl_test.as_user(:'dm');
 select public.dm_archive_quest(:'qi') is not null as arch \gset
