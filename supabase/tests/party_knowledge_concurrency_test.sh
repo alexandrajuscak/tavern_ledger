@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Concurrency checks for party-wide identification (20261114000100, B1): a share never waits on or deadlocks with another
+# Concurrency checks for party-wide identification (20261114000300, B1): a share never waits on or deadlocks with another
 # character's transaction. Two sessions at the same time (each holds its own character row first, as the existing RPCs do):
 #   1. player 1's apply_character_condition holds C1 (3 s) while player 2's successful examine shares to C1
 #      -> player 2 does not wait, a pending row is left for C1, C1's own sync_party_knowledge applies it

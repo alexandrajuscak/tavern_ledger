@@ -86,7 +86,7 @@ export const setItemKnowledgeFor = (itemId, characterIds, reveal, mode = 'set', 
   rpc('dm_set_item_knowledge', { p_item: itemId, p_characters: characterIds, p_reveal: reveal, p_mode: mode, p_campaign: campaignId });
 /** Who knows what about one item: every campaign character (record, rows, effective level), stash rows, history. */
 export const getItemKnowledgeOverview = (itemId, campaignId) => rpc('get_item_knowledge_overview', { p_item: itemId, p_campaign: campaignId });
-// party-wide identification (20261114000100): the campaign rule and the DM's holds
+// party-wide identification (20261114000300): the campaign rule and the DM's holds
 export const getIdentificationSharing = (campaignId) => rpc('get_campaign_identification_sharing', { p_campaign: campaignId });
 export const setIdentificationSharing = (campaignId, on) => rpc('set_campaign_identification_sharing', { p_campaign: campaignId, p_on: !!on });
 export const syncPartyKnowledge = (campaignId) => rpc('dm_sync_party_knowledge', { p_campaign: campaignId });

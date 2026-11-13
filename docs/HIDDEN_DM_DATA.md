@@ -192,7 +192,7 @@ personal item, raise on an undisguised holder, the NOWAIT locks, equipped armour
 `browser/item_reveal_ui_test.py`. `scripts/fluent/item_visibility_snapshot.sql` is a read-only hash of what each character's
 owner and each user (every profile and campaign member) sees (run it before and after a deploy; the outputs must be identical).
 
-## Identification is shared with the party (20261114000100)
+## Identification is shared with the party (20261114000300)
 
 Owner decision (phase 2): once one character identifies an item, every character of the campaign knows it, also characters who
 join later. A campaign rule, **DM Space → Campaign rules → Item identification**, ON by default (a campaign without a row in

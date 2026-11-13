@@ -3556,7 +3556,7 @@ export function mountSheet(container, bundle, options = {}) {
   }
 }
 
-// Party-wide identification (20261114000100): a share that found this character busy waits in party_share_pending; the sheet
+// Party-wide identification (20261114000300): a share that found this character busy waits in party_share_pending; the sheet
 // applies it on open and after an inventory refresh (at most every 20 s). A no-op server call when nothing waits; errors ignored.
 let partySyncAt = 0;
 function partySyncSoon(characterId, force = false) {
@@ -3580,7 +3580,7 @@ function mountInventoryPanel() {
       B.inventory = rows.map(legacyInventoryRow);
       cacheLater();
       renderWeapons();   // the weapon cards get the item facts (icon, rarity, description) from the masked rows
-      partySyncSoon(id);   // party shares that could not reach this character at once (20261114000100)
+      partySyncSoon(id);   // party shares that could not reach this character at once (20261114000300)
       if (invLoaded) scheduleDerived();   // the first load is not a change: the derived read started on mount covers it
       invLoaded = true;
     },

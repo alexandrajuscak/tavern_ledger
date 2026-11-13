@@ -557,9 +557,9 @@ CREATE OR REPLACE FUNCTION public.set_item_knowledge(p_inventory_item uuid, p_st
  SET search_path TO 'public', 'pg_temp'
 AS $function$
 declare r public.inventory_items; it public.items; inv public.inventories; k public.inventory_item_knowledge; camp uuid; s public.item_secrets; old_state text;
-  ck0 public.character_item_knowledge; ck1 public.character_item_knowledge;   -- 20261114000100
+  ck0 public.character_item_knowledge; ck1 public.character_item_knowledge;   -- 20261114000300
 begin
-  -- 20261114000100: the character row before the inventory row and its counter (the order of the existing RPCs)
+  -- 20261114000300: the character row before the inventory row and its counter (the order of the existing RPCs)
   perform 1 from public.characters c join public.inventories i on i.character_id = c.id join public.inventory_items ii on ii.inventory_id = i.id
    where ii.id = p_inventory_item for key share of c;
   select * into r from public.inventory_items where id = p_inventory_item for update;
@@ -587,14 +587,14 @@ begin
   end if;
   -- 20261112000300: knowledge is per character
   if inv.character_id is not null and r.item_id is not null then
-    perform public._ik_drop_pending(inv.character_id, r.item_id);   -- 20261114000100
-    select * into ck0 from public.character_item_knowledge where character_id = inv.character_id and item_id = r.item_id;   -- 20261114000100
+    perform public._ik_drop_pending(inv.character_id, r.item_id);   -- 20261114000300
+    select * into ck0 from public.character_item_knowledge where character_id = inv.character_id and item_id = r.item_id;   -- 20261114000300
     insert into public.character_item_knowledge (character_id, item_id, state, revealed, updated_by)
     values (inv.character_id, r.item_id, p_state, (select revealed from public.inventory_item_knowledge where inventory_item_id = r.id), auth.uid())
     on conflict (character_id, item_id) do update set state = excluded.state, revealed = excluded.revealed, updated_by = excluded.updated_by, updated_at = now();
     perform public._identify_sync_rows(inv.character_id, r.item_id);
     perform public._identify_touch(inv.character_id);
-    -- 20261114000100: share an addition with the party (guarded per target); a removal holds the character back
+    -- 20261114000300: share an addition with the party (guarded per target); a removal holds the character back
     select * into ck1 from public.character_item_knowledge where character_id = inv.character_id and item_id = r.item_id;
     if public._ik_contains(ck1.state, ck1.revealed, ck0.state, ck0.revealed) then
       if (ck0.state, ck0.revealed) is distinct from (ck1.state, ck1.revealed) then
@@ -800,7 +800,7 @@ begin
   if not public._ik_item_in_campaign(p_item, p_campaign) then raise exception 'Item not found' using errcode = 'P0002'; end if;
   select * into d from public._item_decoy(p_item);
   return jsonb_build_object(
-    'party_share', public._party_share_on(p_campaign),   -- 20261114000100
+    'party_share', public._party_share_on(p_campaign),   -- 20261114000300
     'item', jsonb_build_object('id', it.id, 'name', it.name, 'kind_id', it.kind_id, 'official', it.owner_id is null, 'secret', it.secret,
       'decoy_name', d.name, 'decoy_description', d.description, 'can_hide', it.owner_id is not null,
       'properties', coalesce((select s.properties from public.item_secrets s where s.item_id = it.id), '[]')),
@@ -810,7 +810,7 @@ begin
         'record', (select jsonb_build_object('state', ck.state, 'revealed', to_jsonb(ck.revealed), 'updated_at', ck.updated_at,
                      'updated_by', (select coalesce(p.display_name, 'someone') from public.profiles p where p.id = ck.updated_by))
                    from public.character_item_knowledge ck where ck.character_id = c.id and ck.item_id = it.id),
-        'held', coalesce(ck2.held_by_dm, false),   -- 20261114000100
+        'held', coalesce(ck2.held_by_dm, false),   -- 20261114000300
         'pending', (select count(*)::int from public.party_share_pending ps where ps.target_character_id = c.id and ps.item_id = it.id),
         'party_source', (select jsonb_build_object('at', e.created_at,
                            'from', (select sc.name from public.characters sc where sc.id = e.source_character_id))
@@ -857,7 +857,7 @@ begin
         'character_name', (select c.name from public.characters c where c.id = e.character_id),
         'old_state', e.old_state, 'old_revealed', to_jsonb(e.old_revealed), 'new_state', e.new_state, 'new_revealed', to_jsonb(e.new_revealed),
         'actor', (select coalesce(p.display_name, 'someone') from public.profiles p where p.id = e.actor),
-        'source', e.source,   -- 20261114000100
+        'source', e.source,   -- 20261114000300
         'source_character_name', (select c.name from public.characters c where c.id = e.source_character_id)) as j
       from public.item_knowledge_events e where e.item_id = it.id and e.campaign_id = p_campaign
       order by e.created_at desc, e.id desc limit 50) h));

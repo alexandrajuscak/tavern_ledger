@@ -11,7 +11,7 @@
 \set h2 f4d00000-0000-0000-0000-000000000002
 \set h3 f4d00000-0000-0000-0000-000000000003
 insert into public.campaign_members (campaign_id, user_id, role) values (:'camp', :'bob', 'player');
--- this suite covers the PER-CHARACTER model: party sharing (20261114000100, on by default) is switched off for its campaign, so
+-- this suite covers the PER-CHARACTER model: party sharing (20261114000300, on by default) is switched off for its campaign, so
 -- it also checks that "rule off" is exactly the old behaviour (party sharing itself: party_knowledge_tests.sql)
 do $$ begin
   if to_regclass('public.campaign_item_rules') is not null then

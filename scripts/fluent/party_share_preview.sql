@@ -1,4 +1,4 @@
--- Party-wide identification (20261114000100): READ-ONLY preview of what the migration's catch-up would change. Run it on
+-- Party-wide identification (20261114000300): READ-ONLY preview of what the migration's catch-up would change. Run it on
 -- production BEFORE the deploy (it does not need the migration; it never writes):
 --   psql -v ON_ERROR_STOP=1 -At -f scripts/fluent/party_share_preview.sql
 -- Output: ids and counts only, never an item name, a decoy or a description (hb- / cc- ids are opaque; an official slug is the

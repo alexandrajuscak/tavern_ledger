@@ -1,3 +1,3 @@
 # the R-A migration and its rollback restore function bodies byte-equal only with LF (see the rollback header)
-supabase/migrations/20261114000100_party_item_knowledge.sql text eol=lf
+supabase/migrations/20261114000300_party_item_knowledge.sql text eol=lf
 supabase/rollback/rollback_party_item_knowledge.sql text eol=lf

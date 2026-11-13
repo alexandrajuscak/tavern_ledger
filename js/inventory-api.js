@@ -401,7 +401,7 @@ export const resolveEquipmentReview = (inventoryItemId) => rpc('resolve_equipmen
 
 /** JSON import: catalog matches or homebrew items, never legacy rows. Returns {matched, homebrew_created, skipped[]}. */
 export const importInventoryItems = (characterId, items) => rpc('import_inventory_items', { p_character: characterId, p_items: items });
-/** Apply this character's pending party shares (20261114000100; counts only). An older server has no such RPC: callers ignore errors. */
+/** Apply this character's pending party shares (20261114000300; counts only). An older server has no such RPC: callers ignore errors. */
 export const syncPartyKnowledge = (characterId) => rpc('sync_party_knowledge', { p_character: characterId });
 
 // ---- Derived character stats and proficiencies (migration 20261015001400) ---------------------------------------

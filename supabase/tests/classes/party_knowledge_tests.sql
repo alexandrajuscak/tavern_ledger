@@ -1,5 +1,5 @@
 -- =============================================================================
--- Party-wide identification (20261114000100; docs/HIDDEN_DM_DATA.md "Identification is shared with the party"): the campaign
+-- Party-wide identification (20261114000300; docs/HIDDEN_DM_DATA.md "Identification is shared with the party"): the campaign
 -- rule (default on, DM-only read / switch), sharing on a successful examine answered by the DM, on a DM raise and on the old
 -- per-copy editor; a DM "set" holds a character back and survives later sharing; release; a FAILED examine stays private; joiners
 -- (new character, moved character) inherit; rule off = the per-character model; switching it on catches up; another campaign and

@@ -12,7 +12,7 @@
 \set r3 f4b00000-0000-0000-0000-000000000003
 \set eve e5555555-5555-5555-5555-555555555555
 insert into public.campaign_members (campaign_id, user_id, role) values (:'camp', :'bob', 'player');
--- this suite covers the PER-CHARACTER model: party sharing (20261114000100, on by default) is switched off for its campaign, so
+-- this suite covers the PER-CHARACTER model: party sharing (20261114000300, on by default) is switched off for its campaign, so
 -- it also checks that "rule off" is exactly the old behaviour (party sharing itself: party_knowledge_tests.sql)
 do $$ begin
   if to_regclass('public.campaign_item_rules') is not null then
@@ -316,7 +316,7 @@ select tl_test.rec('IR18b M2 a mixed holder (undisguised + disguised copy) is st
   (:'m2_mixed'::jsonb ->> 'changed')::int = 1 and position('unidentified' in tl_test.ir_rowk(:'r2', :'clear')) = 0
   and split_part(tl_test.ir_ck(:'r2', :'clear'), ':', 1) = 'identified', tl_test.ir_rowk(:'r2', :'clear') || ' ' || :'m2_mixed');
 
--- M1 (T4b) / B1 (20261114000100): every character is handled in a guarded subtransaction: its locks NOWAIT in the canonical order
+-- M1 (T4b) / B1 (20261114000300): every character is handled in a guarded subtransaction: its locks NOWAIT in the canonical order
 -- (_ik_lock_target); a busy character is not waited for, not changed and not queued: it is named in busy_names ("try again").
 -- The harness is one session, so the handler path is asserted on the function text (two sessions: party_knowledge_concurrency_test.sh).
 select tl_test.rec('IR19 dm_set_item_knowledge takes each character''s locks NOWAIT (_ik_lock_target) and reports a busy one by name, unchanged',

@@ -1,5 +1,5 @@
 -- =============================================================================
--- Rollback of 20261114000100_party_item_knowledge.sql. Run as postgres in ONE transaction:
+-- Rollback of 20261114000300_party_item_knowledge.sql. Run as postgres in ONE transaction:
 --   psql -v ON_ERROR_STOP=1 -1 -f supabase/rollback/rollback_party_item_knowledge.sql
 -- Restores the exact previous bodies of the seven replaced functions (captured with pg_get_functiondef from the local database at
 -- 20261113000100; md5 of pg_get_functiondef, first 8: _identify_apply ae98ff51, _item_knowledge_log e24b17c6, set_item_knowledge
@@ -14,7 +14,7 @@
 --   select * from public.party_share_pending;                                           -- party shares not applied yet
 --   select character_id, item_id from public.character_item_knowledge where held_by_dm;  -- the DM holds
 --   select id, source, source_character_id from public.item_knowledge_events where source is not null;
--- Deploy order for a rollback: the previous frontend (?v=29, metric + weapon cards) first, then this file.
+-- Deploy order for a rollback: the previous frontend (?v=30, custom item icons + the Realtime catch-up) first, then this file.
 -- Byte-equal restore needs the file's LF line endings as stored in git. On a Windows checkout with core.autocrlf=true run
 --   tr -d '\r' < supabase/rollback/rollback_party_item_knowledge.sql | psql -v ON_ERROR_STOP=1 -1
 -- (with CRLF the restored bodies are functionally identical but contain carriage returns).
@@ -386,7 +386,7 @@ drop table if exists public.campaign_item_rules;
 do $$
 begin
   if to_regclass('supabase_migrations.schema_migrations') is not null then
-    delete from supabase_migrations.schema_migrations where version = '20261114000100';
+    delete from supabase_migrations.schema_migrations where version = '20261114000300';
   end if;
 end $$;
 notify pgrst, 'reload schema';

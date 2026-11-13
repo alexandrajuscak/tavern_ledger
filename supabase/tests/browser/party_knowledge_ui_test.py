@@ -1,4 +1,4 @@
-"""Party-wide identification (20261114000100; docs/HIDDEN_DM_DATA.md "Identification is shared with the party"). LOCAL ONLY,
+"""Party-wide identification (20261114000300; docs/HIDDEN_DM_DATA.md "Identification is shared with the party"). LOCAL ONLY,
 synthetic users. The party-share checks RA0-RA3 of the former combined R-A test (metric and weapon cards:
 metric_weapon_cards_ui_test.py).
 

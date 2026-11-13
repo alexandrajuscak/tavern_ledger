@@ -716,7 +716,7 @@ async function hidden(panel, alive) {
   });
 }
 
-/** A DM call that met busy characters: they were NOT changed (20261114000100: nothing is queued for a DM decision). */
+/** A DM call that met busy characters: they were NOT changed (20261114000300: nothing is queued for a DM decision). */
 const busyText = (res) => `${(res.busy_names || []).join(', ') || res.busy} ${res.busy === 1 ? 'was' : 'were'} busy and ${res.busy === 1 ? 'was' : 'were'} NOT changed. Try again.`;
 
 // ---- who knows what: per-character reveal of one item (20261112000400) ----------------------------------------------------------
@@ -779,7 +779,7 @@ async function revealPanel(box, alive) {
     const it = ov.item;
     const opts = (cur) => [...LEVELS.filter(([k]) => it.can_hide || k === 'all').map(([k, l]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(l)}</option>`),
       cur === 'custom' ? '<option value="custom" selected>Keep as it is (custom)</option>' : ''].join('');
-    const party = ov.party_share === true;   // 20261114000100 (undefined on an older server: per character as before)
+    const party = ov.party_share === true;   // 20261114000300 (undefined on an older server: per character as before)
     body.innerHTML = `
       <p class="small">Characters who do not know it see <b>${esc(it.decoy_name)}</b>${it.decoy_description ? ` — <span class="muted">${esc(it.decoy_description)}</span>` : ''}.</p>
       ${party ? '<p class="small dm-party-note"><strong>Shared with the party</strong> (Campaign rules): a reveal or a player’s successful examine reaches every character, also characters who join later, except those you hold back. “Set” changes only that character and holds them back from party sharing.</p>' : ''}
@@ -923,7 +923,7 @@ async function identifyOptionsDialog(itemId, name, sec) {
 // ---- rules -------------------------------------------------------------------------------------------------------------------------
 async function rules(panel, alive) {
   const g = await gov.getCampaignGovernance(campaignId);
-  // party-wide identification (20261114000100); an older server has no such rule: the row is not shown
+  // party-wide identification (20261114000300); an older server has no such rule: the row is not shown
   const share = await dm.getIdentificationSharing(campaignId).catch(() => null);
   if (!alive()) return;
   const RANK = { player_managed: 0, approval_required: 1, dm_only: 2, disabled: 3 };
