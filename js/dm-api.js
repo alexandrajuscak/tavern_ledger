@@ -89,6 +89,7 @@ export const getItemKnowledgeOverview = (itemId, campaignId) => rpc('get_item_kn
 // party-wide identification (20261114000100): the campaign rule and the DM's holds
 export const getIdentificationSharing = (campaignId) => rpc('get_campaign_identification_sharing', { p_campaign: campaignId });
 export const setIdentificationSharing = (campaignId, on) => rpc('set_campaign_identification_sharing', { p_campaign: campaignId, p_on: !!on });
+export const syncPartyKnowledge = (campaignId) => rpc('dm_sync_party_knowledge', { p_campaign: campaignId });
 export const releaseKnowledgeHold = (itemId, characterIds, campaignId = null) =>
   rpc('dm_release_item_knowledge_hold', { p_item: itemId, p_characters: characterIds, p_campaign: campaignId });
 export const getCampaignKnowledgeItems = (campaignId) => rpc('get_campaign_knowledge_items', { p_campaign: campaignId });

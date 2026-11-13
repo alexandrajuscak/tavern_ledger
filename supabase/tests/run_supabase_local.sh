@@ -102,6 +102,7 @@ WSC=$(bash supabase/tests/wild_shape_concurrency_test.sh "$DB" 2>/dev/null | gre
 GVC=$(bash supabase/tests/governance_concurrency_test.sh "$DB" 2>/dev/null | grep -c "^PASSED")
 [ "$GVC" = 7 ] && pass "change request concurrency: double approval, approve/reject, approve/cancel, stale correction, lock, idempotency (6 + summary)" || fail "change request concurrency ($GVC / 7)"
 bash supabase/tests/crafting_concurrency_test.sh "$DB" | tail -1 | grep -q PASSED && pass "crafting concurrency: two DMs approve at once, approve vs cancel (exactly once)" || fail "crafting concurrency"
+bash supabase/tests/party_knowledge_concurrency_test.sh "$DB" | tail -1 | grep -q PASSED && pass "party knowledge concurrency: a share never waits or deadlocks (pending + sync)" || fail "party knowledge concurrency"
 T1=$(psqlx -At < supabase/tests/feat_catalog_checksum.sql); psqlx < supabase/seed/feats.sql >/dev/null 2>&1; T2=$(psqlx -At < supabase/tests/feat_catalog_checksum.sql)
 [ -n "$T1" ] && [ "$T1" = "$T2" ] && pass "feat seed idempotent (checksum $T1)" || fail "feat seed idempotency"
 python scripts/data-migration/generate_feat_seed.py --check >/dev/null && pass "feat data valid, feats.sql and FEAT_COVERAGE.md current (generator --check)" || fail "feats.sql or FEAT_COVERAGE.md out of date"

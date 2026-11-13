@@ -13,7 +13,7 @@ import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce,
 import { openCoinCalculator, wallet as coinWallet } from './coins.js?v=30';
 import { mountInventory } from './inventory-ui.js?v=30';
 import { exportCharacter, downloadJson } from './transfer.js?v=30';
-import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups } from './inventory-api.js?v=30';
+import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups, syncPartyKnowledge } from './inventory-api.js?v=30';
 import { backgroundCardHTML, openBackgroundPicker, openBackgroundEquipment, openReplaceDuplicate, saveCharacteristics, rollCharacteristic,
   removeBackground } from './background-ui.js?v=30';
 import { getCharacterBackground } from './background-api.js?v=30';
@@ -3536,6 +3536,7 @@ export function mountSheet(container, bundle, options = {}) {
   bindUnitsSwitch(root);
   unsubUnits?.();
   unsubUnits = onUnitsChange(() => { if (root) refreshDerived(); });
+  partySyncSoon(C().id, true);
   loadDerived();
   loadConditions();
   loadLineage();
@@ -3555,6 +3556,15 @@ export function mountSheet(container, bundle, options = {}) {
   }
 }
 
+// Party-wide identification (20261114000100): a share that found this character busy waits in party_share_pending; the sheet
+// applies it on open and after an inventory refresh (at most every 20 s). A no-op server call when nothing waits; errors ignored.
+let partySyncAt = 0;
+function partySyncSoon(characterId, force = false) {
+  if (ctx?.readOnly || (!force && Date.now() - partySyncAt < 20000)) return;
+  partySyncAt = Date.now();
+  syncPartyKnowledge(characterId).then((r) => { if (r?.applied && C()?.id === characterId) inventory?.scheduleRefresh?.(); }).catch(() => {});
+}
+
 function mountInventoryPanel() {
   inventoryDeferred = false;
   if (!root || inventory) return;
@@ -3570,6 +3580,7 @@ function mountInventoryPanel() {
       B.inventory = rows.map(legacyInventoryRow);
       cacheLater();
       renderWeapons();   // the weapon cards get the item facts (icon, rarity, description) from the masked rows
+      partySyncSoon(id);   // party shares that could not reach this character at once (20261114000100)
       if (invLoaded) scheduleDerived();   // the first load is not a change: the derived read started on mount covers it
       invLoaded = true;
     },

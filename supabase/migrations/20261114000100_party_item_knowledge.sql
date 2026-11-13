@@ -3,37 +3,37 @@
 -- character of a campaign identifies an item, every character of the campaign knows it, including characters who join later.
 --
 -- Model: COPY ON WRITE. character_item_knowledge stays the per-character record and the character's disguised inventory rows keep
--- following it (T4 _identify_sync_rows), so no read path changes: v_inventory_detail, _item_visible, _character_read, RLS and
--- Realtime are untouched (no slower inventory read, nothing computed per request).
--- * Campaign rule campaign_item_rules.share_identification (a missing row = ON, so existing and new campaigns share by default).
---   Off: exactly the per-character model of 20261112000300 / 20261112000400. Switching it on catches the campaign up once
---   (_party_share_sync); switching it off is never retroactive (nothing is lowered).
--- * Every RAISE of a character's knowledge goes through _identify_apply (examine success, the DM's answer, dm_reveal_item,
---   dm_set_item_knowledge mode raise, crafting's _craft_produce). Its old body is now _identify_apply_one; _identify_apply calls it,
---   lifts a DM hold of that character on that item, then pushes the character's record to the other characters of the campaign
---   (_party_share_from -> _party_apply_to -> _identify_apply_one: never recursive). set_item_knowledge (the old per-copy editor)
---   pushes when its write only added knowledge and holds the character when it took knowledge away.
--- * Explicit DM choices win: dm_set_item_knowledge mode 'set' (and a lowering set_item_knowledge) marks that character "held back
---   by the DM" for that item (character_item_knowledge.held_by_dm). Sharing never reaches a held character, and a held record is
---   never a source of the party level for joiners / catch-ups. dm_release_item_knowledge_hold lets sharing reach them again.
--- * A FAILED or pending examine writes nothing to anyone else. A target that holds only an undisguised copy is skipped (it sees
---   everything already; same rule as dm_set_item_knowledge raise). Party stash / shop rows keep their own knowledge (parked Q1).
--- * Joiners: an AFTER INSERT / UPDATE OF campaign_id trigger on characters copies the party level (union of the non-held records of
---   the other characters) of items of no campaign or of that campaign.
--- * History: item_knowledge_events gains source ('party_share') and source_character_id (who it came from), set through
---   transaction-local settings read by _item_knowledge_log. The target player's audit line names the item only as far as they now
---   know it, never who identified it, and has no actor.
--- * Data: holds are derived from the DM's past "set" calls (latest DM audit with mode set and no later record change, or a latest
---   history event that lowered knowledge); then every campaign is caught up (raise only, idempotent, never lowers or deletes).
--- Cache: campaign_item_rules feeds no cached read -> tl_cache.skip(). The record and row writes bump exactly as an ordinary reveal
--- of each target does (tl_cache.bump('character'), bump_item_knowledge, one character_revisions row per changed character).
--- Locks: a share locks the target's rows (id order) and record. Two characters examining the SAME item successfully at the SAME
--- moment can deadlock; Postgres then aborts one transaction cleanly (40P01, nothing half-written; the player retries).
+-- following it (T4 _identify_sync_rows), so no read path changes (v_inventory_detail, _item_visible, _character_read, RLS, Realtime).
+-- * Rule campaign_item_rules.share_identification (a missing row = ON). Off = the per-character model of 20261112000300/0400.
+--   Switching it on catches the campaign up once; switching it off never lowers anything.
+-- * Every raise goes through _identify_apply (examine success, the DM's answer, dm_reveal_item, dm_set_item_knowledge raise,
+--   crafting). Its old body is _identify_apply_one; _identify_apply locks its own target in the canonical order, applies, lifts a
+--   DM hold, applies the target's own pending shares, then pushes to the other characters of the campaign.
+-- * LOCKING (review round 1, B1): a transaction NEVER waits on another character. Touching a character that is not the
+--   transaction's own explicit target happens only inside a subtransaction (_party_guarded) that sets a 200 ms lock_timeout and
+--   takes that character's locks with NOWAIT in the order of the existing RPCs: characters (key share) -> tl_cache.character_rev
+--   -> its inventory rows (id order) -> their row knowledge -> its record. A busy character is skipped and a durable row in
+--   party_share_pending is written instead (no foreign keys, so writing it locks nothing of the target). Pending rows are applied
+--   in the target's own context: by its next _identify_apply, by sync_party_knowledge(character) (the sheet calls it on open and
+--   after an inventory refresh) and by dm_sync_party_knowledge(campaign). tl_cache.bump_item_knowledge (T4) takes other holders'
+--   counter rows NOWAIT too and falls back to the global counter (NOWAIT) when one is busy.
+--   The DM's bulk paths (dm_set_item_knowledge, dm_reveal_item) use the same guard per character: a busy character is reported
+--   by name and left pending instead of failing or waiting.
+-- * Knowledge travels only inside its campaign (round 1, M1): a record counts as party knowledge only when an
+--   item_knowledge_events row of that character and item carries THIS campaign id (knowledge with no such event is never a source).
+-- * Explicit DM choices win: mode 'set' and a lowering through the old per-copy editor mark the character held back (held_by_dm);
+--   sharing skips it and its record is never a source; an explicit raise of it or dm_release_item_knowledge_hold lifts the hold.
+-- * A failed or pending examine writes nothing for anyone else. A share never lowers a copy (the target's own row knowledge is part
+--   of the union) and closes the target's pending examine attempts as "Learned from the party" (no resolver).
+-- * Joiners: an AFTER INSERT / UPDATE OF campaign_id trigger gives a joining character the party level (its own rows only, one
+--   summary audit line); it never aborts the insert or the join (any error -> warning; busy items -> pending).
+-- Cache: campaign_item_rules and party_share_pending feed no cached read -> tl_cache.skip() (party_share_pending names its
+-- character column target_character_id on purpose: a bump would lock the busy target's counter row, the thing it avoids).
 -- Rollback: supabase/rollback/rollback_party_item_knowledge.sql.
 -- =============================================================================
 set lock_timeout = '5s';
 
--- ---- 1. the campaign rule ---------------------------------------------------------------------------------------------------
+-- ---- 1. tables and columns --------------------------------------------------------------------------------------------------
 create table public.campaign_item_rules (
   campaign_id          uuid primary key references public.campaigns (id) on delete cascade,
   share_identification boolean not null default true,
@@ -42,10 +42,36 @@ create table public.campaign_item_rules (
 );
 alter table public.campaign_item_rules enable row level security;
 revoke all on public.campaign_item_rules from anon, authenticated;
--- read by no cached read (only by the share functions and the DM's rule read): no cache invalidation, no player signal
 create trigger tl_cache_rev after insert or update or delete on public.campaign_item_rules
   for each row execute function tl_cache.skip();
 
+-- a share that could not take the target's locks at once; plain ids (no foreign keys: writing a row locks nothing of the target)
+create table public.party_share_pending (
+  id                  bigint generated always as identity primary key,
+  campaign_id         uuid not null,
+  target_character_id uuid not null,
+  item_id             text not null,
+  kind                text not null check (kind in ('share', 'raise', 'set')),
+  state               text not null check (state in ('unidentified', 'partially_identified', 'identified')),
+  revealed            text[] not null default '{}',
+  source_character_id uuid,
+  actor               uuid,
+  created_at          timestamptz not null default now()
+);
+create index party_share_pending_target on public.party_share_pending (target_character_id, id);
+create index party_share_pending_campaign on public.party_share_pending (campaign_id);
+alter table public.party_share_pending enable row level security;
+revoke all on public.party_share_pending from anon, authenticated;
+create trigger tl_cache_rev after insert or update or delete on public.party_share_pending
+  for each row execute function tl_cache.skip();
+
+alter table public.character_item_knowledge add column held_by_dm boolean not null default false;
+-- source_character_id is a plain uuid (round 1, B1: a foreign key would key-share-lock the source character on every event)
+alter table public.item_knowledge_events
+  add column source text check (source is null or source ~ '^[a-z_]{1,40}$'),
+  add column source_character_id uuid;
+
+-- ---- 2. small helpers ---------------------------------------------------------------------------------------------------------
 create function public._party_share_on(p_campaign uuid)
 returns boolean
 language sql stable security definer
@@ -55,11 +81,26 @@ as $$
      and coalesce((select r.share_identification from public.campaign_item_rules r where r.campaign_id = p_campaign), true);
 $$;
 
--- ---- 2. hold marker and history source --------------------------------------------------------------------------------------
-alter table public.character_item_knowledge add column held_by_dm boolean not null default false;
-alter table public.item_knowledge_events
-  add column source text check (source is null or source ~ '^[a-z_]{1,40}$'),
-  add column source_character_id uuid references public.characters (id) on delete set null;
+-- did this character learn something about the item while in this campaign? (M1: knowledge never travels between campaigns)
+create function public._ik_campaign_source(p_character uuid, p_item text, p_campaign uuid)
+returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select exists (select 1 from public.item_knowledge_events e
+                 where e.character_id = p_character and e.item_id = p_item and e.campaign_id = p_campaign
+                   and (e.new_state <> 'unidentified' or cardinality(e.new_revealed) > 0));
+$$;
+
+-- does (state, revealed) contain at least what (old_state, old_revealed) did?
+create function public._ik_contains(p_state text, p_revealed text[], p_old_state text, p_old_revealed text[])
+returns boolean
+language sql immutable
+set search_path = public, pg_temp
+as $$
+  select p_old_state is null or p_state = 'identified'
+      or (coalesce(p_old_state, 'unidentified') <> 'identified' and coalesce(p_old_revealed, '{}') <@ coalesce(p_revealed, '{}'));
+$$;
 
 -- body of 20261112000400 + source / source_character_id from the transaction-local settings tl.ik_source / tl.ik_source_char
 CREATE OR REPLACE FUNCTION public._item_knowledge_log()
@@ -75,22 +116,73 @@ begin
                                             source, source_character_id)
   values ((select c.campaign_id from public.characters c where c.id = new.character_id), new.character_id, new.item_id,
           case when tg_op = 'UPDATE' then old.state end, case when tg_op = 'UPDATE' then old.revealed end,
-          new.state, new.revealed, auth.uid(), src,
-          case when sch is not null and exists (select 1 from public.characters c where c.id = sch::uuid) then sch::uuid end);
+          new.state, new.revealed, auth.uid(), src, case when src is not null then sch::uuid end);
   return null;
 end $function$;
 
--- does (state, revealed) contain at least what (old_state, old_revealed) did?
-create function public._ik_contains(p_state text, p_revealed text[], p_old_state text, p_old_revealed text[])
-returns boolean
-language sql immutable
+-- T4 (20261112000300) + B1: the counter rows of OTHER holders are taken NOWAIT. A busy one is replaced by one global bump (NOWAIT
+-- too; if that is busy as well, the busy transaction bumps that counter itself when it commits). Never waits on another character.
+CREATE OR REPLACE FUNCTION tl_cache.bump_item_knowledge()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare rid uuid; iid text; cid uuid; k text; g text;
+begin
+  if tg_op = 'UPDATE' and to_jsonb(old) = to_jsonb(new) then return null; end if;
+  foreach rid in array array_remove(array[case when tg_op <> 'DELETE' then new.inventory_item_id end,
+                                          case when tg_op <> 'INSERT' then old.inventory_item_id end], null) loop
+    select ii.item_id into iid from public.inventory_items ii where ii.id = rid;
+    continue when iid is null;
+    k := 'tl_cache.i' || md5(iid || txid_current()::text);   -- once per item and transaction
+    continue when current_setting(k, true) = '1';
+    perform set_config(k, '1', true);
+    for cid in select distinct inv.character_id from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+               where ii.item_id = iid and inv.character_id is not null order by 1 loop
+      k := 'tl_cache.c' || md5(cid::text || txid_current()::text);   -- the dedup key of tl_cache.bump
+      continue when current_setting(k, true) = '1';
+      begin
+        perform 1 from tl_cache.character_rev where character_id = cid for update nowait;
+        insert into tl_cache.character_rev as r (character_id, rev)
+        select cid, 1 where exists (select 1 from public.characters c where c.id = cid)
+        on conflict (character_id) do update set rev = r.rev + 1;
+        perform set_config(k, '1', true);
+      exception when lock_not_available then
+        g := 'tl_cache.g' || md5(txid_current()::text);
+        if coalesce(current_setting(g, true), '') <> '1' then
+          begin
+            perform 1 from tl_cache.global_rev where id = 1 for update nowait;
+            update tl_cache.global_rev set rev = rev + 1 where id = 1;
+            perform set_config(g, '1', true);
+          exception when lock_not_available then null;
+          end;
+        end if;
+      end;
+    end loop;
+  end loop;
+  return null;
+end $function$;
+
+-- the locks of a character that is NOT the transaction's own target, in the order of the existing RPCs, all NOWAIT.
+-- Call it only inside a guarded subtransaction (a busy lock raises lock_not_available).
+create function public._ik_lock_target(p_character uuid, p_item text)
+returns void
+language plpgsql security definer
 set search_path = public, pg_temp
 as $$
-  select p_old_state is null or p_state = 'identified'
-      or (coalesce(p_old_state, 'unidentified') <> 'identified' and coalesce(p_old_revealed, '{}') <@ coalesce(p_revealed, '{}'));
-$$;
+begin
+  perform 1 from public.characters where id = p_character for key share nowait;
+  perform 1 from tl_cache.character_rev where character_id = p_character for update nowait;
+  perform 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+   where inv.character_id = p_character and ii.item_id = p_item order by ii.id for update of ii nowait;
+  perform 1 from public.inventory_item_knowledge k join public.inventory_items ii on ii.id = k.inventory_item_id
+    join public.inventories inv on inv.id = ii.inventory_id
+   where inv.character_id = p_character and ii.item_id = p_item order by k.inventory_item_id for update of k nowait;
+  perform 1 from public.character_item_knowledge where character_id = p_character and item_id = p_item for update nowait;
+end $$;
 
--- ---- 3. apply: one character (the old body), then the party ---------------------------------------------------------------
+-- ---- 3. apply ---------------------------------------------------------------------------------------------------------------
 -- the body of _identify_apply of 20261112000300, unchanged: reveal parts (or 'all') of an item to ONE character
 create function public._identify_apply_one(p_character uuid, p_item text, p_reveal text[])
 returns text
@@ -113,14 +205,46 @@ begin
   return st;
 end $$;
 
--- give ONE other character at least (p_state, p_revealed) of an item, as party knowledge. Skips a character held back by the DM
--- and one that holds only undisguised copies. Locks the target's rows (id order), then its record. Returns 1 when it changed.
-create function public._party_apply_to(p_target uuid, p_item text, p_state text, p_revealed text[])
+-- the DM's exact level for one character (the 'set' branch of dm_set_item_knowledge of 20261112000400) + the hold
+create function public._ik_apply_set(p_character uuid, p_item text, p_state text, p_revealed text[])
+returns boolean
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare it public.items; plain int; fp0 text := public._ik_fingerprint(p_character, p_item);
+begin
+  select * into it from public.items where id = p_item;
+  if p_state <> 'identified' then
+    -- undisguised rows of this character get a knowledge row, so the sync below disguises them too (m6)
+    insert into public.inventory_item_knowledge (inventory_item_id, state, revealed, true_name, updated_by)
+    select ii.id, 'identified', '{}', it.name, auth.uid()
+      from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+     where inv.character_id = p_character and ii.item_id = p_item
+       and not exists (select 1 from public.inventory_item_knowledge k where k.inventory_item_id = ii.id)
+     order by ii.id;
+    get diagnostics plain = row_count;
+    if plain > 0 then update public.items set secret = true where id = p_item and not secret; end if;
+  end if;
+  insert into public.character_item_knowledge as x (character_id, item_id, state, revealed, updated_by)
+  values (p_character, p_item, p_state, coalesce(p_revealed, '{}'), auth.uid())
+  on conflict (character_id, item_id) do update set state = excluded.state, revealed = excluded.revealed,
+    updated_by = excluded.updated_by, updated_at = now()
+  where (x.state, x.revealed) is distinct from (excluded.state, excluded.revealed);
+  update public.character_item_knowledge set held_by_dm = true where character_id = p_character and item_id = p_item and not held_by_dm;
+  perform public._identify_sync_rows(p_character, p_item);
+  return fp0 is distinct from public._ik_fingerprint(p_character, p_item);
+end $$;
+
+-- give ONE other character at least (p_state, p_revealed) of an item, as party knowledge. No locks of its own (the caller,
+-- _party_guarded, holds the target's locks). Skips a held character and one that holds only undisguised copies. Never lowers a
+-- copy: the target's own row knowledge is part of the union. Returns 1 when it changed.
+create function public._party_apply_to(p_target uuid, p_item text, p_state text, p_revealed text[], p_quiet boolean default false)
 returns int
 language plpgsql security definer
 set search_path = public, pg_temp
 as $$
 declare ck public.character_item_knowledge; rev text[]; st text; it public.items; d record; camp uuid; shown text;
+  row_ident boolean; row_rev text[];
 begin
   if p_target is null or p_item is null or p_state is null then return 0; end if;
   select * into ck from public.character_item_knowledge where character_id = p_target and item_id = p_item;
@@ -133,48 +257,98 @@ begin
                      where inv.character_id = p_target and ii.item_id = p_item) then
     return 0;
   end if;
-  rev := array(select distinct x from unnest(coalesce(ck.revealed, '{}') || coalesce(p_revealed, '{}')) x
+  select bool_or(k.state = 'identified'), coalesce(array_agg(x) filter (where x is not null), '{}')
+    into row_ident, row_rev
+    from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+    join public.inventory_item_knowledge k on k.inventory_item_id = ii.id
+    left join lateral unnest(k.revealed) x on true
+   where inv.character_id = p_target and ii.item_id = p_item;
+  rev := array(select distinct x from unnest(coalesce(ck.revealed, '{}') || coalesce(p_revealed, '{}') || coalesce(row_rev, '{}')) x
                where x is not null and btrim(x) <> '' and x <> 'all' order by 1);
-  st := case when p_state = 'identified' or ck.state = 'identified' then 'identified'
+  st := case when p_state = 'identified' or ck.state = 'identified' or coalesce(row_ident, false) then 'identified'
              when cardinality(rev) > 0 then 'partially_identified' else coalesce(ck.state, 'unidentified') end;
-  if st = 'unidentified' and cardinality(rev) = 0 then return 0; end if;          -- nothing to share
+  if st = 'unidentified' and cardinality(rev) = 0 then return 0; end if;
   if ck.character_id is not null and (ck.state, ck.revealed) is not distinct from (st, rev) then return 0; end if;
-  perform 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
-   where inv.character_id = p_target and ii.item_id = p_item order by ii.id for update of ii;
-  perform 1 from public.character_item_knowledge where character_id = p_target and item_id = p_item for update;
+  -- the target's own pending examine attempts are closed as learned from the party (not "by the DM", no resolver)
+  if st = 'identified' then
+    update public.item_identify_attempts set status = 'succeeded', revealed = '{all}', resolved_at = now(), resolved_by = null,
+           dm_note = coalesce(dm_note, 'Learned from the party')
+     where character_id = p_target and item_id = p_item and status = 'pending';
+  end if;
   perform public._identify_apply_one(p_target, p_item, case when st = 'identified' then rev || '{all}'::text[] else rev end);
-  -- the target player's own line (non-DM audit events reach only the character's owner): no actor, never who identified it, the
-  -- true name only when the target now knows the name
-  select * into it from public.items where id = p_item;
-  select * into d from public._item_decoy(p_item);
-  select campaign_id into camp from public.characters where id = p_target;
-  shown := case when st = 'identified' or 'name' = any (rev) then it.name else d.name end;
-  insert into public.campaign_audit_events (campaign_id, character_id, actor_id, event_type, summary, after, visibility)
-  values (camp, p_target, null, 'item_revealed', left('Your party learned something about an item: ' || shown, 300),
-          jsonb_build_object('revealed', to_jsonb(case when st = 'identified' then '{all}'::text[] else rev end), 'source', 'party_share'), 'party');
+  if not p_quiet then
+    -- the target player's own line (non-DM audit events reach only the character's owner): no actor, never who identified it, the
+    -- true name only when the target now knows the name
+    select * into it from public.items where id = p_item;
+    select * into d from public._item_decoy(p_item);
+    select campaign_id into camp from public.characters where id = p_target;
+    shown := case when st = 'identified' or 'name' = any (rev) then it.name else d.name end;
+    insert into public.campaign_audit_events (campaign_id, character_id, actor_id, event_type, summary, after, visibility)
+    values (camp, p_target, null, 'item_revealed', left('Your party learned something about an item: ' || shown, 300),
+            jsonb_build_object('revealed', to_jsonb(case when st = 'identified' then '{all}'::text[] else rev end), 'source', 'party_share'), 'party');
+  end if;
   perform set_config('tl.ik_shared', (coalesce(nullif(current_setting('tl.ik_shared', true), ''), '0')::int + 1)::text, true);
   return 1;
 end $$;
 
--- push what p_source now knows about an item to the other characters of its campaign (rule on). Returns the number changed.
+-- B1: one write to a character that is not the transaction's own target. Own subtransaction, 200 ms lock_timeout (restored),
+-- NOWAIT locks in the canonical order. Busy -> a party_share_pending row (or the given one is kept) and -1. Applied: 1 / 0.
+-- kind 'share' = party knowledge (_party_apply_to); 'raise' = the DM's explicit reveal (_identify_apply); 'set' = the DM's level.
+create function public._party_guarded(p_target uuid, p_item text, p_kind text, p_state text, p_revealed text[], p_source uuid,
+                                      p_campaign uuid, p_quiet boolean default false, p_pending bigint default null)
+returns int
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare lt text := current_setting('lock_timeout'); r int := 0;
+begin
+  begin
+    perform set_config('lock_timeout', '200ms', true);
+    perform public._ik_lock_target(p_target, p_item);
+    if p_kind = 'share' then
+      r := public._party_apply_to(p_target, p_item, p_state, p_revealed, p_quiet);
+    elsif p_kind = 'raise' then
+      perform public._identify_apply(p_target, p_item, case when p_state = 'identified' then coalesce(p_revealed, '{}') || '{all}'::text[] else p_revealed end);
+      r := 1;
+    else
+      r := case when public._ik_apply_set(p_target, p_item, p_state, p_revealed) then 1 else 0 end;
+      if r = 1 then perform public._identify_touch(p_target); end if;
+    end if;
+    perform set_config('lock_timeout', lt, true);
+  exception when lock_not_available or deadlock_detected then
+    -- the subtransaction (writes and the lock_timeout change) is rolled back; nothing of the target was locked or written
+    if p_pending is null then
+      insert into public.party_share_pending (campaign_id, target_character_id, item_id, kind, state, revealed, source_character_id, actor)
+      values (p_campaign, p_target, p_item, p_kind, p_state, coalesce(p_revealed, '{}'), p_source, auth.uid());
+    end if;
+    perform set_config('tl.ik_pending', (coalesce(nullif(current_setting('tl.ik_pending', true), ''), '0')::int + 1)::text, true);
+    return -1;
+  end;
+  if p_pending is not null then delete from public.party_share_pending where id = p_pending; end if;
+  return r;
+end $$;
+
+-- push what p_source now knows about an item to the other characters of its campaign (rule on, knowledge gained here)
 create function public._party_share_from(p_source uuid, p_item text)
 returns int
 language plpgsql security definer
 set search_path = public, pg_temp
 as $$
-declare camp uuid; src public.character_item_knowledge; it public.items; t uuid; n int := 0; prev_s text; prev_c text;
+declare camp uuid; src public.character_item_knowledge; it public.items; t uuid; n int := 0; r int; prev_s text; prev_c text;
 begin
   select campaign_id into camp from public.characters where id = p_source;
   if camp is null or not public._party_share_on(camp) then return 0; end if;
   select * into src from public.character_item_knowledge where character_id = p_source and item_id = p_item;
-  if src.character_id is null or (src.state = 'unidentified' and cardinality(src.revealed) = 0) then return 0; end if;
+  if src.character_id is null or src.held_by_dm or (src.state = 'unidentified' and cardinality(src.revealed) = 0) then return 0; end if;
   select * into it from public.items where id = p_item;
   if it.id is null or (it.campaign_id is not null and it.campaign_id <> camp) then return 0; end if;
+  if not public._ik_campaign_source(p_source, p_item, camp) then return 0; end if;
   prev_s := current_setting('tl.ik_source', true); prev_c := current_setting('tl.ik_source_char', true);
   perform set_config('tl.ik_source', 'party_share', true);
   perform set_config('tl.ik_source_char', p_source::text, true);
   for t in select c.id from public.characters c where c.campaign_id = camp and c.id <> p_source order by c.id loop
-    n := n + public._party_apply_to(t, p_item, src.state, src.revealed);
+    r := public._party_guarded(t, p_item, 'share', src.state, src.revealed, p_source, camp);
+    if r > 0 then n := n + 1; end if;
   end loop;
   perform set_config('tl.ik_source', coalesce(prev_s, ''), true);
   perform set_config('tl.ik_source_char', coalesce(prev_c, ''), true);
@@ -186,41 +360,85 @@ begin
   return n;
 end $$;
 
--- the party level of every item (union of the NON-HELD records of the other characters of the campaign) given to one character:
--- a joiner, a released hold, a catch-up. Items of another campaign never travel. Returns the number of items changed.
-create function public._party_share_pull(p_character uuid)
+-- the party level of the items of a campaign: union of the non-held records of its characters (except p_except) that were
+-- learned in this campaign (M1), for items of no campaign or of this campaign; one representative source per item
+create function public._party_levels(p_campaign uuid, p_except uuid, p_item text default null)
+returns table (item_id text, ident boolean, rev text[], src uuid)
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  with k as (
+    select ck.* from public.character_item_knowledge ck
+    join public.characters c on c.id = ck.character_id
+    join public.items it on it.id = ck.item_id
+    where c.campaign_id = p_campaign and c.id is distinct from p_except and not ck.held_by_dm
+      and (p_item is null or ck.item_id = p_item)
+      and (it.campaign_id is null or it.campaign_id = p_campaign)
+      and (ck.state <> 'unidentified' or cardinality(ck.revealed) > 0)
+      and public._ik_campaign_source(ck.character_id, ck.item_id, p_campaign))
+  select k.item_id, bool_or(k.state = 'identified'),
+         coalesce((select array_agg(distinct x order by x) from k k2 cross join unnest(k2.revealed) x where k2.item_id = k.item_id), '{}'),
+         (array_agg(k.character_id order by public._ik_rank(k.state, k.revealed) desc, k.updated_at, k.character_id))[1]
+  from k group by k.item_id order by k.item_id;
+$$;
+
+-- the party level of every item given to one character (a joiner, a catch-up). Returns the number of items changed.
+create function public._party_share_pull(p_character uuid, p_quiet boolean default false, p_item text default null)
 returns int
 language plpgsql security definer
 set search_path = public, pg_temp
 as $$
-declare camp uuid; r record; n int := 0; prev_s text; prev_c text;
+declare camp uuid; r record; n int := 0; x int; prev_s text; prev_c text;
 begin
   select campaign_id into camp from public.characters where id = p_character;
   if camp is null or not public._party_share_on(camp) then return 0; end if;
   prev_s := current_setting('tl.ik_source', true); prev_c := current_setting('tl.ik_source_char', true);
   perform set_config('tl.ik_source', 'party_share', true);
-  for r in
-    with k as (
-      select ck.* from public.character_item_knowledge ck
-      join public.characters c on c.id = ck.character_id
-      join public.items it on it.id = ck.item_id
-      where c.campaign_id = camp and c.id <> p_character and not ck.held_by_dm
-        and (it.campaign_id is null or it.campaign_id = camp)
-        and (ck.state <> 'unidentified' or cardinality(ck.revealed) > 0))
-    select k.item_id, bool_or(k.state = 'identified') as ident,
-           coalesce((select array_agg(distinct x order by x) from k k2 cross join unnest(k2.revealed) x where k2.item_id = k.item_id), '{}') as rev,
-           (array_agg(k.character_id order by public._ik_rank(k.state, k.revealed) desc, k.updated_at, k.character_id))[1] as src
-    from k group by k.item_id order by k.item_id
-  loop
+  for r in select * from public._party_levels(camp, p_character, p_item) loop
     perform set_config('tl.ik_source_char', r.src::text, true);
-    n := n + public._party_apply_to(p_character, r.item_id, case when r.ident then 'identified' else 'partially_identified' end, r.rev);
+    x := public._party_guarded(p_character, r.item_id, 'share', case when r.ident then 'identified' else 'partially_identified' end,
+                               r.rev, r.src, camp, p_quiet);
+    if x > 0 then n := n + 1; end if;
   end loop;
   perform set_config('tl.ik_source', coalesce(prev_s, ''), true);
   perform set_config('tl.ik_source_char', coalesce(prev_c, ''), true);
   return n;
 end $$;
 
--- every character of a campaign raised to the party level (idempotent; raise only). The migration and "rule switched on".
+-- apply a character's pending rows (in order). A row of another campaign (the character left), a share the rule / a hold /
+-- the source condition no longer allows, or a deleted character is discarded; a still-busy row stays. Idempotent.
+create function public._party_pending_apply(p_character uuid)
+returns int
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare camp uuid; p record; n int := 0; x int; prev_s text; prev_c text;
+begin
+  if not exists (select 1 from public.party_share_pending where target_character_id = p_character) then return 0; end if;
+  if current_setting('tl.ik_pending_run', true) = '1' then return 0; end if;   -- no recursion through _identify_apply
+  perform set_config('tl.ik_pending_run', '1', true);
+  prev_s := current_setting('tl.ik_source', true); prev_c := current_setting('tl.ik_source_char', true);
+  select campaign_id into camp from public.characters where id = p_character;
+  for p in select * from public.party_share_pending where target_character_id = p_character order by id loop
+    if camp is null or camp is distinct from p.campaign_id
+       or (p.kind = 'share' and (not public._party_share_on(camp)
+           or coalesce((select ck.held_by_dm from public.character_item_knowledge ck where ck.character_id = p_character and ck.item_id = p.item_id), false)
+           or (p.source_character_id is not null and not public._ik_campaign_source(p.source_character_id, p.item_id, camp)))) then
+      delete from public.party_share_pending where id = p.id;
+      continue;
+    end if;
+    perform set_config('tl.ik_source', case when p.kind = 'share' then 'party_share' else '' end, true);
+    perform set_config('tl.ik_source_char', case when p.kind = 'share' then coalesce(p.source_character_id::text, '') else '' end, true);
+    x := public._party_guarded(p_character, p.item_id, p.kind, p.state, p.revealed, p.source_character_id, camp, false, p.id);
+    if x >= 0 then n := n + 1; end if;
+  end loop;
+  perform set_config('tl.ik_source', coalesce(prev_s, ''), true);
+  perform set_config('tl.ik_source_char', coalesce(prev_c, ''), true);
+  perform set_config('tl.ik_pending_run', '', true);
+  return n;
+end $$;
+
+-- every character of a campaign: its pending rows, then the party level (raise only, idempotent). Rule switch-on, DM sync, migration.
 create function public._party_share_sync(p_campaign uuid)
 returns int
 language plpgsql security definer
@@ -230,12 +448,12 @@ declare c uuid; n int := 0;
 begin
   if not public._party_share_on(p_campaign) then return 0; end if;
   for c in select id from public.characters where campaign_id = p_campaign order by id loop
-    n := n + public._party_share_pull(c);
+    n := n + public._party_pending_apply(c) + public._party_share_pull(c);
   end loop;
   return n;
 end $$;
 
--- the body of 20261112000300 is now _identify_apply_one; this wrapper adds the party
+-- the body of 20261112000300 is now _identify_apply_one; this wrapper adds the canonical lock, the hold, pending rows, the party
 CREATE OR REPLACE FUNCTION public._identify_apply(p_character uuid, p_item text, p_reveal text[])
  RETURNS text
  LANGUAGE plpgsql
@@ -244,22 +462,37 @@ CREATE OR REPLACE FUNCTION public._identify_apply(p_character uuid, p_item text,
 AS $function$
 declare st text;
 begin
+  -- this transaction's own target: the canonical order of the existing RPCs (the character row before its counter row)
+  perform 1 from public.characters where id = p_character for key share;
   st := public._identify_apply_one(p_character, p_item, p_reveal);
   -- an explicit raise of this character (its own success, the DM's answer or reveal, crafting) lifts a DM hold on the item
   update public.character_item_knowledge set held_by_dm = false where character_id = p_character and item_id = p_item and held_by_dm;
+  perform public._party_pending_apply(p_character);
   perform public._party_share_from(p_character, p_item);
   return st;
 end $function$;
 
 -- ---- 4. joiners ---------------------------------------------------------------------------------------------------------------
+-- never aborts the insert or the join: busy items are left pending, any error is only a warning (the sync RPCs catch up)
 create function public._party_share_join()
 returns trigger
 language plpgsql security definer
 set search_path = public, pg_temp
 as $$
+declare n int;
 begin
   if new.campaign_id is null or (tg_op = 'UPDATE' and new.campaign_id is not distinct from old.campaign_id) then return null; end if;
-  perform public._party_share_pull(new.id);
+  begin
+    n := public._party_share_pull(new.id, true);
+    if n > 0 then
+      insert into public.campaign_audit_events (campaign_id, character_id, actor_id, event_type, summary, after, visibility)
+      values (new.campaign_id, new.id, null, 'item_revealed',
+              'Your party already knew ' || n || ' item' || case when n = 1 then '' else 's' end || ': you know ' || case when n = 1 then 'it' else 'them' end || ' too',
+              jsonb_build_object('items', n, 'source', 'party_share'), 'party');
+    end if;
+  exception when others then
+    raise warning 'party knowledge for a joining character was skipped (%): %', sqlstate, sqlerrm;
+  end;
   return null;
 end $$;
 create trigger characters_party_knowledge after insert or update of campaign_id on public.characters
@@ -308,7 +541,7 @@ begin
     on conflict (character_id, item_id) do update set state = excluded.state, revealed = excluded.revealed, updated_by = excluded.updated_by, updated_at = now();
     perform public._identify_sync_rows(inv.character_id, r.item_id);
     perform public._identify_touch(inv.character_id);
-    -- 20261114000100: share an addition with the party; a removal holds the character back
+    -- 20261114000100: share an addition with the party (guarded per target); a removal holds the character back
     select * into ck1 from public.character_item_knowledge where character_id = inv.character_id and item_id = r.item_id;
     if public._ik_contains(ck1.state, ck1.revealed, ck0.state, ck0.revealed) then
       if (ck0.state, ck0.revealed) is distinct from (ck1.state, ck1.revealed) then
@@ -328,8 +561,9 @@ begin
 end;
 $function$;
 
--- dm_set_item_knowledge (body of 20261112000400 + the marked lines): mode 'set' holds the characters back from party sharing;
--- mode 'raise' shares with the party (through _identify_apply); the result says how many other characters it reached
+-- dm_set_item_knowledge (body of 20261112000400, changed per character): every character is handled in a guarded subtransaction
+-- (B1): a busy character is not waited for and does not fail the call; it is listed in 'busy' (names for the DM) and a pending
+-- row applies the DM's choice later. Mode 'set' holds the character back; mode 'raise' shares with the party.
 CREATE OR REPLACE FUNCTION public.dm_set_item_knowledge(p_item text, p_characters uuid[], p_reveal text[], p_mode text DEFAULT 'set'::text, p_campaign uuid DEFAULT NULL::uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -337,7 +571,8 @@ CREATE OR REPLACE FUNCTION public.dm_set_item_knowledge(p_item text, p_character
  SET search_path TO 'public', 'pg_temp'
 AS $function$
 declare it public.items; camp uuid; is_full boolean; rev text[]; st text; cid uuid; ck public.character_item_knowledge;
-  fp0 text; fp1 text; changed boolean; plain int; skip_plain boolean; d record; shown text; owner_uid uuid; out jsonb := '[]'; n int := 0;
+  fp0 text; fp1 text; changed boolean; skip_plain boolean; d record; shown text; owner_uid uuid; out jsonb := '[]'; n int := 0;
+  lt text := current_setting('lock_timeout'); busy text[] := '{}'; cname text;
 begin
   if auth.uid() is null then raise exception 'Not authenticated' using errcode = '42501'; end if;
   select * into it from public.items where id = p_item;
@@ -368,89 +603,116 @@ begin
     raise exception 'Official items cannot be hidden again: copy the item to campaign homebrew first' using errcode = '22023';
   end if;
   select * into d from public._item_decoy(p_item);
-  perform set_config('tl.ik_shared', '0', true);   -- 20261114000100: counted by _party_apply_to
+  perform set_config('tl.ik_shared', '0', true);
+  perform set_config('tl.ik_pending', '0', true);
 
   foreach cid in array array(select distinct x from unnest(p_characters) x order by 1) loop
-    -- the character's rows of the item (id order), then its record, both NOWAIT: examine locks the examined row, then the record,
-    -- then the other rows, and _identify_apply locks the record before the rows. Waiting here could deadlock (40P01); a busy
-    -- row or record answers at once with a message the DM can act on (P0001: not rewritten into the generic text by the UI).
     begin
-      perform 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
-       where inv.character_id = cid and ii.item_id = p_item order by ii.id for update of ii nowait;
-      select * into ck from public.character_item_knowledge where character_id = cid and item_id = p_item for update nowait;
-    exception when lock_not_available then
-      raise exception 'The player is examining this item right now, try again in a moment' using errcode = 'P0001',
-        hint = 'Nothing was changed.';
+      -- B1: the character's locks NOWAIT in the canonical order, 200 ms for anything implicit; busy -> pending, listed
+      perform set_config('lock_timeout', '200ms', true);
+      perform public._ik_lock_target(cid, p_item);
+      select * into ck from public.character_item_knowledge where character_id = cid and item_id = p_item;
+      fp0 := public._ik_fingerprint(cid, p_item);
+      -- raise: a character who holds an undisguised copy (and no disguised one) already sees everything; nothing is written
+      skip_plain := p_mode = 'raise'
+        and exists (select 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+                    where inv.character_id = cid and ii.item_id = p_item
+                      and not exists (select 1 from public.inventory_item_knowledge k where k.inventory_item_id = ii.id))
+        and not exists (select 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+                        join public.inventory_item_knowledge k on k.inventory_item_id = ii.id
+                        where inv.character_id = cid and ii.item_id = p_item);
+      if skip_plain then
+        null;
+      elsif p_mode = 'raise' then
+        -- never lowers: skipped when the character already knows at least this much
+        if not (coalesce(ck.state = 'identified', false)
+                or (not is_full and (cardinality(rev) = 0 or coalesce(ck.character_id is not null and rev <@ ck.revealed, false)))) then
+          perform public._identify_apply(cid, p_item, case when is_full then '{all}'::text[] else rev end);
+        end if;
+      else
+        perform public._ik_apply_set(cid, p_item, st, rev);   -- the DM's exact choice; holds the character back from sharing
+      end if;
+      fp1 := public._ik_fingerprint(cid, p_item);
+      changed := fp0 is distinct from fp1;
+      select * into ck from public.character_item_knowledge where character_id = cid and item_id = p_item;
+      if changed then
+        n := n + 1;
+        perform public._identify_touch(cid);
+        shown := case when ck.state = 'identified' or 'name' = any (ck.revealed) then it.name else d.name end;
+        -- the player's line (non-DM audit events reach only the character's owner): no true name unless the name is known
+        perform public._audit(camp, cid, 'item_revealed',
+          case when ck.state = 'identified' then 'The DM revealed an item: ' || shown
+               else 'The DM changed what you know about an item: ' || shown end,
+          null, jsonb_build_object('revealed', to_jsonb(case when ck.state = 'identified' then '{all}'::text[] else ck.revealed end)), null, null, 'party');
+        perform public._audit(camp, cid, 'item_revealed',
+          'Knowledge of ' || it.name || ': ' || replace(ck.state, '_', ' ')
+            || case when cardinality(ck.revealed) > 0 then ' (' || array_to_string(ck.revealed, ', ') || ')' else '' end,
+          null, jsonb_build_object('item_id', it.id, 'mode', p_mode, 'state', ck.state, 'revealed', to_jsonb(ck.revealed)), null, null, 'dm');
+      end if;
+      select owner_id into owner_uid from public.characters where id = cid;
+      out := out || jsonb_build_array(jsonb_build_object('character_id', cid, 'changed', changed,
+        'state', coalesce(ck.state, 'unidentified'), 'revealed', to_jsonb(coalesce(ck.revealed, '{}'::text[])),
+        'held', coalesce(ck.held_by_dm, false), 'busy', false,
+        'skipped', case when skip_plain then 'holds an undisguised copy' end,
+        'warning', case when not skip_plain and it.owner_id is not distinct from owner_uid and coalesce(ck.state, 'unidentified') <> 'identified'
+                        then 'The player created this item and can still look it up in the catalog' end));
+      perform set_config('lock_timeout', lt, true);
+    exception when lock_not_available or deadlock_detected then
+      insert into public.party_share_pending (campaign_id, target_character_id, item_id, kind, state, revealed, actor)
+      values (camp, cid, p_item, p_mode, st, rev, auth.uid());
+      select name into cname from public.characters where id = cid;
+      busy := busy || coalesce(cname, '?');
+      out := out || jsonb_build_array(jsonb_build_object('character_id', cid, 'changed', false, 'busy', true,
+        'state', null, 'revealed', '[]'::jsonb, 'held', null, 'skipped', null, 'warning', null));
     end;
-    fp0 := public._ik_fingerprint(cid, p_item);
-    -- raise: a character who holds an undisguised copy (and no disguised one) already sees everything; a record would only be
-    -- LOWER than what the player sees, so nothing is written (no record, history, audit or revision)
-    skip_plain := p_mode = 'raise'
-      and exists (select 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
-                  where inv.character_id = cid and ii.item_id = p_item
-                    and not exists (select 1 from public.inventory_item_knowledge k where k.inventory_item_id = ii.id))
-      and not exists (select 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
-                      join public.inventory_item_knowledge k on k.inventory_item_id = ii.id
-                      where inv.character_id = cid and ii.item_id = p_item);
-    if skip_plain then
-      null;
-    elsif p_mode = 'raise' then
-      -- never lowers: skipped when the character already knows at least this much
-      if not (coalesce(ck.state = 'identified', false)
-              or (not is_full and (cardinality(rev) = 0 or coalesce(ck.character_id is not null and rev <@ ck.revealed, false)))) then
-        perform public._identify_apply(cid, p_item, case when is_full then '{all}'::text[] else rev end);
-      end if;
-    else
-      if st <> 'identified' then
-        -- undisguised rows of this character get a knowledge row, so the sync below disguises them too (m6)
-        insert into public.inventory_item_knowledge (inventory_item_id, state, revealed, true_name, updated_by)
-        select ii.id, 'identified', '{}', it.name, auth.uid()
-          from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
-         where inv.character_id = cid and ii.item_id = p_item
-           and not exists (select 1 from public.inventory_item_knowledge k where k.inventory_item_id = ii.id)
-         order by ii.id;
-        get diagnostics plain = row_count;
-        if plain > 0 then update public.items set secret = true where id = p_item and not secret; end if;
-      end if;
-      insert into public.character_item_knowledge as x (character_id, item_id, state, revealed, updated_by)
-      values (cid, p_item, st, rev, auth.uid())
-      on conflict (character_id, item_id) do update set state = excluded.state, revealed = excluded.revealed,
-        updated_by = excluded.updated_by, updated_at = now()
-      where (x.state, x.revealed) is distinct from (excluded.state, excluded.revealed);
-      -- 20261114000100: the DM's exact choice for this character; party sharing skips it until released or raised
-      update public.character_item_knowledge set held_by_dm = true where character_id = cid and item_id = p_item and not held_by_dm;
-      perform public._identify_sync_rows(cid, p_item);
-    end if;
-    fp1 := public._ik_fingerprint(cid, p_item);
-    changed := fp0 is distinct from fp1;
-    select * into ck from public.character_item_knowledge where character_id = cid and item_id = p_item;
-    if changed then
-      n := n + 1;
-      perform public._identify_touch(cid);
-      shown := case when ck.state = 'identified' or 'name' = any (ck.revealed) then it.name else d.name end;
-      -- the player's line (non-DM audit events reach only the character's owner): no true name unless the name is known
-      perform public._audit(camp, cid, 'item_revealed',
-        case when ck.state = 'identified' then 'The DM revealed an item: ' || shown
-             else 'The DM changed what you know about an item: ' || shown end,
-        null, jsonb_build_object('revealed', to_jsonb(case when ck.state = 'identified' then '{all}'::text[] else ck.revealed end)), null, null, 'party');
-      perform public._audit(camp, cid, 'item_revealed',
-        'Knowledge of ' || it.name || ': ' || replace(ck.state, '_', ' ')
-          || case when cardinality(ck.revealed) > 0 then ' (' || array_to_string(ck.revealed, ', ') || ')' else '' end,
-        null, jsonb_build_object('item_id', it.id, 'mode', p_mode, 'state', ck.state, 'revealed', to_jsonb(ck.revealed)), null, null, 'dm');
-    end if;
-    select owner_id into owner_uid from public.characters where id = cid;
-    out := out || jsonb_build_array(jsonb_build_object('character_id', cid, 'changed', changed,
-      'state', coalesce(ck.state, 'unidentified'), 'revealed', to_jsonb(coalesce(ck.revealed, '{}'::text[])),
-      'held', coalesce(ck.held_by_dm, false),   -- 20261114000100
-      'skipped', case when skip_plain then 'holds an undisguised copy' end,
-      'warning', case when not skip_plain and it.owner_id is not distinct from owner_uid and coalesce(ck.state, 'unidentified') <> 'identified'
-                      then 'The player created this item and can still look it up in the catalog' end));
   end loop;
   return jsonb_build_object('item_id', p_item, 'mode', p_mode, 'changed', n, 'results', out,
-    'party_share', public._party_share_on(camp), 'shared_with', coalesce(nullif(current_setting('tl.ik_shared', true), ''), '0')::int);   -- 20261114000100
+    'party_share', public._party_share_on(camp), 'shared_with', coalesce(nullif(current_setting('tl.ik_shared', true), ''), '0')::int,
+    'busy', cardinality(busy), 'busy_names', to_jsonb(busy),
+    'pending', coalesce(nullif(current_setting('tl.ik_pending', true), ''), '0')::int + cardinality(busy));
 end $function$;
 
--- get_item_knowledge_overview (body of 20261112000400 + the marked keys): the rule, holds, where party knowledge came from
+-- dm_reveal_item (body of 20261112000300, changed per character): each character in a guarded subtransaction (B1). This loop
+-- already deadlocked with players' RPCs at 0a05e81; a busy character is now left pending and reported instead.
+CREATE OR REPLACE FUNCTION public.dm_reveal_item(p_item text, p_characters uuid[] DEFAULT NULL::uuid[], p_reveal text[] DEFAULT NULL::text[], p_campaign uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare it public.items; camp uuid; targets uuid[]; cid uuid; st text; n int := 0; r int; busy text[] := '{}'; rv text[];
+begin
+  select * into it from public.items where id = p_item;
+  if it.id is null then raise exception 'Item not found' using errcode = 'P0002'; end if;
+  if it.campaign_id is not null and p_campaign is not null and p_campaign <> it.campaign_id then
+    raise exception 'The item belongs to another campaign' using errcode = '22023';
+  end if;
+  camp := coalesce(it.campaign_id, p_campaign);
+  if auth.uid() is null or camp is null or not (public.is_admin() or public.is_campaign_dm(camp)) then
+    raise exception 'Only the DM of the campaign can reveal items' using errcode = '42501';
+  end if;
+  targets := coalesce(p_characters, array(select id from public.characters where campaign_id = camp order by id));
+  if exists (select 1 from unnest(targets) t left join public.characters c on c.id = t where c.campaign_id is distinct from camp) then
+    raise exception 'Every character must be in the campaign' using errcode = '22023';
+  end if;
+  rv := array_remove(coalesce(p_reveal, '{all}'), 'all');
+  foreach cid in array targets loop
+    r := public._party_guarded(cid, p_item, 'raise', case when 'all' = any (coalesce(p_reveal, '{all}')) then 'identified'
+                               when cardinality(rv) > 0 then 'partially_identified' else 'unidentified' end, rv, null, camp);
+    if r < 0 then
+      busy := busy || coalesce((select name from public.characters where id = cid), '?');
+      continue;
+    end if;
+    select state into st from public.character_item_knowledge where character_id = cid and item_id = p_item;
+    n := n + 1;
+    perform public._audit(camp, cid, 'item_revealed', 'The DM revealed ' || case when st = 'identified' then 'an item: ' || it.name else 'part of an item' end,
+                          null, jsonb_build_object('revealed', to_jsonb(coalesce(p_reveal, '{all}'))), null, null, 'party');
+  end loop;
+  return jsonb_build_object('item_id', p_item, 'characters', n, 'busy', cardinality(busy), 'busy_names', to_jsonb(busy));
+end;
+$function$;
+
+-- get_item_knowledge_overview (body of 20261112000400 + the marked keys): the rule, holds, pending shares, party origin
 CREATE OR REPLACE FUNCTION public.get_item_knowledge_overview(p_item text, p_campaign uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -479,7 +741,8 @@ begin
                      'updated_by', (select coalesce(p.display_name, 'someone') from public.profiles p where p.id = ck.updated_by))
                    from public.character_item_knowledge ck where ck.character_id = c.id and ck.item_id = it.id),
         'held', coalesce(ck2.held_by_dm, false),   -- 20261114000100
-        'party_source', (select jsonb_build_object('at', e.created_at,   -- 20261114000100: the last knowledge that came from the party
+        'pending', (select count(*)::int from public.party_share_pending ps where ps.target_character_id = c.id and ps.item_id = it.id),
+        'party_source', (select jsonb_build_object('at', e.created_at,
                            'from', (select sc.name from public.characters sc where sc.id = e.source_character_id))
                          from public.item_knowledge_events e where e.character_id = c.id and e.item_id = it.id and e.source = 'party_share'
                          order by e.created_at desc, e.id desc limit 1),
@@ -530,7 +793,7 @@ begin
       order by e.created_at desc, e.id desc limit 50) h));
 end $function$;
 
--- ---- 6. new DM RPCs -----------------------------------------------------------------------------------------------------------
+-- ---- 6. new RPCs ------------------------------------------------------------------------------------------------------------
 create function public.get_campaign_identification_sharing(p_campaign uuid)
 returns jsonb
 language plpgsql stable security definer
@@ -542,10 +805,11 @@ begin
   end if;
   return jsonb_build_object('campaign_id', p_campaign, 'share_identification', public._party_share_on(p_campaign),
     'held', (select count(*)::int from public.character_item_knowledge ck join public.characters c on c.id = ck.character_id
-             where c.campaign_id = p_campaign and ck.held_by_dm));
+             where c.campaign_id = p_campaign and ck.held_by_dm),
+    'pending', (select count(*)::int from public.party_share_pending p where p.campaign_id = p_campaign));
 end $$;
 
--- switch the rule. On: the campaign catches up once (raise only). Off: nothing is lowered, later discoveries stay per character.
+-- switch the rule. On: the campaign catches up once (raise only, guarded per character). Off: nothing is lowered.
 create function public.set_campaign_identification_sharing(p_campaign uuid, p_on boolean)
 returns jsonb
 language plpgsql security definer
@@ -557,7 +821,8 @@ begin
     raise exception 'Only the DM of the campaign can change its rules' using errcode = '42501';
   end if;
   if p_on is null then raise exception 'Choose on or off' using errcode = '22023'; end if;
-  perform 1 from public.campaigns where id = p_campaign for update;   -- one switch at a time per campaign
+  -- one switch at a time per campaign (NO KEY UPDATE: foreign-key key-share locks of other transactions are not blocked)
+  perform 1 from public.campaigns where id = p_campaign for no key update;
   was := public._party_share_on(p_campaign);
   insert into public.campaign_item_rules (campaign_id, share_identification, updated_by) values (p_campaign, p_on, auth.uid())
   on conflict (campaign_id) do update set share_identification = excluded.share_identification, updated_by = excluded.updated_by, updated_at = now()
@@ -571,13 +836,13 @@ begin
   return public.get_campaign_identification_sharing(p_campaign) || jsonb_build_object('caught_up', n);
 end $$;
 
--- let party sharing reach characters the DM held back: they get the party level now and their own knowledge joins it
+-- let party sharing reach characters the DM held back: the party level of the item now, then their knowledge joins it
 create function public.dm_release_item_knowledge_hold(p_item text, p_characters uuid[], p_campaign uuid default null)
 returns jsonb
 language plpgsql security definer
 set search_path = public, pg_temp
 as $$
-declare it public.items; camp uuid; cid uuid; n int := 0; r record; prev_s text;
+declare it public.items; camp uuid; cid uuid; n int := 0; lt text := current_setting('lock_timeout'); busy text[] := '{}';
 begin
   if auth.uid() is null then raise exception 'Not authenticated' using errcode = '42501'; end if;
   select * into it from public.items where id = p_item;
@@ -598,39 +863,67 @@ begin
   end if;
   perform set_config('tl.ik_shared', '0', true);
   foreach cid in array array(select distinct x from unnest(p_characters) x order by 1) loop
-    update public.character_item_knowledge set held_by_dm = false where character_id = cid and item_id = p_item and held_by_dm;
-    if not found then continue; end if;
-    n := n + 1;
-    if public._party_share_on(camp) then
-      -- the party level of THIS item, then what they know goes to the others
-      prev_s := current_setting('tl.ik_source', true);
-      perform set_config('tl.ik_source', 'party_share', true);
-      for r in
-        select bool_or(ck.state = 'identified') as ident,
-               coalesce(array_agg(distinct x order by x) filter (where x is not null), '{}') as rev,
-               (array_agg(ck.character_id order by public._ik_rank(ck.state, ck.revealed) desc, ck.updated_at, ck.character_id))[1] as src
-        from public.character_item_knowledge ck join public.characters c on c.id = ck.character_id
-        left join lateral unnest(ck.revealed) x on true
-        where c.campaign_id = camp and c.id <> cid and ck.item_id = p_item and not ck.held_by_dm
-          and (ck.state <> 'unidentified' or cardinality(ck.revealed) > 0)
-        having count(*) > 0
-      loop
-        perform set_config('tl.ik_source_char', r.src::text, true);
-        perform public._party_apply_to(cid, p_item, case when r.ident then 'identified' else 'partially_identified' end, r.rev);
-      end loop;
-      perform set_config('tl.ik_source', coalesce(prev_s, ''), true);
-      perform set_config('tl.ik_source_char', '', true);
-      perform public._party_share_from(cid, p_item);
-    end if;
-    perform public._audit(camp, cid, 'item_revealed', 'Party sharing of ' || it.name || ' reaches this character again', null,
-      jsonb_build_object('item_id', it.id, 'mode', 'release'), null, null, 'dm');
+    begin
+      perform set_config('lock_timeout', '200ms', true);
+      perform public._ik_lock_target(cid, p_item);
+      update public.character_item_knowledge set held_by_dm = false where character_id = cid and item_id = p_item and held_by_dm;
+      if found then
+        n := n + 1;
+        perform public._audit(camp, cid, 'item_revealed', 'Party sharing of ' || it.name || ' reaches this character again', null,
+          jsonb_build_object('item_id', it.id, 'mode', 'release'), null, null, 'dm');
+      end if;
+      perform set_config('lock_timeout', lt, true);
+    exception when lock_not_available or deadlock_detected then
+      busy := busy || coalesce((select name from public.characters where id = cid), '?');
+      continue;
+    end;
+    -- outside the subtransaction: the party level of THIS item, then what they know goes to the others (both guarded)
+    perform public._party_share_pull(cid, false, p_item);
+    perform public._party_share_from(cid, p_item);
   end loop;
-  return jsonb_build_object('item_id', p_item, 'released', n,
+  return jsonb_build_object('item_id', p_item, 'released', n, 'busy', cardinality(busy), 'busy_names', to_jsonb(busy),
     'shared_with', coalesce(nullif(current_setting('tl.ik_shared', true), ''), '0')::int);
 end $$;
 
--- ---- 7. data: holds from the DM's past exact choices, then every campaign catches up -----------------------------------------
--- a DM "set" (Set / Hide) of a character's knowledge that nothing changed afterwards is an explicit choice: keep it
+-- the sheet calls this on open and after an inventory refresh: apply the character's pending party shares (its owner, its DM,
+-- an admin). One indexed lookup when nothing is pending. Returns counts only.
+create function public.sync_party_knowledge(p_character uuid)
+returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare n int := 0;
+begin
+  if auth.uid() is null or p_character is null or not public.can_access_character(p_character) then
+    raise exception 'Character not found' using errcode = '42501';
+  end if;
+  if exists (select 1 from public.party_share_pending where target_character_id = p_character) then
+    n := public._party_pending_apply(p_character);
+  end if;
+  return jsonb_build_object('applied', n,
+    'pending', (select count(*)::int from public.party_share_pending where target_character_id = p_character));
+end $$;
+
+-- DM: "Sync party knowledge": drop pending rows of characters that left, then every character's pending rows and the party level
+create function public.dm_sync_party_knowledge(p_campaign uuid)
+returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare n int; dropped int;
+begin
+  if auth.uid() is null or p_campaign is null or not (public.is_admin() or public.is_campaign_dm(p_campaign)) then
+    raise exception 'Only the DM of the campaign can sync party knowledge' using errcode = '42501';
+  end if;
+  delete from public.party_share_pending p where p.campaign_id = p_campaign
+    and not exists (select 1 from public.characters c where c.id = p.target_character_id and c.campaign_id = p_campaign);
+  get diagnostics dropped = row_count;
+  n := public._party_share_sync(p_campaign);
+  return jsonb_build_object('applied', n, 'dropped', dropped,
+    'pending', (select count(*)::int from public.party_share_pending where campaign_id = p_campaign));
+end $$;
+
+-- ---- 7. data: holds from the DM's past exact choices, then every campaign catches up (guarded, raise only) ---------------------
 with last_dm as (
   select distinct on (e.character_id, e.after ->> 'item_id') e.character_id, e.after ->> 'item_id' as item_id, e.after ->> 'mode' as mode, e.created_at
   from public.campaign_audit_events e
@@ -641,7 +934,6 @@ from last_dm l
 where l.mode = 'set' and ck.character_id = l.character_id and ck.item_id = l.item_id and not ck.held_by_dm
   and not exists (select 1 from public.item_knowledge_events ev where ev.character_id = ck.character_id and ev.item_id = ck.item_id
                   and ev.created_at > l.created_at);
--- a record whose LAST history event took knowledge away (the old per-copy editor) is held too
 with last_ev as (
   select distinct on (ev.character_id, ev.item_id) ev.*
   from public.item_knowledge_events ev order by ev.character_id, ev.item_id, ev.created_at desc, ev.id desc)
@@ -657,17 +949,22 @@ begin
   for c in select id from public.campaigns order by id loop
     n := n + public._party_share_sync(c);
   end loop;
-  raise notice 'party item knowledge: % held record(s); % record(s) raised to the party level', h, n;
+  raise notice 'party item knowledge: % held record(s); % record(s) raised to the party level; % pending', h, n,
+    (select count(*) from public.party_share_pending);
 end $$;
 
 -- ---- 8. grants ---------------------------------------------------------------------------------------------------------------
-revoke all on function public._party_share_on(uuid), public._ik_contains(text, text[], text, text[]),
-  public._identify_apply_one(uuid, text, text[]), public._party_apply_to(uuid, text, text, text[]), public._party_share_from(uuid, text),
-  public._party_share_pull(uuid), public._party_share_sync(uuid), public._party_share_join() from public, anon, authenticated;
+revoke all on function public._party_share_on(uuid), public._ik_campaign_source(uuid, text, uuid), public._ik_contains(text, text[], text, text[]),
+  public._ik_lock_target(uuid, text), public._identify_apply_one(uuid, text, text[]), public._ik_apply_set(uuid, text, text, text[]),
+  public._party_apply_to(uuid, text, text, text[], boolean),
+  public._party_guarded(uuid, text, text, text, text[], uuid, uuid, boolean, bigint), public._party_share_from(uuid, text),
+  public._party_levels(uuid, uuid, text), public._party_share_pull(uuid, boolean, text), public._party_pending_apply(uuid),
+  public._party_share_sync(uuid), public._party_share_join() from public, anon, authenticated;
 revoke all on function public.get_campaign_identification_sharing(uuid), public.set_campaign_identification_sharing(uuid, boolean),
-  public.dm_release_item_knowledge_hold(text, uuid[], uuid) from public, anon;
+  public.dm_release_item_knowledge_hold(text, uuid[], uuid), public.sync_party_knowledge(uuid), public.dm_sync_party_knowledge(uuid) from public, anon;
 grant execute on function public.get_campaign_identification_sharing(uuid), public.set_campaign_identification_sharing(uuid, boolean),
-  public.dm_release_item_knowledge_hold(text, uuid[], uuid) to authenticated, service_role;
+  public.dm_release_item_knowledge_hold(text, uuid[], uuid), public.sync_party_knowledge(uuid), public.dm_sync_party_knowledge(uuid)
+  to authenticated, service_role;
 
 reset lock_timeout;
 notify pgrst, 'reload schema';

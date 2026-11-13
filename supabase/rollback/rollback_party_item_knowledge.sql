@@ -1,15 +1,18 @@
 -- =============================================================================
 -- Rollback of 20261114000100_party_item_knowledge.sql. Run as postgres in ONE transaction:
 --   psql -v ON_ERROR_STOP=1 -1 -f supabase/rollback/rollback_party_item_knowledge.sql
--- Restores the exact previous bodies of the five replaced functions (captured with pg_get_functiondef from the local database at
--- 20261113000100; md5 of pg_get_functiondef, first 8: _identify_apply ae98ff51, _item_knowledge_log e24b17c6, set_item_knowledge 1df683f9, dm_set_item_knowledge f5115397, get_item_knowledge_overview 320cb154; grants are unchanged by CREATE OR REPLACE), drops the joiner trigger,
--- every new function, the campaign rule table and the three new columns.
+-- Restores the exact previous bodies of the seven replaced functions (captured with pg_get_functiondef from the local database at
+-- 20261113000100; md5 of pg_get_functiondef, first 8: _identify_apply ae98ff51, _item_knowledge_log e24b17c6, set_item_knowledge
+-- 1df683f9, dm_set_item_knowledge f5115397, get_item_knowledge_overview 320cb154, dm_reveal_item 59c15bc7,
+-- tl_cache.bump_item_knowledge 3013a275; grants are unchanged by CREATE OR REPLACE), drops the joiner trigger, every new function,
+-- the tables campaign_item_rules and party_share_pending and the three new columns.
 -- KEPT on purpose (ordinary T4 data, read by the T4 code exactly as before): knowledge records that party sharing raised, the
--- inventory rows' names / descriptions / row knowledge that followed them, character_revisions and audit events. Nothing is lowered:
--- a character who learned an item from the party keeps knowing it.
+-- inventory rows' names / descriptions / row knowledge that followed them, examine attempts closed as "Learned from the party",
+-- character_revisions and audit events. Nothing is lowered: a character who learned an item from the party keeps knowing it.
 -- LOST (export first if it matters):
---   select campaign_id, share_identification from public.campaign_item_rules;          -- the rule per campaign
---   select character_id, item_id from public.character_item_knowledge where held_by_dm; -- the DM holds
+--   select campaign_id, share_identification from public.campaign_item_rules;           -- the rule per campaign
+--   select * from public.party_share_pending;                                           -- shares not applied yet
+--   select character_id, item_id from public.character_item_knowledge where held_by_dm;  -- the DM holds
 --   select id, source, source_character_id from public.item_knowledge_events where source is not null;
 -- Deploy order for a rollback: the previous frontend (?v=28) first, then this file.
 -- =============================================================================
@@ -292,19 +295,89 @@ begin
 end $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.dm_reveal_item(p_item text, p_characters uuid[] DEFAULT NULL::uuid[], p_reveal text[] DEFAULT NULL::text[], p_campaign uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare it public.items; camp uuid; targets uuid[]; cid uuid; st text; n int := 0;
+begin
+  select * into it from public.items where id = p_item;
+  if it.id is null then raise exception 'Item not found' using errcode = 'P0002'; end if;
+  if it.campaign_id is not null and p_campaign is not null and p_campaign <> it.campaign_id then
+    raise exception 'The item belongs to another campaign' using errcode = '22023';
+  end if;
+  camp := coalesce(it.campaign_id, p_campaign);
+  if auth.uid() is null or camp is null or not (public.is_admin() or public.is_campaign_dm(camp)) then
+    raise exception 'Only the DM of the campaign can reveal items' using errcode = '42501';
+  end if;
+  targets := coalesce(p_characters, array(select id from public.characters where campaign_id = camp order by id));
+  if exists (select 1 from unnest(targets) t left join public.characters c on c.id = t where c.campaign_id is distinct from camp) then
+    raise exception 'Every character must be in the campaign' using errcode = '22023';
+  end if;
+  foreach cid in array targets loop
+    st := public._identify_apply(cid, p_item, coalesce(p_reveal, '{all}'));
+    n := n + 1;
+    perform public._audit(camp, cid, 'item_revealed', 'The DM revealed ' || case when st = 'identified' then 'an item: ' || it.name else 'part of an item' end,
+                          null, jsonb_build_object('revealed', to_jsonb(coalesce(p_reveal, '{all}'))), null, null, 'party');
+  end loop;
+  return jsonb_build_object('item_id', p_item, 'characters', n);
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION tl_cache.bump_item_knowledge()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare rid uuid; iid text; cid uuid; k text;
+begin
+  if tg_op = 'UPDATE' and to_jsonb(old) = to_jsonb(new) then return null; end if;
+  foreach rid in array array_remove(array[case when tg_op <> 'DELETE' then new.inventory_item_id end,
+                                          case when tg_op <> 'INSERT' then old.inventory_item_id end], null) loop
+    select ii.item_id into iid from public.inventory_items ii where ii.id = rid;
+    continue when iid is null;
+    k := 'tl_cache.i' || md5(iid || txid_current()::text);   -- once per item and transaction
+    continue when current_setting(k, true) = '1';
+    perform set_config(k, '1', true);
+    for cid in select distinct inv.character_id from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+               where ii.item_id = iid and inv.character_id is not null loop
+      k := 'tl_cache.c' || md5(cid::text || txid_current()::text);   -- the dedup key of tl_cache.bump
+      continue when current_setting(k, true) = '1';
+      insert into tl_cache.character_rev as r (character_id, rev)
+      select cid, 1 where exists (select 1 from public.characters c where c.id = cid)
+      on conflict (character_id) do update set rev = r.rev + 1;
+      perform set_config(k, '1', true);
+    end loop;
+  end loop;
+  return null;
+end $function$
+;
+
+drop function if exists public.dm_sync_party_knowledge(uuid);
+drop function if exists public.sync_party_knowledge(uuid);
 drop function if exists public.dm_release_item_knowledge_hold(text, uuid[], uuid);
 drop function if exists public.set_campaign_identification_sharing(uuid, boolean);
 drop function if exists public.get_campaign_identification_sharing(uuid);
 drop function if exists public._party_share_join();
 drop function if exists public._party_share_sync(uuid);
-drop function if exists public._party_share_pull(uuid);
+drop function if exists public._party_pending_apply(uuid);
+drop function if exists public._party_share_pull(uuid, boolean, text);
+drop function if exists public._party_levels(uuid, uuid, text);
 drop function if exists public._party_share_from(uuid, text);
-drop function if exists public._party_apply_to(uuid, text, text, text[]);
+drop function if exists public._party_guarded(uuid, text, text, text, text[], uuid, uuid, boolean, bigint);
+drop function if exists public._party_apply_to(uuid, text, text, text[], boolean);
+drop function if exists public._ik_apply_set(uuid, text, text, text[]);
 drop function if exists public._identify_apply_one(uuid, text, text[]);
+drop function if exists public._ik_lock_target(uuid, text);
 drop function if exists public._ik_contains(text, text[], text, text[]);
+drop function if exists public._ik_campaign_source(uuid, text, uuid);
 drop function if exists public._party_share_on(uuid);
 alter table public.item_knowledge_events drop column if exists source_character_id, drop column if exists source;
 alter table public.character_item_knowledge drop column if exists held_by_dm;
+drop table if exists public.party_share_pending;
 drop table if exists public.campaign_item_rules;
 do $$
 begin

@@ -254,3 +254,95 @@ select tl_test.rec('PK13 overview: party_share flag, history rows with source pa
   (:'ov'::jsonb ->> 'party_share')::boolean
   and exists (select 1 from jsonb_array_elements(:'ov'::jsonb -> 'history') h where h ->> 'source' = 'party_share' and h ->> 'source_character_name' = 'Party A'),
   left(:'ov', 400));
+
+-- ---- round 2 ------------------------------------------------------------------------------------------------------------------
+-- PK14 M1: knowledge never travels between campaigns (official item made secret, learned in camp, character moved to camp2)
+select tl_test.as_root();
+update public.items set secret = true where id = 'longsword';
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge('longsword', array[:'pa']::uuid[], '{all}', 'raise', :'camp');
+select tl_test.as_root();
+update public.characters set campaign_id = :'camp2' where id = :'pa';
+insert into public.characters (id, owner_id, name, campaign_id, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp_max, hp_current, speed)
+values ('f5a00000-0000-0000-0000-000000000009', :'bob', 'Joiner Two', :'camp2', 1, 10, 12, 12, 10, 14, 10, 10, 10, 30);
+select tl_test.as_user(:'dm');
+select public.set_campaign_identification_sharing(:'camp2', false);
+select public.set_campaign_identification_sharing(:'camp2', true) as on2 \gset
+select public.dm_sync_party_knowledge(:'camp2') as sync2 \gset
+select tl_test.as_root();
+select coalesce(tl_test.pk_ck('f5a00000-0000-0000-0000-000000000009', 'longsword'), 'none') as j2_ls \gset
+select coalesce(tl_test.pk_ck(:'pd', 'longsword'), 'none') as d_ls \gset
+select tl_test.rec('PK14 M1 knowledge learned in camp does not travel: after A moves to camp2, a joiner, a rule switch-on and a DM sync in camp2 give nobody the item',
+  tl_test.pk_ck(:'pa', 'longsword') = 'identified:' and :'j2_ls' = 'none' and :'d_ls' = 'none'
+  and (select count(*) from public._party_levels(:'camp2', null, 'longsword')) = 0,
+  concat_ws(' ', :'j2_ls', :'d_ls', :'on2', :'sync2'));
+update public.characters set campaign_id = :'camp' where id = :'pa';
+
+-- PK15 pending rows: applied in the target's own context by sync_party_knowledge, re-checked (hold, campaign), never readable
+select tl_test.as_user(:'dm');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Iron Bark', 'kind_id', 'herbs_plants', 'category_id', 'plant-flower',
+  'campaign_id', :'camp', 'stackable', true, 'description', 'Hard as iron.')) ->> 'id' as bark \gset
+select public.set_item_identify_options(:'bark', '{"unidentified_name": "Grey bark", "identify_dc": 10}');
+select public.dm_give_item(:'bark', array[:'pa', :'pb', :'pc']::uuid[], 1, false);
+select public.set_campaign_identification_sharing(:'camp', false);
+select public.dm_set_item_knowledge(:'bark', array[:'pa']::uuid[], '{all}', 'raise');
+select public.dm_set_item_knowledge(:'bark', array[:'pc']::uuid[], '{}', 'set');
+select tl_test.as_root();
+-- the rule goes back on without a catch-up (a direct row write), so only the pending rows can bring B up
+insert into public.campaign_item_rules (campaign_id, share_identification) values (:'camp', true)
+  on conflict (campaign_id) do update set share_identification = true;
+insert into public.party_share_pending (campaign_id, target_character_id, item_id, kind, state, revealed, source_character_id) values
+  (:'camp', :'pb', :'bark', 'share', 'identified', '{}', :'pa'),
+  (:'camp', :'pc', :'bark', 'share', 'identified', '{}', :'pa'),
+  (:'camp2', :'pb', :'bark', 'share', 'identified', '{}', :'pa');
+select tl_test.as_user(:'carol');
+select tl_test.pk_code(format('select public.sync_party_knowledge(%L)', :'pb')) as c_sync_b \gset
+select tl_test.pk_code('select 1 from public.party_share_pending') as c_pend \gset
+select public.sync_party_knowledge(:'pc') as sync_c \gset
+select tl_test.as_user(:'bob');
+select public.sync_party_knowledge(:'pb') as sync_b \gset
+select public.sync_party_knowledge(:'pb') as sync_b2 \gset
+select tl_test.as_root();
+select tl_test.rec('PK15 pending shares: B''s row applied by B''s own sync (identified, copy renamed), the other-campaign row and C''s (held) are discarded; another player and the table are refused; a second sync is a no-op',
+  :'c_sync_b' = '42501' and :'c_pend' = '42501' and tl_test.pk_ck(:'pb', :'bark') = 'identified:' and tl_test.pk_rowk(:'pb', :'bark') = 'Iron Bark/identified'
+  and tl_test.pk_ck(:'pc', :'bark') = 'unidentified::held' and (select count(*) from public.party_share_pending) = 0
+  and (:'sync_b2'::jsonb ->> 'applied')::int = 0 and (:'sync_b2'::jsonb ->> 'pending')::int = 0,
+  concat_ws(' ', :'c_sync_b', :'c_pend', :'sync_c', :'sync_b', :'sync_b2', tl_test.pk_ck(:'pb', :'bark'), tl_test.pk_ck(:'pc', :'bark')));
+
+-- PK16 a share never lowers a copy: B's copy is identified while B's record knows nothing; a name-only share keeps it identified
+select tl_test.as_user(:'dm');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Salt Fern', 'kind_id', 'herbs_plants', 'category_id', 'plant-flower',
+  'campaign_id', :'camp', 'stackable', true, 'description', 'Salty.')) ->> 'id' as fern2 \gset
+select public.set_item_identify_options(:'fern2', '{"unidentified_name": "Pale fern", "identify_dc": 10}');
+select public.dm_give_item(:'fern2', array[:'pa', :'pb']::uuid[], 1, false);
+select tl_test.as_root();
+update public.inventory_item_knowledge k set state = 'identified', revealed = '{}' from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+  where k.inventory_item_id = ii.id and inv.character_id = :'pb' and ii.item_id = :'fern2';
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge(:'fern2', array[:'pa']::uuid[], '{name}', 'raise');
+select tl_test.as_root();
+select tl_test.rec('PK16 a share never lowers: B''s diverged identified copy stays identified and B''s record catches up to it',
+  tl_test.pk_rowk(:'pb', :'fern2') like '%/identified' and tl_test.pk_ck(:'pb', :'fern2') like 'identified:%',
+  concat_ws(' ', tl_test.pk_rowk(:'pb', :'fern2'), tl_test.pk_ck(:'pb', :'fern2')));
+
+-- PK17 m3: B's pending examine is closed as learned from the party (no resolver, not "by the DM")
+select tl_test.as_user(:'dm');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Ash Lily', 'kind_id', 'herbs_plants', 'category_id', 'plant-flower',
+  'campaign_id', :'camp', 'stackable', true, 'description', 'Ashen.')) ->> 'id' as lily \gset
+select public.set_item_identify_options(:'lily', '{"unidentified_name": "Grey lily", "identify_dc": 10}');
+select public.dm_give_item(:'lily', array[:'pa', :'pb']::uuid[], 1, false);
+select tl_test.as_user(:'bob');
+select public.examine_inventory_item(tl_test.pk_row(:'pb', :'lily'), 'nature', 15) ->> 'status' as b_lily \gset
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge(:'lily', array[:'pa']::uuid[], '{all}', 'raise');
+select tl_test.as_root();
+select tl_test.rec('PK17 m3 B''s pending examine is closed "Learned from the party" with no resolver when A''s knowledge reaches B',
+  :'b_lily' = 'pending' and exists (select 1 from public.item_identify_attempts a where a.character_id = :'pb' and a.item_id = :'lily'
+    and a.status = 'succeeded' and a.dm_note = 'Learned from the party' and a.resolved_by is null),
+  (select string_agg(status || '|' || coalesce(dm_note, '-') || '|' || coalesce(resolved_by::text, '-'), ';') from public.item_identify_attempts where character_id = :'pb' and item_id = :'lily'));
+
+-- PK18 m2: a joiner gets ONE summary audit line, not one per item
+select tl_test.rec('PK18 m2 the joiner J has one summary line and no per-item line for the items it inherited',
+  (select count(*) from public.campaign_audit_events where character_id = :'pj' and summary like 'Your party already knew%') = 1
+  and (select count(*) from public.campaign_audit_events where character_id = :'pj' and summary in ('Your party learned something about an item: Sunpetal', 'Your party learned something about an item: Ghost Cap')) = 0,
+  (select string_agg(summary, ' | ') from public.campaign_audit_events where character_id = :'pj'));

@@ -814,6 +814,8 @@ async function revealPanel(box, alive) {
     const warn = (res.results || []).find((x) => x.warning);
     const skipped = (res.results || []).filter((x) => x.skipped).length;
     const shared = res.shared_with ? ` Shared with ${res.shared_with} more character(s) of the party.` : '';
+    // a character busy at that moment is not waited for: it gets the change as soon as its sheet syncs (or with Sync party knowledge)
+    if (res.busy) toast(`${res.busy_names?.join(', ') || res.busy} ${res.busy === 1 ? 'was' : 'were'} busy right now: they get it within moments (when their sheet syncs).`, 'info', 6000);
     toast(warn ? warn.warning : res.changed || res.shared_with ? `Saved for ${res.changed} character(s).${shared}`
       : skipped ? 'Nothing changed: they already hold an undisguised copy and see everything.' : 'Nothing changed.', warn ? 'bad' : 'good');
     await draw();
@@ -840,7 +842,8 @@ async function revealPanel(box, alive) {
       if (b.dataset.rv === 'release') {
         const tr = b.closest('[data-rv-char]');
         const res = await dm.releaseKnowledgeHold(itemId, [tr.dataset.rvChar], campaignId);
-        toast(res.shared_with ? `Party sharing reaches them again (${res.shared_with} change(s)).` : 'Party sharing reaches them again.', 'good');
+        toast(res.busy ? `${res.busy_names.join(', ')} ${res.busy === 1 ? 'was' : 'were'} busy right now: try again in a moment.`
+          : res.shared_with ? `Party sharing reaches them again (${res.shared_with} change(s)).` : 'Party sharing reaches them again.', res.busy ? 'bad' : 'good');
         await draw();
       }
     } catch (err) { toast(err.message, 'bad'); }
@@ -929,7 +932,9 @@ async function rules(panel, alive) {
     ${g.report ? `<div class="gov-banner">${esc(g.report.note)}</div>` : ''}${!g.configured ? '<div class="gov-banner">Not configured yet: the campaign behaves like “Relaxed”. Saving creates its rules.</div>' : ''}
     ${share ? `<fieldset class="ce-section" data-share-rule><legend>Item identification</legend>
       <label class="check-field"><input type="checkbox" data-share-toggle ${share.share_identification ? 'checked' : ''}><span>Identification is shared with the party</span></label>
-      <p class="muted small">When one character identifies an item (or you reveal it), every character of the campaign knows it, also characters who join later. Characters you hold back in Hidden → Who knows what are skipped. Off: each character learns on their own; switching it off never takes knowledge away.${share.held ? ` Held back now: ${esc(String(share.held))}.` : ''}</p></fieldset>` : ''}
+      <p class="muted small">When one character identifies an item (or you reveal it), every character of the campaign knows it, also characters who join later. Characters you hold back in Hidden → Who knows what are skipped. Off: each character learns on their own; switching it off never takes knowledge away.${share.held ? ` Held back now: ${esc(String(share.held))}.` : ''}</p>
+      <p class="small"><button type="button" class="btn btn-sm" data-share-sync>Sync party knowledge</button>
+        <span class="muted">${share.pending ? `${esc(String(share.pending))} share(s) wait for a busy character. ` : ''}Brings every character up to what the party knows.</span></p></fieldset>` : ''}
     <form class="dm-rules" data-rules>
       <fieldset class="dm-presets"><legend>Preset</legend>${['relaxed', 'standard', 'strict', 'custom'].map((k) => `<label class="dm-preset ${g.preset === k ? 'is-on' : ''}">
         <input type="radio" name="preset" value="${k}" ${g.preset === k ? 'checked' : ''}><strong>${esc(k[0].toUpperCase() + k.slice(1))}</strong><span class="small">${esc(gov.PRESET_TEXT[k])}</span></label>`).join('')}</fieldset>
@@ -965,6 +970,15 @@ async function rules(panel, alive) {
       toast(on ? `Identification is shared with the party.${res.caught_up ? ` ${res.caught_up} item(s) became known to more characters.` : ''}` : 'Identification is no longer shared with the party.', 'good');
     } catch (err) { box.checked = !on; toast(err.message, 'bad'); }
     box.disabled = false;
+  });
+  $('[data-share-sync]', panel)?.addEventListener('click', async (e) => {
+    const b = e.currentTarget;
+    b.disabled = true;
+    try {
+      const r = await dm.syncPartyKnowledge(campaignId);
+      toast(`Party knowledge synced: ${r.applied} change(s)${r.pending ? `, ${r.pending} still waiting for a busy character` : ''}.`, 'good');
+    } catch (err) { toast(err.message, 'bad'); }
+    b.disabled = false;
   });
   form.addEventListener('change', (e) => { if (e.target.name === 'preset') $$('.dm-preset', form).forEach((l) => l.classList.toggle('is-on', l.contains(e.target))); });
   form.addEventListener('submit', async (e) => {
