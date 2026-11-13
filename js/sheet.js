@@ -3510,7 +3510,7 @@ export function mountSheet(container, bundle, options = {}) {
     // The open, Realtime going live and a reconnect share ONE debounce (catchUpSoon): at most one revision read per burst.
     liveReady = false;
     unsubscribe = sheetFluent
-      ? subscribeCharacterFluent(C().id, onRemote, onRevision, () => catchUpSoon({ reconnect: true }), () => { liveReady = true; catchUpSoon(); })
+      ? subscribeCharacterFluent(C().id, onRemote, onRevision, onReconnect, () => { liveReady = true; catchUpSoon(); })
       : subscribeCharacter(C().id, onRemote, resyncSoon);
     liveCharacterId = C().id;
     liveFluent = sheetFluent;
@@ -3551,7 +3551,7 @@ export function mountSheet(container, bundle, options = {}) {
   // Realtime never confirms (blocked websocket), the check still runs after a few seconds.
   else if (options.view?.fetched_at && Date.now() - options.view.fetched_at > 1500) {
     if (liveReady) catchUpSoon();
-    else { const id = C().id; setTimeout(() => { if (B && C().id === id && !liveReady) catchUpSoon(); }, 6000); }
+    else catchUpFallback();
   }
 }
 
@@ -3649,10 +3649,11 @@ async function reconcile() {
   for (const [t, r] of Object.entries(data.reads?.revisions || {})) if (r > knownRevision(t)) onRevision(t, r);
 }
 
-// Fluent catch-up: ONE debounce for the three triggers (a stale prefetched view, Realtime going live, a reconnect), so a sheet
-// open or a reconnect (Realtime sends "Subscribed to PostgreSQL" again after it) does at most one revision read. After a
-// reconnect, own unsaved edits are saved first; a flaky network that drops and returns several times in a few seconds causes
-// one read, not one per return.
+// Fluent catch-up: ONE debounce for every trigger (a stale prefetched view, Realtime going live, a reconnect), so a sheet open
+// or a reconnect does at most one revision read. The read that closes the gap must come AFTER Realtime delivers changes again,
+// so a reconnect ('SUBSCRIBED' after a drop) only saves own unsaved edits and waits for "Subscribed to PostgreSQL" (onLive,
+// which Realtime sends again after every rejoin); a fallback reads anyway if that never comes. A flaky network that drops and
+// returns several times in a few seconds causes one read, not one per return.
 let catchUpReconnect = false;
 const catchUpDebounced = debounce(() => {
   const reconnect = catchUpReconnect;
@@ -3662,9 +3663,19 @@ const catchUpDebounced = debounce(() => {
   toast('Connection restored — showing the latest values.', 'info');
   saver.flush().finally(() => reconcile());
 }, 1500);
-function catchUpSoon({ reconnect = false } = {}) {
-  if (reconnect) catchUpReconnect = true;
-  catchUpDebounced();
+function catchUpSoon() { catchUpDebounced(); }
+/** Realtime never confirmed (blocked websocket, server trouble): check once after a few seconds anyway. */
+function catchUpFallback() {
+  if (!B) return;
+  const id = C().id;
+  setTimeout(() => { if (B && C().id === id && !liveReady) catchUpSoon(); }, 6000);
+}
+function onReconnect() {
+  if (!B) return;
+  catchUpReconnect = true;
+  liveReady = false;
+  saver.flush().catch(() => {});
+  catchUpFallback();
 }
 
 // Legacy path (?fluent=0) after a dropped connection: own unsaved edits are saved first, then the whole sheet reloads (once
