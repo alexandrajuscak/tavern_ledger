@@ -212,15 +212,23 @@ switching it off never takes knowledge away.
   editor mark the character **held back** for that item (`held_by_dm`): sharing skips it, and its record is never a source of the
   party level.
 - **The hold rule (v31, owner decision).** A hold is lifted ONLY by `dm_release_item_knowledge_hold(item, characters, campaign)`
-  ("let the party share", which also gives them the party level at once) or when the character's record ends up fully
-  **identified** (their own full success, the DM's "reveal everything"). A **partial** raise never lifts it: the character's own
-  partial examine success or the DM's partial answer (`_identify_apply`), the per-copy editor adding a fact,
-  `dm_set_item_knowledge` mode `raise` with some parts, `dm_reveal_item` with some parts. Neither does a rule switch (off / on),
-  a sync (sheet or DM), a joiner pull, or another character's reveal: party sharing never raises a held character, and a held
-  character's partial facts never spread. Example (owner decision a): the DM hides an item from B, reveals only its name to B, and
-  later A identifies it: B stays at "name only" until the DM releases B or reveals everything to B. In the DM's bulk calls the one
-  party share at the end comes from the first raised character that is not held. "Set" is the DM's exact choice and always holds,
-  also a "Set → Everything" (the character then simply is no source until a release).
+  ("let the party share", which also gives them the party level at once) or when a raise moves the character's record **into**
+  `identified` from a lower state (their own full success, the DM's "reveal everything" to a character who did not know
+  everything yet). A **partial** raise never lifts it: the character's own partial examine success or the DM's partial answer
+  (`_identify_apply`), the per-copy editor adding a fact, `dm_set_item_knowledge` mode `raise` with some parts, `dm_reveal_item`
+  with some parts. Neither does a rule switch (off / on), a sync (sheet or DM), a joiner pull, or another character's reveal:
+  party sharing never raises a held character, and a held character's partial facts never spread. Example (owner decision a):
+  the DM hides an item from B, reveals only its name to B, and later A identifies it: B stays at "name only" until the DM
+  releases B or reveals everything to B. In the DM's bulk calls the one party share at the end comes from the first raised
+  character that is not held.
+- **"Set" at ANY level holds (m2, for DMs).** "Set" is the DM's exact choice for that character: Nothing, some parts, and also
+  Everything. After a "Set", that character is out of party sharing for that item (it neither receives nor gives) until you
+  click "let the party share" (release) or a raise moves it into identified. A DM who uses "Set" to GIVE a character a fact
+  therefore also keeps it out of party sharing; use "Reveal to selected" to give knowledge that the party may share. A record
+  that is identified already (for example after "Set → Everything") stays held by any later reveal, partial or full: there is no
+  transition into identified, so only a release lets the party learn from it.
+- **A DM raise of a character who is not held** also gives that character the party level of the item at once (m1: queued
+  party shares of that pair are superseded by the DM's write, so the party level is pulled instead of waiting for a sync).
 - **The hold follows the character (m4).** It is stored per character and item, not per campaign: a character moved to another
   campaign stays held there for that (official) item until that campaign's DM releases it or reveals everything. Conservative and
   data-safe; homebrew items belong to one campaign, so this only concerns official items.
@@ -237,7 +245,8 @@ switching it off never takes knowledge away.
   `dm_set_item_knowledge` also returns `party_share`, `shared_with` and per character `held`.
 - **Data at deploy:** holds are derived by replaying the hold rule over the history (`_ik_derived_holds()`): a hold point is a
   DM audit line with mode `set` or ANY history event that took knowledge away; a lift is a later DM `release` line or a later
-  event that reached `identified`; held = the latest hold point has no lift after it (so "hide, then a partial reveal" stays
+  event that moved the record into `identified` (old state not identified); held = the latest hold point has no lift
+  after it (so "hide, then a partial reveal" stays
   held, whatever the DM did last). Then every campaign is caught up (raise only, idempotent); a held character is never raised.
   Preview it read-only on production first: `scripts/fluent/party_share_preview.sql` (as postgres; a READ ONLY transaction,
   rolled back; ids and counts only, no item names): one `held` line per record that will be held and one `row` line per record
