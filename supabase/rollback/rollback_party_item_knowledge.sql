@@ -16,7 +16,7 @@
 --   select id, source, source_character_id from public.item_knowledge_events where source is not null;
 -- Deploy order for a rollback: the previous frontend (?v=29, metric + weapon cards) first, then this file.
 -- Byte-equal restore needs the file's LF line endings as stored in git. On a Windows checkout with core.autocrlf=true run
---   tr -d '' < supabase/rollback/rollback_party_item_knowledge.sql | psql -v ON_ERROR_STOP=1 -1
+--   tr -d '\r' < supabase/rollback/rollback_party_item_knowledge.sql | psql -v ON_ERROR_STOP=1 -1
 -- (with CRLF the restored bodies are functionally identical but contain carriage returns).
 -- =============================================================================
 set local lock_timeout = '5s';
