@@ -192,6 +192,44 @@ personal item, raise on an undisguised holder, the NOWAIT locks, equipped armour
 `browser/item_reveal_ui_test.py`. `scripts/fluent/item_visibility_snapshot.sql` is a read-only hash of what each character's
 owner and each user (every profile and campaign member) sees (run it before and after a deploy; the outputs must be identical).
 
+## Identification is shared with the party (20261114000100)
+
+Owner decision (phase 2): once one character identifies an item, every character of the campaign knows it, also characters who
+join later. A campaign rule, **DM Space → Campaign rules → Item identification**, ON by default (a campaign without a row in
+`campaign_item_rules` shares). Off = exactly the per-character model above. Switching it on catches the campaign up once;
+switching it off never takes knowledge away.
+
+- **Copy on write, no read-path change.** The record (`character_item_knowledge`) stays per character and the character's
+  disguised rows keep following it. Every raise goes through `_identify_apply` (successful examine, the DM's answer,
+  `dm_reveal_item`, `dm_set_item_knowledge` mode `raise`, crafting); it now pushes the character's record to the other characters
+  of the campaign (`_party_share_from` → `_party_apply_to`, which reuses the old body `_identify_apply_one`). Their rows are renamed
+  as by any reveal; each changed character gets one `character_revisions` row (open sheets refresh) and a player audit line
+  "Your party learned something about an item: <name as they now know it>" with no actor and no hint who identified it.
+  `v_inventory_detail`, `_item_visible`, the bundle and Realtime are unchanged (no slower read, no new payload).
+- **A failed or pending examine** writes nothing for anyone else.
+- **DM choices win.** `dm_set_item_knowledge` mode `set` ("Set", "Hide from selected") and a lowering through the old per-copy
+  editor mark the character **held back** for that item (`held_by_dm`): sharing skips it, and its record is never a source of the
+  party level. An explicit raise of that character (their own success, the DM's reveal) lifts the hold;
+  `dm_release_item_knowledge_hold(item, characters, campaign)` ("let the party share") lifts it and gives them the party level.
+- **Joiners** (a new character in the campaign, or `campaign_id` changed) get the union of the non-held records of the other
+  characters, for items of no campaign or of that campaign (trigger `characters_party_knowledge`).
+- Skipped targets: a held character; a character who holds only undisguised copies (sees everything already). Party stash /
+  shop rows keep their own knowledge (parked decision Q1). With the rule on, "Reveal to selected" also reaches the rest of the
+  party; "Set" is the per-character tool.
+- **History:** `item_knowledge_events.source = 'party_share'` and `source_character_id` (where it came from). "Who knows what"
+  shows "known by the party (identified by X)", "held back by you" and "shared by the party, from X" in the history.
+- RPCs (DM of the campaign or admin): `get_campaign_identification_sharing(campaign)`,
+  `set_campaign_identification_sharing(campaign, on)`, `dm_release_item_knowledge_hold(item, characters, campaign)`.
+  `dm_set_item_knowledge` also returns `party_share`, `shared_with` and per character `held`.
+- **Data at deploy:** holds are derived from the DM's past `set` calls that nothing changed afterwards (and from a last history
+  event that lowered knowledge); then every campaign is caught up (raise only, idempotent). Preview it read-only on production
+  first: `scripts/fluent/party_share_preview.sql` (ids and counts only).
+- Locks: a share locks the target's rows (id order) and record. Two characters examining the same item successfully at the same
+  instant can deadlock; Postgres aborts one (40P01, nothing half-written).
+- Rollback: `supabase/rollback/rollback_party_item_knowledge.sql` (keeps what characters learned; drops the rule, the holds and
+  the history source). Tests: `supabase/tests/classes/party_knowledge_tests.sql` (PK1–PK13). `herb_identification_tests` and
+  `item_reveal_tests` switch the rule off for their campaign: they cover the per-character model.
+
 ## Crafting (20261113000100)
 
 DM-only in crafting ([CRAFTING_V1.md](CRAFTING_V1.md)): a recipe's DC (`check_dc`), the DM's recipe notes (`dm_notes`), the

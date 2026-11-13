@@ -86,6 +86,11 @@ export const setItemKnowledgeFor = (itemId, characterIds, reveal, mode = 'set', 
   rpc('dm_set_item_knowledge', { p_item: itemId, p_characters: characterIds, p_reveal: reveal, p_mode: mode, p_campaign: campaignId });
 /** Who knows what about one item: every campaign character (record, rows, effective level), stash rows, history. */
 export const getItemKnowledgeOverview = (itemId, campaignId) => rpc('get_item_knowledge_overview', { p_item: itemId, p_campaign: campaignId });
+// party-wide identification (20261114000100): the campaign rule and the DM's holds
+export const getIdentificationSharing = (campaignId) => rpc('get_campaign_identification_sharing', { p_campaign: campaignId });
+export const setIdentificationSharing = (campaignId, on) => rpc('set_campaign_identification_sharing', { p_campaign: campaignId, p_on: !!on });
+export const releaseKnowledgeHold = (itemId, characterIds, campaignId = null) =>
+  rpc('dm_release_item_knowledge_hold', { p_item: itemId, p_characters: characterIds, p_campaign: campaignId });
 export const getCampaignKnowledgeItems = (campaignId) => rpc('get_campaign_knowledge_items', { p_campaign: campaignId });
 /** The number of examine requests waiting for the DM (the Hidden tab's badge; a count, not the list). */
 export const getPendingExamineCount = (campaignId) => rpc('get_campaign_pending_examine_count', { p_campaign: campaignId });

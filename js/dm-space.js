@@ -775,8 +775,10 @@ async function revealPanel(box, alive) {
     const it = ov.item;
     const opts = (cur) => [...LEVELS.filter(([k]) => it.can_hide || k === 'all').map(([k, l]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(l)}</option>`),
       cur === 'custom' ? '<option value="custom" selected>Keep as it is (custom)</option>' : ''].join('');
+    const party = ov.party_share === true;   // 20261114000100 (undefined on an older server: per character as before)
     body.innerHTML = `
       <p class="small">Characters who do not know it see <b>${esc(it.decoy_name)}</b>${it.decoy_description ? ` — <span class="muted">${esc(it.decoy_description)}</span>` : ''}.</p>
+      ${party ? '<p class="small dm-party-note"><strong>Shared with the party</strong> (Campaign rules): a reveal or a player’s successful examine reaches every character, also characters who join later, except those you hold back. “Set” changes only that character and holds them back from party sharing.</p>' : ''}
       ${it.official ? '<p class="small muted">Official item: you can reveal it, but hiding it again needs a campaign copy (Content → Duplicate official).</p>' : ''}
       ${!it.secret && it.can_hide ? '<p class="small muted">Not hidden yet. Lowering a character’s level disguises their copies and makes the item secret (before saving you see who will still see the real item).</p>' : ''}
       <table class="dm-rule-table dm-reveal-table"><thead><tr><th scope="col"><input type="checkbox" data-rv-all aria-label="Select every character"></th><th scope="col">Character</th>
@@ -785,7 +787,9 @@ async function revealPanel(box, alive) {
         <td><input type="checkbox" data-rv-sel value="${esc(c.character_id)}" aria-label="Select ${esc(c.name)}"></td>
         <td><strong>${esc(c.name)}</strong>${c.is_creator ? ' <span class="small muted">(created it)</span>' : ''}</td>
         <td>${c.rows ? `${esc(String(c.quantity))}${c.shown_names?.length ? ` <span class="small muted">as ${esc(c.shown_names.join(', '))}</span>` : ''}` : '—'}</td>
-        <td data-rv-now>${esc(levelText(e.state, e.revealed))}<br><span class="small muted">${esc(SOURCE_TEXT[e.source] || '')}</span>${c.diverges ? ' <span class="small warn">copies differ</span>' : ''}</td>
+        <td data-rv-now>${esc(levelText(e.state, e.revealed))}<br><span class="small muted">${esc(SOURCE_TEXT[e.source] || '')}</span>${c.diverges ? ' <span class="small warn">copies differ</span>' : ''}
+          ${c.party_source && !c.held ? `<br><span class="small muted" data-rv-party>known by the party${c.party_source.from ? ` (identified by ${esc(c.party_source.from)})` : ''}</span>` : ''}
+          ${c.held ? `<br><span class="small warn" data-rv-held>held back by you</span>${party ? ' <button type="button" class="btn-link small" data-rv="release">let the party share</button>' : ''}` : ''}</td>
         <td><select data-rv-level aria-label="Level for ${esc(c.name)}">${opts(cur)}</select></td>
         <td><button type="button" class="btn btn-xs" data-rv="set">Set</button></td></tr>`; }).join('')}</tbody></table>
       <div class="inv-form-row">
@@ -794,11 +798,12 @@ async function revealPanel(box, alive) {
         <button type="button" class="btn btn-sm" data-rv="reveal-party">Reveal to the whole party</button>
         ${it.can_hide ? '<button type="button" class="btn btn-sm btn-ghost" data-rv="hide-selected">Hide from selected</button>' : ''}
       </div>
-      <p class="muted small">“Reveal” only ever adds knowledge; “Set” and “Hide” can take it away again (undo).</p>
+      <p class="muted small">“Reveal” only ever adds knowledge; “Set” and “Hide” can take it away again (undo).${party ? ' With party sharing on, “Reveal to selected” also reaches the rest of the party (except held-back characters).' : ''}</p>
       ${ov.stash?.length ? `<p class="small"><strong>Party stash / shop:</strong> ${ov.stash.map((s) => `${esc(s.shown_name)} ×${esc(String(s.quantity))} (${esc(s.inventory_name || s.inventory_kind)}: ${esc(levelText(s.state, s.revealed))})`).join('; ')}
         <span class="muted">— a stash copy keeps its own knowledge and every party member sees it.</span></p>` : ''}
       ${ov.history?.length ? `<details><summary class="small">History (${ov.history.length})</summary><ul class="small">${ov.history.map((h) => `<li>${esc(fmt(h.at))} · ${esc(h.character_name || '?')}:
-        ${h.old_state ? `${esc(levelText(h.old_state, h.old_revealed))} → ` : ''}${esc(levelText(h.new_state, h.new_revealed))} <span class="muted">(${esc(h.actor || 'automatic')})</span></li>`).join('')}</ul></details>` : ''}`;
+        ${h.old_state ? `${esc(levelText(h.old_state, h.old_revealed))} → ` : ''}${esc(levelText(h.new_state, h.new_revealed))} <span class="muted">(${h.source === 'party_share'
+          ? `shared by the party${h.source_character_name ? `, from ${esc(h.source_character_name)}` : ''}` : esc(h.actor || 'automatic')})</span></li>`).join('')}</ul></details>` : ''}`;
   };
   const apply = async (ids, level, mode) => {
     if (!ids.length) { toast('Choose at least one character.', 'bad'); return; }
@@ -808,7 +813,8 @@ async function revealPanel(box, alive) {
     const res = await dm.setItemKnowledgeFor(itemId, ids, LEVELS.find(([k]) => k === level)[2], mode, campaignId);
     const warn = (res.results || []).find((x) => x.warning);
     const skipped = (res.results || []).filter((x) => x.skipped).length;
-    toast(warn ? warn.warning : res.changed ? `Saved for ${res.changed} character(s).`
+    const shared = res.shared_with ? ` Shared with ${res.shared_with} more character(s) of the party.` : '';
+    toast(warn ? warn.warning : res.changed || res.shared_with ? `Saved for ${res.changed} character(s).${shared}`
       : skipped ? 'Nothing changed: they already hold an undisguised copy and see everything.' : 'Nothing changed.', warn ? 'bad' : 'good');
     await draw();
   };
@@ -831,6 +837,12 @@ async function revealPanel(box, alive) {
         }
       }
       if (b.dataset.rv === 'hide-selected') await apply(sel, 'none', 'set');
+      if (b.dataset.rv === 'release') {
+        const tr = b.closest('[data-rv-char]');
+        const res = await dm.releaseKnowledgeHold(itemId, [tr.dataset.rvChar], campaignId);
+        toast(res.shared_with ? `Party sharing reaches them again (${res.shared_with} change(s)).` : 'Party sharing reaches them again.', 'good');
+        await draw();
+      }
     } catch (err) { toast(err.message, 'bad'); }
     if (b.isConnected) b.disabled = false;
   });
@@ -904,6 +916,8 @@ async function identifyOptionsDialog(itemId, name, sec) {
 // ---- rules -------------------------------------------------------------------------------------------------------------------------
 async function rules(panel, alive) {
   const g = await gov.getCampaignGovernance(campaignId);
+  // party-wide identification (20261114000100); an older server has no such rule: the row is not shown
+  const share = await dm.getIdentificationSharing(campaignId).catch(() => null);
   if (!alive()) return;
   const RANK = { player_managed: 0, approval_required: 1, dm_only: 2, disabled: 3 };
   const choices = (a) => Object.keys(RANK).filter((d) => RANK[d] >= RANK[a.max_player] && (d !== 'approval_required' || a.can_request));
@@ -913,6 +927,9 @@ async function rules(panel, alive) {
   const cats = [...new Set(g.actions.map((a) => a.category))];
   panel.innerHTML = `
     ${g.report ? `<div class="gov-banner">${esc(g.report.note)}</div>` : ''}${!g.configured ? '<div class="gov-banner">Not configured yet: the campaign behaves like “Relaxed”. Saving creates its rules.</div>' : ''}
+    ${share ? `<fieldset class="ce-section" data-share-rule><legend>Item identification</legend>
+      <label class="check-field"><input type="checkbox" data-share-toggle ${share.share_identification ? 'checked' : ''}><span>Identification is shared with the party</span></label>
+      <p class="muted small">When one character identifies an item (or you reveal it), every character of the campaign knows it, also characters who join later. Characters you hold back in Hidden → Who knows what are skipped. Off: each character learns on their own; switching it off never takes knowledge away.${share.held ? ` Held back now: ${esc(String(share.held))}.` : ''}</p></fieldset>` : ''}
     <form class="dm-rules" data-rules>
       <fieldset class="dm-presets"><legend>Preset</legend>${['relaxed', 'standard', 'strict', 'custom'].map((k) => `<label class="dm-preset ${g.preset === k ? 'is-on' : ''}">
         <input type="radio" name="preset" value="${k}" ${g.preset === k ? 'checked' : ''}><strong>${esc(k[0].toUpperCase() + k.slice(1))}</strong><span class="small">${esc(gov.PRESET_TEXT[k])}</span></label>`).join('')}</fieldset>
@@ -938,6 +955,17 @@ async function rules(panel, alive) {
         <button type="button" class="btn" data-backup>Download DM backup (includes hidden data)</button></div>
     </form>`;
   const form = $('[data-rules]', panel);
+  $('[data-share-toggle]', panel)?.addEventListener('change', async (e) => {
+    const box = e.target;
+    const on = box.checked;
+    if (!on && !await confirmDialog('Stop sharing identification with the party? What characters already know stays; from now on each character learns on their own.', { okLabel: 'Stop sharing' })) { box.checked = true; return; }
+    box.disabled = true;
+    try {
+      const res = await dm.setIdentificationSharing(campaignId, on);
+      toast(on ? `Identification is shared with the party.${res.caught_up ? ` ${res.caught_up} item(s) became known to more characters.` : ''}` : 'Identification is no longer shared with the party.', 'good');
+    } catch (err) { box.checked = !on; toast(err.message, 'bad'); }
+    box.disabled = false;
+  });
   form.addEventListener('change', (e) => { if (e.target.name === 'preset') $$('.dm-preset', form).forEach((l) => l.classList.toggle('is-on', l.contains(e.target))); });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

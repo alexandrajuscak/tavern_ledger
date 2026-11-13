@@ -11,6 +11,13 @@
 \set h2 f4d00000-0000-0000-0000-000000000002
 \set h3 f4d00000-0000-0000-0000-000000000003
 insert into public.campaign_members (campaign_id, user_id, role) values (:'camp', :'bob', 'player');
+-- this suite covers the PER-CHARACTER model: party sharing (20261114000100, on by default) is switched off for its campaign, so
+-- it also checks that "rule off" is exactly the old behaviour (party sharing itself: party_knowledge_tests.sql)
+do $$ begin
+  if to_regclass('public.campaign_item_rules') is not null then
+    execute 'insert into public.campaign_item_rules (campaign_id, share_identification) values (''c1c00000-0000-0000-0000-000000000001'', false)';
+  end if;
+end $$;
 insert into public.characters (id, owner_id, name, campaign_id, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp_max, hp_current, speed) values
   (:'h1', :'alice', 'Herb Hero', :'camp', 1, 10, 12, 12, 10, 14, 10, 10, 10, 30),
   (:'h2', :'alice', 'Herb Twin', :'camp', 1, 10, 12, 12, 10, 14, 10, 10, 10, 30),
