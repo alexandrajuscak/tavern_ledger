@@ -1,8 +1,8 @@
 // Inventory data access. The ONLY module that talks to Supabase about items, inventories and equipment.
 // Reads come from views (RLS applies: they are security_invoker), every change goes through an RPC.
 // Function names follow the database; where they differ the mapping is written next to the function.
-import { supabase } from './supabase.js?v=29';
-import { onUserCachesCleared } from './read-layer.js?v=29';
+import { supabase } from './supabase.js?v=30';
+import { onUserCachesCleared } from './read-layer.js?v=30';
 
 // ---- Errors -----------------------------------------------------------------------------------
 

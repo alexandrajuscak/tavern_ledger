@@ -4,10 +4,10 @@
 // (dm_set_item_icon, DM of the campaign only). A player receives the path only for a copy they know (v_inventory_detail
 // custom_icon is NULL on a hidden / unidentified copy), so the URL below is built only from what the server gave the viewer.
 // Nothing here ever deletes a file: Remove unlinks the icon, the uploaded object stays (custom content is never deleted).
-import { supabase } from './supabase.js?v=29';
-import { $, esc, toast, openModal, confirmDialog } from './utils.js?v=29';
-import { icon, ITEM_ICONS } from './icons.js?v=29';
-import { galleryIcon } from './item-icon-gallery.js?v=29';
+import { supabase } from './supabase.js?v=30';
+import { $, esc, toast, openModal, confirmDialog } from './utils.js?v=30';
+import { icon, ITEM_ICONS } from './icons.js?v=30';
+import { galleryIcon } from './item-icon-gallery.js?v=30';
 
 export const ICON_BUCKET = 'item-icons';
 export const ICON_MAX_BYTES = 65536;   // the bucket's file_size_limit (checked again by Storage and dm_set_item_icon)
