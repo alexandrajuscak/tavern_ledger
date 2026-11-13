@@ -693,7 +693,8 @@ async function hidden(panel, alive) {
       }
       if (b.dataset.h === 'reveal-all') {
         if (!await confirmDialog(`Reveal “${b.dataset.name}” to every character of the campaign?`, { okLabel: 'Reveal' })) return;
-        await dm.revealItem(b.dataset.item, null, null, campaignId);
+        const res = await dm.revealItem(b.dataset.item, null, null, campaignId);
+        if (res?.busy) toast(busyText(res), 'bad', 8000);
       }
       if (b.dataset.h === 'give') {
         const res = await dm.giveItem($('[data-give-item]', panel).value, [cid], Number($('[data-give-qty]', panel).value) || 1, false);
@@ -714,6 +715,9 @@ async function hidden(panel, alive) {
     } catch (err) { toast(err.message, 'bad'); }
   });
 }
+
+/** A DM call that met busy characters: they were NOT changed (20261114000100: nothing is queued for a DM decision). */
+const busyText = (res) => `${(res.busy_names || []).join(', ') || res.busy} ${res.busy === 1 ? 'was' : 'were'} busy and ${res.busy === 1 ? 'was' : 'were'} NOT changed. Try again.`;
 
 // ---- who knows what: per-character reveal of one item (20261112000400) ----------------------------------------------------------
 // The levels use the identification vocabulary of 20261112000300 (no second one): [] / ['name'] / ['name', 'description'] / ['all'].
@@ -814,8 +818,8 @@ async function revealPanel(box, alive) {
     const warn = (res.results || []).find((x) => x.warning);
     const skipped = (res.results || []).filter((x) => x.skipped).length;
     const shared = res.shared_with ? ` Shared with ${res.shared_with} more character(s) of the party.` : '';
-    // a character busy at that moment is not waited for: it gets the change as soon as its sheet syncs (or with Sync party knowledge)
-    if (res.busy) toast(`${res.busy_names?.join(', ') || res.busy} ${res.busy === 1 ? 'was' : 'were'} busy right now: they get it within moments (when their sheet syncs).`, 'info', 6000);
+    // a character busy at that moment is neither waited for nor queued: nothing changed for them (reveal or hide), the DM retries
+    if (res.busy) toast(busyText(res), 'bad', 8000);
     toast(warn ? warn.warning : res.changed || res.shared_with ? `Saved for ${res.changed} character(s).${shared}`
       : skipped ? 'Nothing changed: they already hold an undisguised copy and see everything.' : 'Nothing changed.', warn ? 'bad' : 'good');
     await draw();
@@ -842,7 +846,7 @@ async function revealPanel(box, alive) {
       if (b.dataset.rv === 'release') {
         const tr = b.closest('[data-rv-char]');
         const res = await dm.releaseKnowledgeHold(itemId, [tr.dataset.rvChar], campaignId);
-        toast(res.busy ? `${res.busy_names.join(', ')} ${res.busy === 1 ? 'was' : 'were'} busy right now: try again in a moment.`
+        toast(res.busy ? busyText(res)
           : res.shared_with ? `Party sharing reaches them again (${res.shared_with} change(s)).` : 'Party sharing reaches them again.', res.busy ? 'bad' : 'good');
         await draw();
       }

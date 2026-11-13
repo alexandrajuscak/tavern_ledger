@@ -5,7 +5,11 @@
 #      -> player 2 does not wait, a pending row is left for C1, C1's own sync_party_knowledge applies it
 #   2. two members examine DIFFERENT items at the same moment -> both succeed, both items end known by both (after the sync)
 #   3. two members examine the SAME item at the same moment -> both succeed, both know it
-#   4. the DM's dm_reveal_item(item, every character) while player 1 holds C1 -> C1 reported busy and left pending, no error
+#   4. the DM's dm_reveal_item(item, every character) while player 1 holds C1 -> C1 reported busy and NOT changed; the others
+#      are revealed and their single party share reaches C1 later as a pending share (C1's sync)
+#   5. review round 2, N1: the DM reveals to C1 while C1 is busy -> busy, unchanged, nothing queued; the DM then hides it from
+#      C1; C1's sync -> still hidden and held; nothing spread to C2
+#   6. a pending share for C1 exists; the DM then hides the item from C1 -> the pending share is gone, C1's sync leaves it hidden
 # Every case: no 40P01 in either session and pg_stat_database.deadlocks unchanged. Synthetic objects only, removed at the end.
 # Usage: bash supabase/tests/party_knowledge_concurrency_test.sh <db container>
 set -uo pipefail
@@ -22,15 +26,16 @@ insert into public.campaign_members (campaign_id, user_id, role) values ('$CAMP'
 insert into public.characters (id, owner_id, name, campaign_id, strength, constitution, hp_max, hp_current) values
   ('$C1', '$P1', 'Race One', '$CAMP', 10, 10, 10, 10), ('$C2', '$P2', 'Race Two', '$CAMP', 10, 10, 10, 10) on conflict do nothing;
 insert into public.items (id, name, kind_id, owner_id, campaign_id, stackable, secret)
-select 'hb-pk-race-' || k, 'Race Herb ' || k, 'herbs_plants', '$DM', '$CAMP', true, true from unnest(array['a', 'b', 'c', 'd', 'e']) k on conflict do nothing;
+select 'hb-pk-race-' || k, 'Race Herb ' || k, 'herbs_plants', '$DM', '$CAMP', true, true from unnest(array['a', 'b', 'c', 'd', 'e', 'f', 'g']) k on conflict do nothing;
 insert into public.item_secrets (item_id, unidentified_name, identify_dc, identify_auto)
-select 'hb-pk-race-' || k, 'Race decoy', 10, true from unnest(array['a', 'b', 'c', 'd', 'e']) k on conflict do nothing;
+select 'hb-pk-race-' || k, 'Race decoy', 10, true from unnest(array['a', 'b', 'c', 'd', 'e', 'f', 'g']) k on conflict do nothing;
 SQL
 as_user() { printf "begin;\nselect set_config('request.jwt.claim.sub', '%s', true);\nset local role authenticated;\n%s\nselect pg_sleep(%s);\ncommit;\n" "$1" "$2" "$3"; }
 run() { as_user "$1" "$2" 0 | px; }
 give() { run "$DM" "select public.dm_give_item('hb-pk-race-$1', array['$C1', '$C2']::uuid[], 1, false);" >/dev/null; }
 row() { px -c "select ii.id from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id where inv.character_id = '$1' and ii.item_id = 'hb-pk-race-$2' limit 1"; }
 state() { px -c "select coalesce((select state from public.character_item_knowledge where character_id = '$1' and item_id = 'hb-pk-race-$2'), 'none')"; }
+held() { px -c "select coalesce((select held_by_dm::text from public.character_item_knowledge where character_id = '$1' and item_id = 'hb-pk-race-$2'), 'none')"; }
 pending() { px -c "select count(*) from public.party_share_pending where target_character_id = '$1'"; }
 deadlocks() { sleep 1; px -c "select deadlocks from pg_stat_database where datname = current_database()"; }
 lockme() { echo "select 1 from public.characters where id = '$1' for update;"; }
@@ -81,9 +86,34 @@ pair "$P1" "$(lockme "$C1") select public.apply_character_condition('$C1', null,
      "$DM" "select public.dm_reveal_item('hb-pk-race-e', null, null, '$CAMP')::text;" 3 1
 PEND=$(pending "$C1"); run "$P1" "select public.sync_party_knowledge('$C1');" >/dev/null
 K="$(state "$C1" e) $(state "$C2" e)"
-check "4 dm_reveal_item for every character while C1 is busy: no wait (${T2} ms), C1 reported busy and left pending, applied by C1's sync" \
+check "4 dm_reveal_item for every character while C1 is busy: no wait (${T2} ms), C1 reported busy and NOT changed; the party share reaches C1 through its sync" \
   '[ "$S1" = 0 ] && [ "$S2" = 0 ] && echo "$OUT2" | grep -q "\"busy\": 1" && [ "$T2" -lt 1500 ] && [ "$PEND" -ge 1 ] && [ "$K" = "identified identified" ] && ! echo "$ERR" | grep -q "40P01\|deadlock"' \
   "s2=$S2 out2=$OUT2 ms=$T2 pending=$PEND knowledge=$K err=$ERR"
+
+# 5. the reviewer's sequence: a reveal for a busy C1 is not queued, a later hide wins
+give f
+pair "$P1" "$(lockme "$C1") select public.apply_character_condition('$C1', null, 'Race Dazed Three', false, null, null) is not null;" \
+     "$DM" "select public.dm_set_item_knowledge('hb-pk-race-f', array['$C1']::uuid[], '{all}', 'raise', '$CAMP')::text;" 3 1
+R5=$OUT2; P5=$(pending "$C1"); S5=$(state "$C1" f)
+run "$DM" "select public.dm_set_item_knowledge('hb-pk-race-f', array['$C1']::uuid[], '{}', 'set', '$CAMP');" >/dev/null
+run "$P1" "select public.sync_party_knowledge('$C1');" >/dev/null
+K="$(state "$C1" f) $(held "$C1" f) $(state "$C2" f)"
+check "5 N1: the DM's reveal to busy C1 -> busy, unchanged, nothing queued; the DM's hide afterwards wins: C1's sync leaves it hidden and held, C2 learns nothing" \
+  '[ "$S2" = 0 ] && echo "$R5" | grep -q "\"busy\": 1" && [ "$P5" = 0 ] && [ "$S5" = unidentified ] && [ "$K" = "unidentified true unidentified" ] && ! echo "$ERR" | grep -q "40P01\|deadlock"' \
+  "out2=$R5 pending=$P5 before=$S5 after=$K err=$ERR"
+
+# 6. a pending share, then the DM holds the target: the share is gone
+give g
+pair "$P1" "$(lockme "$C1") select public.apply_character_condition('$C1', null, 'Race Dazed Four', false, null, null) is not null;" \
+     "$P2" "$(examine "$C2" g)" 3 1
+P6=$(pending "$C1")
+run "$DM" "select public.dm_set_item_knowledge('hb-pk-race-g', array['$C1']::uuid[], '{}', 'set', '$CAMP');" >/dev/null
+P6B=$(px -c "select count(*) from public.party_share_pending where target_character_id = '$C1' and item_id = 'hb-pk-race-g'")
+run "$P1" "select public.sync_party_knowledge('$C1');" >/dev/null
+K="$(state "$C1" g) $(held "$C1" g)"
+check "6 a pending share for C1, then the DM hides the item from C1: the pending share is deleted, C1's sync leaves it hidden and held" \
+  '[ "$S2" = 0 ] && echo "$OUT2" | grep -q succeeded && [ "$P6" -ge 1 ] && [ "$P6B" = 0 ] && [ "$K" = "unidentified true" ]' \
+  "out2=$OUT2 pending=$P6 after_hide=$P6B knowledge=$K err=$ERR"
 
 D1=$(deadlocks)
 check "pg_stat_database.deadlocks did not move ($D0 -> $D1)" '[ "$D0" = "$D1" ]' "$D0 -> $D1"
@@ -96,5 +126,5 @@ delete from public.items where id like 'hb-pk-race-%';
 delete from public.campaigns where id = '$CAMP';
 delete from auth.users where id in ('$P1', '$P2', '$DM');
 SQL
-[ "$RC" = 0 ] && echo "PASSED  party knowledge concurrency (5 / 5)" || echo "FAILED  party knowledge concurrency"
+[ "$RC" = 0 ] && echo "PASSED  party knowledge concurrency (7 / 7)" || echo "FAILED  party knowledge concurrency"
 exit "$RC"

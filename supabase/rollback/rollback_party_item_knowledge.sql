@@ -11,7 +11,7 @@
 -- character_revisions and audit events. Nothing is lowered: a character who learned an item from the party keeps knowing it.
 -- LOST (export first if it matters):
 --   select campaign_id, share_identification from public.campaign_item_rules;           -- the rule per campaign
---   select * from public.party_share_pending;                                           -- shares not applied yet
+--   select * from public.party_share_pending;                                           -- party shares not applied yet
 --   select character_id, item_id from public.character_item_knowledge where held_by_dm;  -- the DM holds
 --   select id, source, source_character_id from public.item_knowledge_events where source is not null;
 -- Deploy order for a rollback: the previous frontend (?v=28) first, then this file.
@@ -367,13 +367,14 @@ drop function if exists public._party_pending_apply(uuid);
 drop function if exists public._party_share_pull(uuid, boolean, text);
 drop function if exists public._party_levels(uuid, uuid, text);
 drop function if exists public._party_share_from(uuid, text);
-drop function if exists public._party_guarded(uuid, text, text, text, text[], uuid, uuid, boolean, bigint);
+drop function if exists public._party_guarded(uuid, text, text, text[], uuid, uuid, boolean, bigint);
 drop function if exists public._party_apply_to(uuid, text, text, text[], boolean);
 drop function if exists public._ik_apply_set(uuid, text, text, text[]);
 drop function if exists public._identify_apply_one(uuid, text, text[]);
 drop function if exists public._ik_lock_target(uuid, text);
 drop function if exists public._ik_contains(text, text[], text, text[]);
-drop function if exists public._ik_campaign_source(uuid, text, uuid);
+drop function if exists public._ik_drop_pending(uuid, text);
+drop function if exists public._ik_campaign_level(uuid, text, uuid);
 drop function if exists public._party_share_on(uuid);
 alter table public.item_knowledge_events drop column if exists source_character_id, drop column if exists source;
 alter table public.character_item_knowledge drop column if exists held_by_dm;

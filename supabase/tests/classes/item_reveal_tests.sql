@@ -317,11 +317,11 @@ select tl_test.rec('IR18b M2 a mixed holder (undisguised + disguised copy) is st
   and split_part(tl_test.ir_ck(:'r2', :'clear'), ':', 1) = 'identified', tl_test.ir_rowk(:'r2', :'clear') || ' ' || :'m2_mixed');
 
 -- M1 (T4b) / B1 (20261114000100): every character is handled in a guarded subtransaction: its locks NOWAIT in the canonical order
--- (_ik_lock_target), a busy character is not waited for and does not fail the call: it is listed and left in party_share_pending.
+-- (_ik_lock_target); a busy character is not waited for, not changed and not queued: it is named in busy_names ("try again").
 -- The harness is one session, so the handler path is asserted on the function text (two sessions: party_knowledge_concurrency_test.sh).
-select tl_test.rec('IR19 dm_set_item_knowledge takes each character''s locks NOWAIT (_ik_lock_target) and turns a busy one into a pending row',
+select tl_test.rec('IR19 dm_set_item_knowledge takes each character''s locks NOWAIT (_ik_lock_target) and reports a busy one by name, unchanged',
   (select position('_ik_lock_target' in d) > 0 and position('when lock_not_available' in d) > 0
-          and position('party_share_pending' in d) > 0 and position('busy_names' in d) > 0
+          and position('_ik_drop_pending' in d) > 0 and position('busy_names' in d) > 0
    from (select pg_get_functiondef('public.dm_set_item_knowledge(text, uuid[], text[], text, uuid)'::regprocedure) as d) f));
 
 -- derived stats: hiding equipped armour a player could see takes it out of THEIR numbers (the DM's view keeps it)

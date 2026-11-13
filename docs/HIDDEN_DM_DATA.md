@@ -226,25 +226,33 @@ switching it off never takes knowledge away.
   event that lowered knowledge); then every campaign is caught up (raise only, idempotent). Preview it read-only on production
   first: `scripts/fluent/party_share_preview.sql` (ids and counts only).
 - **Locking (never wait on another character).** Inside the examiner's or the DM's transaction, a character that is not the
-  transaction's own target is touched only in a subtransaction (`_party_guarded`) with a 200 ms `lock_timeout` (restored) and
-  NOWAIT locks in the order of the existing RPCs: `characters` (key share) → `tl_cache.character_rev` → its rows (id order) →
-  their row knowledge → its record. A busy character is skipped and a row in `party_share_pending` (plain ids, no foreign keys,
-  no grants) keeps the share. It is applied in the target's own context: its next `_identify_apply`, `sync_party_knowledge
-  (character)` (the sheet calls it on open and after an inventory refresh, at most every 20 s; one indexed lookup when nothing
-  waits) and **DM Space → Campaign rules → Sync party knowledge** (`dm_sync_party_knowledge`). At apply time the rule, the hold,
-  the campaign (a character who left: discarded) and the source condition are checked again. The DM's bulk actions
-  (`dm_set_item_knowledge`, `dm_reveal_item`) use the same guard per character: a busy character does not fail the call, it is
-  named in `busy_names` and left pending. `tl_cache.bump_item_knowledge` takes other holders' counter rows NOWAIT (a busy one →
-  one global bump, NOWAIT as well). Two-session test: `supabase/tests/party_knowledge_concurrency_test.sh` (no 40P01, deadlock
-  counter unchanged).
-- **Knowledge stays in its campaign.** A record counts as party knowledge only when an `item_knowledge_events` row of that
-  character and item carries this campaign id (knowledge with no such event is never a source). A character moved to another
-  campaign keeps what it knows, but it does not spread there (joiners, switch-on catch-up, sync, release, preview).
+  transaction's own target is touched only in a subtransaction with a 200 ms `lock_timeout` (restored) and NOWAIT locks in the
+  order of the existing RPCs: `characters` (key share) → `tl_cache.character_rev` → its rows (id order) → their row knowledge →
+  its record. `tl_cache.bump_item_knowledge` takes other holders' counter rows NOWAIT: inside a party share a busy one defers
+  that share; on the transaction's own target (an examine, the DM's answer or set) it falls back to one global bump (NOWAIT),
+  and when that is busy too the call fails for that character ("busy"): a bump, and so a hide, is never skipped silently.
+  Two-session test: `supabase/tests/party_knowledge_concurrency_test.sh` (7 cases; no 40P01, deadlock counter unchanged).
+- **Pending party shares (the only thing ever queued).** A party share that finds its target busy is kept in
+  `party_share_pending`: one row per character and item (merged: union of facts, the higher level), plain ids, no foreign keys,
+  no grants. It is applied in the target's own context, with no actor and the usual history / audit line: the target's next
+  `_identify_apply`, `sync_party_knowledge(character)` (the sheet calls it on open and after an inventory refresh, at most every
+  20 s; one indexed lookup when nothing waits) and **DM Space → Campaign rules → Sync party knowledge**. It is dropped, never
+  applied, when the target is held back, left the campaign or was deleted (also removed by the join / leave / delete trigger),
+  the rule is off, or a DM wrote that character's knowledge of the item after the row was made. Every DM write of a (character,
+  item) deletes that pair's pending shares. A pending share never lifts a hold and never lowers anything.
+- **DM decisions are never queued.** In `dm_set_item_knowledge` (reveal, set, hide), `dm_reveal_item` and
+  `dm_release_item_knowledge_hold`, a busy character is NOT changed: the call succeeds for the others and names it in
+  `busy_names`; DM Space says "… were busy and were NOT changed. Try again." The DM's bulk calls share once at the end (O(N)
+  guarded writes for N characters).
+- **Only what was learned in this campaign is shared.** A character's shareable level in a campaign is the union of the facts its
+  `item_knowledge_events` of THIS campaign added (`new_revealed − old_revealed`), and "identified" only when such an event
+  reached it. A character moved to another campaign keeps what it knows, but only what it learns there spreads there, and
+  coming back does not bring the other campaign's facts along (joiners, switch-on catch-up, sync, release, preview).
 - A share never lowers a copy (the target's row knowledge is part of the union) and closes the target's pending examine attempts
   as "Learned from the party" (no resolver). A joiner gets one summary audit line; the joiner trigger never aborts the insert or
   the join (an error is only a warning, busy items stay pending).
 - Rollback: `supabase/rollback/rollback_party_item_knowledge.sql` (keeps what characters learned; drops the rule, the holds and
-  the history source). Tests: `supabase/tests/classes/party_knowledge_tests.sql` (PK1–PK18). `herb_identification_tests` and
+  the history source). Tests: `supabase/tests/classes/party_knowledge_tests.sql` (PK1–PK21). `herb_identification_tests` and
   `item_reveal_tests` switch the rule off for their campaign: they cover the per-character model.
 
 ## Crafting (20261113000100)

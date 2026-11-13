@@ -291,10 +291,10 @@ select tl_test.as_root();
 -- the rule goes back on without a catch-up (a direct row write), so only the pending rows can bring B up
 insert into public.campaign_item_rules (campaign_id, share_identification) values (:'camp', true)
   on conflict (campaign_id) do update set share_identification = true;
-insert into public.party_share_pending (campaign_id, target_character_id, item_id, kind, state, revealed, source_character_id) values
-  (:'camp', :'pb', :'bark', 'share', 'identified', '{}', :'pa'),
-  (:'camp', :'pc', :'bark', 'share', 'identified', '{}', :'pa'),
-  (:'camp2', :'pb', :'bark', 'share', 'identified', '{}', :'pa');
+insert into public.party_share_pending (campaign_id, target_character_id, item_id, state, revealed, source_character_id) values
+  (:'camp', :'pb', :'bark', 'identified', '{}', :'pa'),
+  (:'camp', :'pc', :'bark', 'identified', '{}', :'pa'),
+  (:'camp2', :'pb', :'herb', 'identified', '{}', :'pa');
 select tl_test.as_user(:'carol');
 select tl_test.pk_code(format('select public.sync_party_knowledge(%L)', :'pb')) as c_sync_b \gset
 select tl_test.pk_code('select 1 from public.party_share_pending') as c_pend \gset
@@ -346,3 +346,71 @@ select tl_test.rec('PK18 m2 the joiner J has one summary line and no per-item li
   (select count(*) from public.campaign_audit_events where character_id = :'pj' and summary like 'Your party already knew%') = 1
   and (select count(*) from public.campaign_audit_events where character_id = :'pj' and summary in ('Your party learned something about an item: Sunpetal', 'Your party learned something about an item: Ghost Cap')) = 0,
   (select string_agg(summary, ' | ') from public.campaign_audit_events where character_id = :'pj'));
+
+-- ---- round 3 ------------------------------------------------------------------------------------------------------------------
+-- PK19 M1b: only what was learned IN this campaign is shared ({name} learned in camp, moved, camp2 DM raises {magic} -> camp2 gets
+-- {magic} only); n5: back in camp, the camp2 part does not come along
+select tl_test.as_root();
+update public.items set secret = true where id = 'dagger';
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge('dagger', array[:'pa']::uuid[], '{name}', 'raise', :'camp');
+select tl_test.as_root();
+update public.characters set campaign_id = :'camp2' where id = :'pa';
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge('dagger', array[:'pa']::uuid[], '{magic}', 'raise', :'camp2') as m1b \gset
+select tl_test.as_root();
+insert into public.characters (id, owner_id, name, campaign_id, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp_max, hp_current, speed)
+values ('f5a00000-0000-0000-0000-00000000000a', :'bob', 'Joiner Three', :'camp2', 1, 10, 12, 12, 10, 14, 10, 10, 10, 30);
+select coalesce(tl_test.pk_ck(:'pd', 'dagger'), 'none') as d_dag \gset
+select coalesce(tl_test.pk_ck('f5a00000-0000-0000-0000-00000000000a', 'dagger'), 'none') as j3_dag \gset
+update public.characters set campaign_id = :'camp' where id = :'pa';
+insert into public.characters (id, owner_id, name, campaign_id, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp_max, hp_current, speed)
+values ('f5a00000-0000-0000-0000-00000000000b', :'carol', 'Joiner Four', :'camp', 1, 10, 12, 12, 10, 14, 10, 10, 10, 30);
+select coalesce(tl_test.pk_ck('f5a00000-0000-0000-0000-00000000000b', 'dagger'), 'none') as j4_dag \gset
+select tl_test.rec('PK19 M1b only knowledge learned in this campaign is shared: camp2 gets {magic} only (not the {name} from camp); back in camp, a joiner gets {name} only (n5)',
+  tl_test.pk_ck(:'pa', 'dagger') = 'partially_identified:magic,name' and :'d_dag' = 'partially_identified:magic'
+  and :'j3_dag' = 'partially_identified:magic' and :'j4_dag' = 'partially_identified:name',
+  concat_ws(' ', tl_test.pk_ck(:'pa', 'dagger'), :'d_dag', :'j3_dag', :'j4_dag', :'m1b'));
+
+-- PK20 N1: a DM write supersedes queued party shares; a pending share never lifts a hold, never re-reveals, never spreads
+select tl_test.as_user(:'dm');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Night Root', 'kind_id', 'herbs_plants', 'category_id', 'plant-flower',
+  'campaign_id', :'camp', 'stackable', true, 'description', 'Black.')) ->> 'id' as nroot \gset
+select public.set_item_identify_options(:'nroot', '{"unidentified_name": "Dark tuber", "identify_dc": 10}');
+select public.dm_give_item(:'nroot', array[:'pa', :'pb', :'pc']::uuid[], 1, false);
+select tl_test.as_root();
+insert into public.party_share_pending (campaign_id, target_character_id, item_id, state, revealed, source_character_id)
+values (:'camp', :'pb', :'nroot', 'identified', '{}', :'pa');
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge(:'nroot', array[:'pb']::uuid[], '{}', 'set');   -- the DM hides it from B
+select tl_test.as_root();
+select count(*) as nr_pend from public.party_share_pending where target_character_id = :'pb' and item_id = :'nroot' \gset
+select tl_test.as_user(:'bob');
+select public.sync_party_knowledge(:'pb') as nr_sync \gset
+select tl_test.as_root();
+-- belt and braces: a pending row older than a DM write of that pair is dropped at apply time
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge(:'nroot', array[:'pc']::uuid[], '{name}', 'raise');
+select tl_test.as_root();
+insert into public.party_share_pending (campaign_id, target_character_id, item_id, state, revealed, source_character_id, created_at)
+values (:'camp', :'pc', :'nroot', 'identified', '{}', :'pa', now() - interval '1 minute');
+select tl_test.as_user(:'carol');
+select public.sync_party_knowledge(:'pc') as nc_sync \gset
+select tl_test.as_root();
+select tl_test.rec('PK20 N1 the DM''s hide deletes B''s queued share; B''s sync leaves B hidden and held; a share older than a DM write is dropped; only the DM''''s name reveal spread (nothing identified)',
+  :nr_pend = 0 and tl_test.pk_ck(:'pb', :'nroot') = 'unidentified::held' and tl_test.pk_rowk(:'pb', :'nroot') = 'Dark tuber/unidentified'
+  and tl_test.pk_ck(:'pc', :'nroot') like 'partially_identified:name%' and (select count(*) from public.party_share_pending where item_id = :'nroot') = 0
+  and tl_test.pk_ck(:'pa', :'nroot') like 'partially_identified:name%',
+  concat_ws(' ', :nr_pend, :'nr_sync', :'nc_sync', tl_test.pk_ck(:'pb', :'nroot'), tl_test.pk_ck(:'pc', :'nroot'), tl_test.pk_ck(:'pa', :'nroot')));
+
+-- PK21 n2 + n3: one pending row per target and item (merged), and shares are written with no actor
+select tl_test.as_root();
+insert into public.party_share_pending (campaign_id, target_character_id, item_id, state, revealed, source_character_id)
+values (:'camp', :'pc', :'fern2', 'partially_identified', '{name}', :'pa');
+select tl_test.pk_code(format('insert into public.party_share_pending (campaign_id, target_character_id, item_id, state, revealed) values (%L, %L, %L, ''identified'', ''{}'')',
+  :'camp', :'pc', :'fern2')) as dup \gset
+delete from public.party_share_pending where target_character_id = :'pc' and item_id = :'fern2';
+select tl_test.rec('PK21 a second pending row for the same target and item is refused (the share path merges); every party-share history row has no actor',
+  :'dup' = '23505' and not exists (select 1 from public.item_knowledge_events where source = 'party_share' and actor is not null)
+  and exists (select 1 from public.item_knowledge_events where source = 'party_share'),
+  :'dup');

@@ -5,9 +5,10 @@
 -- public catalog id). Same rules as the migration:
 --   * holds: a DM "set" that nothing changed afterwards, or a last history event that took knowledge away -> never raised, never a
 --     source;
---   * a record is party knowledge only when the character learned it IN THIS campaign (an item_knowledge_events row with this
---     campaign id and a known level; M1) and the item has no campaign or this campaign;
---   * the party level = union of those records; the target's own row knowledge is part of its new level (a share never lowers);
+--   * what a character can share is only what it learned IN THIS campaign (M1b): the facts its item_knowledge_events with this
+--     campaign id added (new_revealed - old_revealed), and "identified" only when such an event reached it; items of no campaign
+--     or of this campaign only;
+--   * the party level = union of those levels; the target's own row knowledge is part of its new level (a share never lowers);
 --   * a character that holds only undisguised copies of the item is skipped;
 --   * every other character of the campaign (with or without a copy) is raised when it knows less.
 -- "row" lines: campaign, character, item, current -> new level, copies renamed, pending examine attempts that would close as
@@ -33,16 +34,19 @@ held as (
              or (l.old_state <> 'identified' and coalesce(l.old_revealed, '{}') <@ coalesce(l.new_revealed, '{}')))),
 rec as (
   select ck.*, c.campaign_id, exists (select 1 from held h where h.character_id = ck.character_id and h.item_id = ck.item_id) as is_held,
-         exists (select 1 from public.item_knowledge_events e where e.character_id = ck.character_id and e.item_id = ck.item_id
-                 and e.campaign_id = c.campaign_id and (e.new_state <> 'unidentified' or cardinality(e.new_revealed) > 0)) as learned_here
+         coalesce((select bool_or(e.new_state = 'identified' and e.old_state is distinct from 'identified') from public.item_knowledge_events e
+                   where e.character_id = ck.character_id and e.item_id = ck.item_id and e.campaign_id = c.campaign_id), false) as l_ident,
+         coalesce((select array_agg(distinct x order by x) from public.item_knowledge_events e cross join unnest(e.new_revealed) x
+                   where e.character_id = ck.character_id and e.item_id = ck.item_id and e.campaign_id = c.campaign_id
+                     and x <> 'all' and not (x = any (coalesce(e.old_revealed, '{}')))), '{}') as l_rev
   from public.character_item_knowledge ck join public.characters c on c.id = ck.character_id
   join public.items it on it.id = ck.item_id
   where c.campaign_id is not null and (it.campaign_id is null or it.campaign_id = c.campaign_id)),
 party as (
-  select r.campaign_id, r.item_id, bool_or(r.state = 'identified') as ident,
-         coalesce((select array_agg(distinct x order by x) from rec r2 cross join unnest(r2.revealed) x
-                   where r2.campaign_id = r.campaign_id and r2.item_id = r.item_id and not r2.is_held and r2.learned_here), '{}') as rev
-  from rec r where not r.is_held and r.learned_here and (r.state <> 'unidentified' or cardinality(r.revealed) > 0)
+  select r.campaign_id, r.item_id, bool_or(r.l_ident) as ident,
+         coalesce((select array_agg(distinct x order by x) from rec r2 cross join unnest(r2.l_rev) x
+                   where r2.campaign_id = r.campaign_id and r2.item_id = r.item_id and not r2.is_held), '{}') as rev
+  from rec r where not r.is_held and (r.l_ident or cardinality(r.l_rev) > 0)
   group by 1, 2),
 target as (
   select p.campaign_id, c.id as character_id, p.item_id, ck.state as cur_state, ck.revealed as cur_rev, p.ident, p.rev,
