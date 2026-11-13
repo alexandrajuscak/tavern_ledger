@@ -1,21 +1,21 @@
-import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=25';
+import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=26';
 import {
   state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
   loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
   updateProfile, listCharacters, listCharacterBadges, createCharacter, loadBundle, loadCharacterView, saver,
-} from './store.js?v=25';
-import { getDerivedStats, getProficiencies } from './inventory-api.js?v=25';
-import { icon, classIcon, iconSrc } from './icons.js?v=25';
-import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=25';
-import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=25';
-import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=25';
-import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=25';
-import { mountCombat, unmountCombat, combatEnabled } from './combat.js?v=25';
-import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=25';
-import { openLineagePicker } from './lineage-ui.js?v=25';
-import { getCharacterLineage } from './lineage-api.js?v=25';
-import { openAddClass } from './class-setup.js?v=25';
-import { getClassSummary } from './class-api.js?v=25';
+} from './store.js?v=26';
+import { getDerivedStats, getProficiencies } from './inventory-api.js?v=26';
+import { icon, classIcon, iconSrc } from './icons.js?v=26';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=26';
+import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=26';
+import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=26';
+import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=26';
+import { mountCombat, unmountCombat, combatEnabled } from './combat.js?v=26';
+import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=26';
+import { openLineagePicker } from './lineage-ui.js?v=26';
+import { getCharacterLineage } from './lineage-api.js?v=26';
+import { openAddClass } from './class-setup.js?v=26';
+import { getClassSummary } from './class-api.js?v=26';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders

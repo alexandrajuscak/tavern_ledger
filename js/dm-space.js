@@ -2,13 +2,13 @@
 // Approvals, Party, Content (custom content library + editors), Assign, Hidden, Rules (governance and content policy), Audit.
 // Visible only to campaign DMs and admins; every read and write is checked again by the database.
 
-import { supabase } from './supabase.js?v=25';
-import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=25';
-import * as dm from './dm-api.js?v=25';
-import * as gov from './governance-api.js?v=25';
-import { icon } from './icons.js?v=25';
-import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=25';
-import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=25';
+import { supabase } from './supabase.js?v=26';
+import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=26';
+import * as dm from './dm-api.js?v=26';
+import * as gov from './governance-api.js?v=26';
+import { icon } from './icons.js?v=26';
+import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=26';
+import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=26';
 
 const SECTIONS = [['overview', 'Overview'], ['approvals', 'Approvals'], ['party', 'Party'], ['content', 'Content'], ['assign', 'Assign'],
   ['hidden', 'Hidden'], ['rules', 'Campaign rules'], ['audit', 'Audit log']];
@@ -52,6 +52,7 @@ export async function mountDmSpace(container, { section: sec = 'overview', id = 
   frame();
   subscribe();
   show(section);
+  hiddenBadge();
 }
 
 export function unmountDmSpace() {
@@ -63,6 +64,19 @@ export function unmountDmSpace() {
 }
 
 const camp = () => campaigns.find((c) => c.id === campaignId);
+
+// the number of open examine requests on the Hidden tab (20261112000400)
+function setHiddenBadge(n) {
+  const t = root && $('[data-dm-section="hidden"]', root);
+  if (t) t.innerHTML = `Hidden${n ? ` <span class="dm-count" data-examine-count title="Examine requests waiting for you">${n}</span>` : ''}`;
+}
+async function hiddenBadge() {
+  const forCampaign = campaignId;
+  try {
+    const list = await dm.getIdentifyAttempts(forCampaign, 'pending');
+    if (forCampaign === campaignId) setHiddenBadge((list || []).length);
+  } catch { /* the badge is optional */ }
+}
 
 function frame() {
   root.innerHTML = `
@@ -109,6 +123,7 @@ function subscribe() {
     try { campaigns = await dm.getMyDmCampaigns(); } catch { /* keep the old counts */ }
     const counter = $('[data-dm-section="approvals"]', root);
     if (counter) counter.innerHTML = `Approvals${camp()?.pending ? ` <span class="dm-count">${camp().pending}</span>` : ''}`;
+    hiddenBadge();
     if (['overview', 'approvals', 'party'].includes(section) && !document.querySelector('.modal-backdrop:not([data-closing])')) show(section);
   }, 700);
   channel = supabase.channel(`dm-${campaignId}-${Math.random().toString(36).slice(2, 8)}`)
@@ -125,6 +140,7 @@ function onChange(e) {
     frame();
     subscribe();
     show(section);
+    hiddenBadge();
   } else if (e.target.matches('[data-dm-section-select]')) show(e.target.value);
 }
 
@@ -574,8 +590,10 @@ async function hidden(panel, alive) {
     dm.getCampaignCustomItems(campaignId).catch(() => [])]);
   if (!alive()) return;
   const name = p.characters.find((c) => c.id === cid)?.name || '';
+  setHiddenBadge((attempts || []).filter((a) => a.status === 'pending').length);
   panel.innerHTML = `
     ${identifyQueueHTML(attempts)}
+    <section class="card dm-card dm-wide" data-reveal aria-label="Who knows what"></section>
     <label class="field"><span>Character</span><select data-h-char>${p.characters.map((c) => `<option value="${esc(c.id)}" ${c.id === cid ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
     <p class="muted small">Everything here is visible only to DMs. Players see nothing of it until you reveal it.</p>
     <div class="dm-columns">
@@ -616,6 +634,7 @@ async function hidden(panel, alive) {
         </div>` : '<p class="muted">No custom items in this campaign yet. Create one in Content, or with the Inventory homebrew form (campaign visibility).</p>'}
       </section>
     </div>`;
+  revealPanel($('[data-reveal]', panel), alive).catch((err) => { const box = $('[data-reveal]', panel); if (box) box.innerHTML = `<h2>Who knows what</h2><p class="gov-error">${esc(err.message)}</p>`; });
   $('[data-h-char]', panel).addEventListener('change', (e) => { store.set('hidden-character', e.target.value); show('hidden'); });
   panel.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-h]');
@@ -665,6 +684,102 @@ async function hidden(panel, alive) {
       show('hidden');
     } catch (err) { toast(err.message, 'bad'); }
   });
+}
+
+// ---- who knows what: per-character reveal of one item (20261112000400) ----------------------------------------------------------
+// The levels use the identification vocabulary of 20261112000300 (no second one): [] / ['name'] / ['name', 'description'] / ['all'].
+const LEVELS = [['none', 'Nothing (hidden)', []], ['name', 'Name only', ['name']], ['namedesc', 'Name + description', ['name', 'description']], ['all', 'Everything', ['all']]];
+const SOURCE_TEXT = { undisguised_copy: 'holds an undisguised copy', rows: 'from the copies they hold', record: 'holds no copy (remembered)', none: 'has never learned it', not_hidden: 'the item is not hidden' };
+function levelOf(st, rev) {
+  const r = [...(rev || [])].sort();
+  if (st === 'identified') return 'all';
+  if (!r.length) return 'none';
+  if (r.join() === 'name') return 'name';
+  if (r.join() === 'description,name') return 'namedesc';
+  return 'custom';
+}
+const levelText = (st, rev) => {
+  const l = levelOf(st, rev);
+  return l === 'custom' ? `Partly: ${(rev || []).join(', ')}` : LEVELS.find(([k]) => k === l)[1];
+};
+async function revealPanel(box, alive) {
+  if (!box) return;
+  const items = await dm.getCampaignKnowledgeItems(campaignId);
+  if (!alive()) return;
+  let itemId = items.some((x) => x.id === store.get('reveal-item')) ? store.get('reveal-item') : '';
+  box.innerHTML = `<h2>Who knows what</h2>
+    <p class="muted small">Choose an item, then decide per character what they know about it. Each player sees only what their own character knows.</p>
+    <label class="field"><span>Item</span><select data-rv-item><option value="">Choose an item…</option>${items.map((x) => `<option value="${esc(x.id)}" ${x.id === itemId ? 'selected' : ''}>${esc(x.name)}${x.disguised_rows || x.secret ? ' · hidden' : ''}${x.official ? ' · official' : ''}${x.holders ? ` · held by ${x.holders}` : ''}</option>`).join('')}</select></label>
+    <div data-rv-body></div>`;
+  let ov = null;
+  const body = $('[data-rv-body]', box);
+  const draw = async () => {
+    if (!itemId) { body.innerHTML = ''; return; }
+    body.innerHTML = '<div class="spinner"></div>';
+    ov = await dm.getItemKnowledgeOverview(itemId, campaignId);
+    if (!alive() || !box.isConnected) return;
+    const it = ov.item;
+    const opts = (cur) => [...LEVELS.filter(([k]) => it.can_hide || k === 'all').map(([k, l]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(l)}</option>`),
+      cur === 'custom' ? '<option value="custom" selected>Keep as it is (custom)</option>' : ''].join('');
+    body.innerHTML = `
+      <p class="small">Characters who do not know it see <b>${esc(it.decoy_name)}</b>${it.decoy_description ? ` — <span class="muted">${esc(it.decoy_description)}</span>` : ''}.</p>
+      ${it.official ? '<p class="small muted">Official item: you can reveal it, but hiding it again needs a campaign copy (Content → Duplicate official).</p>' : ''}
+      ${!it.secret && it.can_hide ? '<p class="small muted">Not hidden yet. Lowering a character’s level disguises their copies and takes the item out of the players’ “Add item” catalog in this campaign.</p>' : ''}
+      <table class="dm-rule-table dm-reveal-table"><thead><tr><th scope="col"><input type="checkbox" data-rv-all aria-label="Select every character"></th><th scope="col">Character</th>
+        <th scope="col">Holds</th><th scope="col">Knows now</th><th scope="col">Set to</th><th scope="col"><span class="sr-only">Action</span></th></tr></thead>
+      <tbody>${ov.characters.map((c) => { const e = c.effective || {}; const cur = levelOf(e.state, e.revealed); return `<tr data-rv-char="${esc(c.character_id)}">
+        <td><input type="checkbox" data-rv-sel value="${esc(c.character_id)}" aria-label="Select ${esc(c.name)}"></td>
+        <td><strong>${esc(c.name)}</strong>${c.is_creator ? ' <span class="small muted">(created it)</span>' : ''}</td>
+        <td>${c.rows ? `${esc(String(c.quantity))}${c.shown_names?.length ? ` <span class="small muted">as ${esc(c.shown_names.join(', '))}</span>` : ''}` : '—'}</td>
+        <td data-rv-now>${esc(levelText(e.state, e.revealed))}<br><span class="small muted">${esc(SOURCE_TEXT[e.source] || '')}</span>${c.diverges ? ' <span class="small warn">copies differ</span>' : ''}</td>
+        <td><select data-rv-level aria-label="Level for ${esc(c.name)}">${opts(cur)}</select></td>
+        <td><button type="button" class="btn btn-xs" data-rv="set">Set</button></td></tr>`; }).join('')}</tbody></table>
+      <div class="inv-form-row">
+        <select data-rv-bulk aria-label="Level to reveal">${LEVELS.filter(([k]) => k !== 'none').map(([k, l]) => `<option value="${k}" ${k === 'all' ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+        <button type="button" class="btn btn-sm btn-gold" data-rv="reveal-selected">Reveal to selected</button>
+        <button type="button" class="btn btn-sm" data-rv="reveal-party">Reveal to the whole party</button>
+        ${it.can_hide ? '<button type="button" class="btn btn-sm btn-ghost" data-rv="hide-selected">Hide from selected</button>' : ''}
+      </div>
+      <p class="muted small">“Reveal” only ever adds knowledge; “Set” and “Hide” can take it away again (undo).</p>
+      ${ov.stash?.length ? `<p class="small"><strong>Party stash / shop:</strong> ${ov.stash.map((s) => `${esc(s.shown_name)} ×${esc(String(s.quantity))} (${esc(s.inventory_name || s.inventory_kind)}: ${esc(levelText(s.state, s.revealed))})`).join('; ')}
+        <span class="muted">— a stash copy keeps its own knowledge and every party member sees it.</span></p>` : ''}
+      ${ov.history?.length ? `<details><summary class="small">History (${ov.history.length})</summary><ul class="small">${ov.history.map((h) => `<li>${esc(fmt(h.at))} · ${esc(h.character_name || '?')}:
+        ${h.old_state ? `${esc(levelText(h.old_state, h.old_revealed))} → ` : ''}${esc(levelText(h.new_state, h.new_revealed))} <span class="muted">(${esc(h.actor || 'automatic')})</span></li>`).join('')}</ul></details>` : ''}`;
+  };
+  const apply = async (ids, level, mode) => {
+    if (!ids.length) { toast('Choose at least one character.', 'bad'); return; }
+    if (level === 'custom') return;
+    const it = ov.item;
+    const lowering = mode === 'set' && level !== 'all';
+    if (lowering && !it.secret && !await confirmDialog(`Hide “${it.name}”? The chosen characters will see only “${it.decoy_name}”, and the item leaves the players’ “Add item” catalog in this campaign.`, { okLabel: 'Hide' })) return;
+    const res = await dm.setItemKnowledgeFor(itemId, ids, LEVELS.find(([k]) => k === level)[2], mode, campaignId);
+    const warn = (res.results || []).find((x) => x.warning);
+    toast(warn ? warn.warning : res.changed ? `Saved for ${res.changed} character(s).` : 'Nothing changed.', warn ? 'bad' : 'good');
+    await draw();
+  };
+  box.addEventListener('change', (e) => {
+    if (e.target.matches('[data-rv-item]')) { itemId = e.target.value; store.set('reveal-item', itemId); draw().catch((err) => toast(err.message, 'bad')); }
+    if (e.target.matches('[data-rv-all]')) $$('[data-rv-sel]', box).forEach((x) => { x.checked = e.target.checked; });
+  });
+  box.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-rv]');
+    if (!b || !ov) return;
+    b.disabled = true;
+    try {
+      const sel = $$('[data-rv-sel]:checked', box).map((x) => x.value);
+      if (b.dataset.rv === 'set') { const tr = b.closest('[data-rv-char]'); await apply([tr.dataset.rvChar], $('[data-rv-level]', tr).value, 'set'); }
+      if (b.dataset.rv === 'reveal-selected') await apply(sel, $('[data-rv-bulk]', box).value, 'raise');
+      if (b.dataset.rv === 'reveal-party') {
+        const lv = $('[data-rv-bulk]', box).value;
+        if (await confirmDialog(`Reveal “${ov.item.name}” (${LEVELS.find(([k]) => k === lv)[1].toLowerCase()}) to every character of the campaign?`, { okLabel: 'Reveal' })) {
+          await apply(ov.characters.map((c) => c.character_id), lv, 'raise');
+        }
+      }
+      if (b.dataset.rv === 'hide-selected') await apply(sel, 'none', 'set');
+    } catch (err) { toast(err.message, 'bad'); }
+    if (b.isConnected) b.disabled = false;
+  });
+  await draw();
 }
 
 // ---- identification of disguised items (Herbs & Plants, 20261112000300) -------------------------------------------------------------

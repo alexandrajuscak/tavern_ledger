@@ -1,8 +1,8 @@
 // DM Space data (docs/DM_SPACE.md): campaigns, overview, party, the custom content library and its lifecycle, assignment and
 // hidden information. Every function is a DM-only RPC that checks the campaign role itself (20261019000400-000600).
 
-import { supabase } from './supabase.js?v=25';
-import { friendlyError } from './utils.js?v=25';
+import { supabase } from './supabase.js?v=26';
+import { friendlyError } from './utils.js?v=26';
 
 export class DmError extends Error {
   constructor(message, raw) {
@@ -80,6 +80,13 @@ export const resolveIdentifyAttempt = (attemptId, { success = null, dmRoll = nul
 /** Reveal an item (all, or parts) to some characters; characterIds null = every character of the campaign. */
 export const revealItem = (itemId, characterIds = null, reveal = null, campaignId = null) =>
   rpc('dm_reveal_item', { p_item: itemId, p_characters: characterIds, p_reveal: reveal, p_campaign: campaignId });
+// per-character reveal (20261112000400): reveal is ['all'] | [] | parts ('name', 'description', 'details', 'magic', ...);
+// mode 'raise' never lowers what a character knows, 'set' sets exactly that level (undo / hide). characterIds: always explicit.
+export const setItemKnowledgeFor = (itemId, characterIds, reveal, mode = 'set', campaignId = null) =>
+  rpc('dm_set_item_knowledge', { p_item: itemId, p_characters: characterIds, p_reveal: reveal, p_mode: mode, p_campaign: campaignId });
+/** Who knows what about one item: every campaign character (record, rows, effective level), stash rows, history. */
+export const getItemKnowledgeOverview = (itemId, campaignId) => rpc('get_item_knowledge_overview', { p_item: itemId, p_campaign: campaignId });
+export const getCampaignKnowledgeItems = (campaignId) => rpc('get_campaign_knowledge_items', { p_campaign: campaignId });
 export const setItemIdentifyOptions = (itemId, options) => rpc('set_item_identify_options', { p_item: itemId, p_options: options });
 export const giveItem = (itemId, characterIds, quantity = 1, identified = false) =>
   rpc('dm_give_item', { p_item: itemId, p_characters: characterIds, p_quantity: quantity, p_identified: identified });

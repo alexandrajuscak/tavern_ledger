@@ -151,3 +151,33 @@ DM inbox, corrected roll, retry rules, exactly-once, per character, hidden chang
 merge, split, transfer, stack keys, reveal to one and to all, DM Content path) and `browser/herb_identification_ui_test.py`
 (DM Space settings and give, decoy + Herbs filter, Examine, DM confirm, live reveal, second player still disguised,
 devtools Realtime subscription and network capture without the truth, `?fluent=0`).
+
+## Revealing items to characters (20261112000400)
+
+One model for hidden items, unidentified items and herbs: `character_item_knowledge (character, item)` is what a character
+knows, in the vocabulary above (`revealed[]` facts; `all` = identified). Its `updated_by` / `updated_at` are "revealed by / at".
+**DM Space → Hidden → Who knows what**: pick an item and see every character of the campaign: what they hold (and under which
+name), what they know now and why (from the copies they hold, an undisguised copy, remembered without a copy, never learned,
+item not hidden), and the history. Levels: Nothing (hidden), Name only, Name + description, Everything; any other fact set shows
+as "custom" and is kept.
+
+- `dm_set_item_knowledge(item, characters, reveal, mode, campaign)` (DM of the campaign or admin). The character list is always
+  explicit: "Reveal to the whole party" sends every character. Mode `raise` only adds knowledge; `set` sets that exact level,
+  which can take knowledge away again (undo, "Hide from selected"). A lower level also disguises the character's undisguised
+  copies (they get a knowledge row first, then follow the record), and the item becomes `secret`. Official items can be revealed
+  but not hidden (`22023`: copy them to campaign homebrew first). A character whose level does not change writes nothing.
+  Hiding a player-created item warns that its creator can still look it up in the catalog.
+- `get_item_knowledge_overview(item, campaign)` and `get_campaign_knowledge_items(campaign)`: DM-only reads.
+- `item_knowledge_events`: append-only history of every record change, from every path (examine, DM answer, reveal, set,
+  `set_item_knowledge`, transfer). DM-only (no grants; read through the overview), not in Realtime.
+- The player side is unchanged: a player sees only what their own character knows (masked view row, knowledge read). A
+  change writes one `character_revisions` row for that character only, so the open sheet refreshes live. The cache counter
+  of other holders of the item moves (a counter, no data); the global counter moves only the first time an item becomes secret.
+- The "Hidden" tab shows the number of examine requests waiting for the DM.
+- Parked (needs a decision, see the night design note): party stash rows (they keep their own knowledge), official items given
+  unidentified through DM Content, per-user catalog visibility, derived stats of unidentified magic items, fully invisible items.
+
+Tests: `supabase/tests/classes/item_reveal_tests.sql` (IR1–IR16: refusals, validation, A sees / B does not, partial levels,
+idempotency, raise vs set, whole party, undo, hiding an undisguised copy, the DM reads, history, backfill) and
+`browser/item_reveal_ui_test.py`. `scripts/fluent/item_visibility_snapshot.sql` is a read-only per-character hash of what each
+player sees (run it before and after a deploy).

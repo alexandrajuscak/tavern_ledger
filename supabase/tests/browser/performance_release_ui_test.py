@@ -164,7 +164,7 @@ def run(t):
               [r["answer"] if not (r["answer"] or {}).get("reads") else {k: v for k, v in r["answer"].items() if k != "reads"} for r in net.since(i) if r["name"] == "get_character_reads"])
 
         # --- user switch on the same page
-        load = """async () => { const [sp, li, cr, cl] = await Promise.all([import('./js/spell-api.js?v=25'), import('./js/lineage-api.js?v=25'), import('./js/creature-api.js?v=25'), import('./js/class-api.js?v=25')]);
+        load = """async () => { const [sp, li, cr, cl] = await Promise.all([import('./js/spell-api.js?v=26'), import('./js/lineage-api.js?v=26'), import('./js/creature-api.js?v=26'), import('./js/class-api.js?v=26')]);
           await Promise.all([sp.getSpellCatalog(), li.getLineageCatalog(), cr.getCreatures(), cl.getSpellListOptions('wizard-spell-list', 1)]); return true; }"""
         CATS = ["class_spell_list_entries", "creatures", "v_lineage_catalog", "v_spell_catalog"]
         cat = lambda rows: sorted({r["name"] for r in rows if r["name"] in CATS})
@@ -173,7 +173,7 @@ def run(t):
         i = net.mark(); page.evaluate(load)
         again = cat(net.since(i))
         check("PR-10 the catalogs are read once and then served from the session cache", first == CATS and not again, (first, again))
-        page.evaluate("async () => { const m = await import('./js/supabase.js?v=25'); await m.supabase.auth.signOut(); }")
+        page.evaluate("async () => { const m = await import('./js/supabase.js?v=26'); await m.supabase.auth.signOut(); }")
         page.wait_for_selector("input[name=email]", timeout=15000)
         page.fill("input[name=email]", other.email); page.fill("input[name=password]", PW); page.click("button[value=signin]")
         page.wait_for_selector(".char-card, .empty-state, a.brand", timeout=20000)
