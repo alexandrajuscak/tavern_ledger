@@ -42,9 +42,15 @@ player's sheet (it matches the decoy you see there) and your icon everywhere els
   upload into the campaign folder or list it; there is no update or delete policy.
 - `campaign_item_icons (campaign_id, item_id, object_path)` stores only the short path, never image bytes. Writes only through
   `dm_set_item_icon`; the DM's list is `get_campaign_item_icons`.
-- Players receive the path only as `v_inventory_detail.custom_icon`, which is NULL whenever that copy is masked for them
-  (the same rule that hides its `item_id`). This works for the fluent bundle and the `?fluent=0` read alike, with no extra
-  request: the icon is one cached image request per distinct icon, like any other icon.
+- The app gives a player the path only as `v_inventory_detail.custom_icon`, which is NULL whenever that copy is masked for
+  them (the same rule that hides its `item_id`). This works for the fluent bundle and the `?fluent=0` read alike, with no
+  extra request: the icon is one cached image request per distinct icon, like any other icon. Measured locally (45 rows):
+  the view costs the same as before (player 14.0 ms, DM 21.4-21.8 ms, best of 30, before and after).
+- Per user, not per copy, outside the app: the table's read policy lets a campaign member read the mapping row of an item
+  whose catalog row they can already read (items RLS). So a player whose OTHER character knows the item (or who sees an
+  identified copy in the party stash) can fetch that item's icon path with a hand-written REST query, even for a copy that
+  is disguised on this character. This is the same per-user boundary that already applies to the item's name and
+  description (catalog row); it never opens anything a player could not read before.
 - Why public and not private with signed URLs: a private bucket needs one extra Storage request per sheet open to sign the
   URLs, and the signed URLs change, so the browser cannot cache the images. The secret is the path, and only a viewer who
   knows the item ever receives it. Residual: someone who once received an icon URL (because they knew the item) can still
