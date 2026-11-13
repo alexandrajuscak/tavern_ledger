@@ -73,7 +73,7 @@ const RULES = [
   // two numbers sharing one unit: "5-by-5-foot", "10 x 10 ft", "10 × 10 ft", "10 by 10 feet", "2 or 3 feet", "15-20 ft", "15–20 ft"
   [new RegExp(`${N}-by-${M}-(foot|feet|ft)(?![a-z])`, 'gi'),
     (m, a, b) => `${num(feetToMeters(parse(a)))}-by-${num(feetToMeters(parse(b)))}-meter`],
-  [new RegExp(`${N}(\\s*(?:x|×|by|or|to)\\s*|\\s*[-–]\\s*)${M}(\\s*)(feet|foot|ft)(?![a-z])`, 'gi'),
+  [new RegExp(`(?<!\\b(?:level|lvl|DC|CR|tier|rank|grade)\\s*)${N}(\\s*(?:x|×|by|or|to)\\s*|\\s*[-–]\\s*)${M}(\\s*)(feet|foot|ft)(?![a-z])`, 'gi'),
     (m, a, mid, b, sp, u) => `${num(feetToMeters(parse(a)))}${mid}${num(feetToMeters(parse(b)))}${sp}${/^ft$/i.test(u) ? 'm' : 'meters'}`],
   // "5-foot", "10-foot-radius", "60-foot-long", "1-mile"
   [new RegExp(`${N}-(foot|feet|ft)(?![a-z])`, 'gi'), (m, a) => `${num(feetToMeters(parse(a)))}-meter`],

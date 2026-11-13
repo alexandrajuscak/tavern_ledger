@@ -66,6 +66,9 @@ export const CASES = [
   ['x-5 ft', 'x-5 ft'],
   ['3 in the morning', '3 in the morning'],
   ['Recharge 5-6 (30 ft cone)', 'Recharge 5-6 (9 m cone)'],
+  ['level 5 or 10 feet', 'level 5 or 3 meters'],
+  ['DC 15 or 20 ft', 'DC 15 or 6 m'],
+  ['CR 2 to 30 ft', 'CR 2 to 9 m'],
   // NEGATIVES: no measurement, or not a linear one
   ['1d10 + 3 slashing', '1d10 + 3 slashing'],
   ['DC 15 Dexterity saving throw', 'DC 15 Dexterity saving throw'],
