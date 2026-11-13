@@ -8,8 +8,12 @@ AR-10..15  the reset mail of AR-05 (Mailpit, PKCE ?code= link) in the same brows
            works, old one refused; the reused link gets the friendly expired text.
 AR-20..27  ?token_hash=…&type=recovery link (admin generate_link, no mail): Continue first (no verify before the click), the
            #/c/<id> route survives, password changed; reused link -> friendly text without "Send a new link" (flag off).
-AR-30..34  #error=…otp_expired fragment, magic link type=email in a page signed in as another user (user switch), normal
+AR-30..34  #error=…otp_expired fragment, magic link type=magiclink in a page signed in as another user (user switch), normal
            email sign-in / sign-out, no console errors.
+AR-40..49  review round 2: per-address rate limit (429 over_email_send_rate_limit) answers like an unknown address (flag on);
+           token_hash gone from the address before Continue; reset state ends on sign-out (next user is not asked for a new
+           password); another tab's PASSWORD_RECOVERY broadcast is ignored by a tab that arrived with ?code=; ?code= without a
+           verifier -> neutral notice; a non-link ?error= keeps its own text, an otp_* ?error= gets the link text.
 The local stack sends at most 2 auth mails per hour (supabase/config.toml), so exactly one real mail is requested (AR-05).
 Usage: APP_URL=... python auth_reset_ui_test.py   (run_browser_local.sh sets the environment)
 """
@@ -29,6 +33,10 @@ CONFIG = (ROOT / "js" / "config.js").read_text(encoding="utf-8")
 MAILPIT = "http://127.0.0.1:54324"
 TODAY_CONTROLS = ["btn-google", "email", "password", "signin", "signup", "btn-magic"]
 EXPIRED = "expired or was already used"
+NOBODY = f"nobody-{RUN}@example.test"
+# the body local GoTrue sends for a second reset / confirmation mail to an EXISTING address within max_frequency (probed)
+PER_ADDRESS_LIMIT = json.dumps({"code": 429, "error_code": "over_email_send_rate_limit",
+                                "msg": "For security purposes, you can only request this after 41 seconds."})
 
 
 def password_ok(email, pw):
@@ -59,10 +67,11 @@ def mail_link(email, timeout=20):
 
 
 class Page:
-    def __init__(self, browser, flag_on=False):
-        self.ctx = browser.new_context(viewport={"width": 1100, "height": 860})
-        self.ctx.add_init_script(f"localStorage.setItem('tavern-ledger:local-supabase', JSON.stringify({{url: {json.dumps(API)}, key: {json.dumps(ANON)}}}));")
-        if flag_on:
+    def __init__(self, browser, flag_on=False, ctx=None):
+        self.ctx = ctx or browser.new_context(viewport={"width": 1100, "height": 860})
+        if not ctx:
+            self.ctx.add_init_script(f"localStorage.setItem('tavern-ledger:local-supabase', JSON.stringify({{url: {json.dumps(API)}, key: {json.dumps(ANON)}}}));")
+        if flag_on and not ctx:
             src = CONFIG.replace("export const AUTH_EMAIL_FLOWS = 'off';", "export const AUTH_EMAIL_FLOWS = 'on';")
             assert src != CONFIG, "flag line not found in js/config.js"
             self.ctx.route(re.compile(r".*/js/config\.js(\?.*)?$"), lambda r: r.fulfill(status=200, content_type="text/javascript", body=src))
@@ -195,6 +204,48 @@ def run(t):
         else:
             check("AR-10 (skipped: no reset mail this run, the local mail limit is 2 per hour)", True)
             cur = PW
+        # (after the PKCE link: every reset request in this browser replaces its PKCE verifier, which would break that link)
+        # --- no user enumeration: a refused repeat for an existing address reads exactly like an unknown address
+        def forgot_answer(addr, limited):
+            if limited:
+                s.page.route("**/auth/v1/recover*", lambda r: r.fulfill(status=429, content_type="application/json", body=PER_ADDRESS_LIMIT))
+            s.page.goto(APP)
+            s.page.wait_for_selector("input[name=email]", timeout=20000)
+            s.page.fill("input[name=email]", addr)
+            s.page.click("#btn-forgot")
+            s.page.wait_for_selector("#forgot-form", timeout=10000)
+            s.page.click("#btn-send-reset")
+            s.wait(lambda: s.page.locator("#forgot-sent").is_visible() or s.page.locator(".toast").count() > 0, 10000)
+            out = (s.page.locator("#forgot-sent").inner_text() if s.page.locator("#forgot-sent").is_visible() else "", s.text())
+            if limited:
+                s.page.unroute("**/auth/v1/recover*")
+            return out
+        unknown = forgot_answer(NOBODY, False)          # real request: GoTrue answers 200 for an unknown address
+        limited = forgot_answer(a.email, True)          # GoTrue's 429 for an existing address within 60 s
+        check("AR-40 Forgot password: an existing address within 60 s (429 over_email_send_rate_limit) gets exactly the answer of "
+              "an unknown address", unknown[0] and unknown[0] == limited[0] and "Too many" not in limited[1], (unknown, limited))
+
+        def resend_answer(addr, limited):
+            s.page.route("**/auth/v1/token?grant_type=password", unconfirmed)
+            if limited:
+                s.page.route("**/auth/v1/resend*", lambda r: r.fulfill(status=429, content_type="application/json", body=PER_ADDRESS_LIMIT))
+            s.page.goto(APP)
+            s.page.wait_for_selector("input[name=email]", timeout=20000)
+            s.signin(addr, PW)
+            s.wait(lambda: s.page.locator("#auth-confirm").is_visible())
+            s.page.evaluate("() => document.querySelectorAll('.toast').forEach((t) => t.remove())")
+            s.page.click("#btn-resend")
+            s.wait(lambda: s.page.locator(".toast").count() > 0, 10000)
+            out = " ".join(s.page.locator(".toast").all_inner_texts())
+            s.page.unroute("**/auth/v1/token?grant_type=password")
+            if limited:
+                s.page.unroute("**/auth/v1/resend*")
+            return out
+        unknown = resend_answer(NOBODY, False)          # real request: 200 for an unknown address
+        limited = resend_answer(a.email, True)
+        check("AR-41 Resend: an existing address within 60 s gets exactly the answer of an unknown address",
+              "on its way" in unknown and unknown == limited, (unknown, limited))
+
         errors += s.console_errors()
         s.ctx.close()
 
@@ -205,6 +256,8 @@ def run(t):
         s.page.wait_for_selector("#btn-link-continue", timeout=20000)
         s.page.wait_for_timeout(800)
         check("AR-20 token_hash link: a Continue card, and nothing is verified before the click", not s.verifies, s.verifies)
+        check("AR-42 token_hash / type are out of the address already before Continue (?fluent=0 and #/c/<id> kept)",
+              "token_hash" not in s.page.url and "type=" not in s.page.url and s.page.url.endswith(f"?fluent=0#/c/{cid}"), s.page.url)
         s.page.click("#btn-link-continue")
         ok = s.wait(lambda: s.page.locator("#newpw-form").count() == 1, 15000)
         check("AR-21 Continue -> 'Choose a new password'", ok, s.page.locator("#app").inner_text()[:300])
@@ -237,6 +290,19 @@ def run(t):
         s.page.reload()
         ok = s.wait(lambda: s.page.locator("#auth-notice").count() == 1 and EXPIRED in s.page.locator("#auth-notice").inner_text())
         check("AR-30 #error=…otp_expired -> notice on the sign-in card, the fragment is cleared", ok and "#error" not in s.page.url, s.page.url)
+        # a failed Google return (GoTrue puts the error into the query and the fragment); "invalid" in it is not an email link
+        oauth = "error=invalid_request&error_code=bad_oauth_state&error_description=OAuth+callback+with+invalid+state"
+        s.page.goto(f"{APP}?{oauth}#{oauth}")
+        ok = s.wait(lambda: "OAuth callback with invalid state" in s.text())
+        check("AR-43 a non-link ?error= (Google failure) keeps its own text, no 'expired' text, address cleared", ok
+              and EXPIRED not in s.text() and "error" not in s.page.url, (s.page.url, s.text()[:300]))
+        s.page.goto(f"{APP}?error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired")
+        ok = s.wait(lambda: EXPIRED in s.text())
+        check("AR-44 ?error_code=otp_expired (query) -> the friendly link text", ok and "error" not in s.page.url, (s.page.url, s.text()[:300]))
+        s.page.goto(f"{APP}?code=00000000-0000-4000-8000-00000000c0de")
+        ok = s.wait(lambda: s.page.locator("#auth-notice").count() == 1 and "different browser" in s.page.locator("#auth-notice").inner_text())
+        check("AR-45 ?code= without a PKCE verifier in this browser -> neutral notice, code removed", ok and "code=" not in s.page.url,
+              (s.page.url, s.text()[:300]))
 
         # --- normal email sign-in / sign-out, then a magic link of user B in a page signed in as A (user switch)
         s.page.goto(APP)
@@ -244,17 +310,57 @@ def run(t):
         ok = s.wait(lambda: s.page.locator(".char-card").count() == 1, 20000)
         check("AR-31 email sign-in still works (A sees A's character)", ok, s.text()[:200])
         mh = link_hash("magiclink", b.email)
-        s.page.goto(f"{APP}?token_hash={mh}&type=email")
+        s.page.goto(f"{APP}?token_hash={mh}&type=magiclink")
+        s.page.wait_for_selector("#btn-link-continue", timeout=20000)
+        title = s.page.locator("#app h1").inner_text()
         s.page.click("#btn-link-continue")
-        ok = s.wait(lambda: "Email confirmed" in s.text() or "Signed in" in s.text(), 15000)
+        ok = s.wait(lambda: "Signed in" in s.text(), 15000) and title == "Sign in" and "Email confirmed" not in s.text()
         s.page.wait_for_timeout(1500)
         uid = s.page.evaluate("async () => (await (await import('./js/supabase.js?v=27')).supabase.auth.getSession()).data.session?.user?.id")
-        check("AR-32 magic link (type=email) in a page signed in as A: now B, and none of A's characters is shown", ok and uid == b.id
+        check("AR-32 magic link (type=magiclink, the template's type) reads as signing in; in a page signed in as A: now B, and none of A's characters is shown", ok and uid == b.id
               and s.page.locator(".char-card").count() == 0 and f"Auth Hero {RUN}" not in s.page.locator("#app").inner_text(), (uid, s.text()[:200]))
         s.page.click("#btn-signout")
         ok = s.wait(lambda: s.page.locator("input[name=email]").count() == 1)
         check("AR-33 sign-out still works", ok)
+
+        # --- a reset link of B, then sign-out, then A signs in in the same tab: A is NOT asked for a new password
+        hb = link_hash("recovery", b.email)
+        s.page.goto(f"{APP}?token_hash={hb}&type=recovery")
+        s.page.click("#btn-link-continue")
+        ok = s.wait(lambda: s.page.locator("#newpw-form").count() == 1, 15000)
+        s.page.click("#btn-signout")
+        s.page.wait_for_selector("input[name=email]", timeout=15000)
+        s.signin(a.email, pw3)
+        ok = ok and s.wait(lambda: s.page.locator(".char-card").count() == 1, 20000)
+        s.page.wait_for_timeout(800)
+        check("AR-46 reset link of B -> sign-out -> A signs in: A's character list, no 'Choose a new password'",
+              ok and s.page.locator("#newpw-form").count() == 0, s.text()[:300])
         errors += s.console_errors()
+        s.ctx.close()
+
+        # --- two tabs of one browser: tab 1 arrived with ?code= (and a verifier, like a Google return), tab 2 opens a reset link
+        s = Page(br)
+        s.page.goto(APP)
+        s.page.wait_for_selector("input[name=email]", timeout=20000)
+        sk = s.page.evaluate("async () => (await import('./js/supabase.js?v=27')).supabase.auth.storageKey")
+        s.page.evaluate("(k) => localStorage.setItem(k + '-code-verifier', JSON.stringify('x'.repeat(56)))", sk)
+        s.page.goto(f"{APP}?code=00000000-0000-4000-8000-00000000c0de")
+        ok = s.wait(lambda: s.page.locator("#auth-notice").count() == 1 and "could not finish here" in s.page.locator("#auth-notice").inner_text())
+        check("AR-47 ?code= with a verifier whose exchange fails -> the 'could not finish' notice (not the other-browser one)", ok,
+              s.text()[:300])
+        s.signin(a.email, pw3)
+        ok = s.wait(lambda: s.page.locator(".char-card").count() == 1, 20000)
+        t2 = Page(br, ctx=s.ctx)
+        ha = link_hash("recovery", a.email)
+        t2.page.goto(f"{APP}?token_hash={ha}&type=recovery")
+        t2.page.click("#btn-link-continue")
+        ok2 = t2.wait(lambda: t2.page.locator("#newpw-form").count() == 1, 15000)
+        s.page.wait_for_timeout(2500)
+        check("AR-48 tab 2: the reset link opens 'Choose a new password'", ok2, t2.page.locator("#app").inner_text()[:200])
+        check("AR-49 tab 1 (arrived with ?code= long ago) ignores tab 2's PASSWORD_RECOVERY broadcast", ok
+              and s.page.locator("#newpw-form").count() == 0 and s.page.locator(".char-card").count() == 1, s.text()[:300])
+        t2.page.click("#btn-newpw-later")
+        errors += s.console_errors() + t2.console_errors()
         s.ctx.close()
         check("AR-34 no console errors", not errors, errors[:5])
         br.close()
