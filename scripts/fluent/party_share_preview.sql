@@ -3,8 +3,9 @@
 --   psql -v ON_ERROR_STOP=1 -At -f scripts/fluent/party_share_preview.sql
 -- Output: ids and counts only, never an item name, a decoy or a description (hb- / cc- ids are opaque; an official slug is the
 -- public catalog id). Same rules as the migration:
---   * holds: a DM "set" that nothing changed afterwards, or a last history event that took knowledge away -> never raised, never a
---     source;
+--   * holds (the v31 hold rule): the latest DM "set" line or history event that took knowledge away, with no later DM release
+--     and no later event that reached "identified" -> never raised by the catch-up (whatever the DM did afterwards, e.g. a partial
+--     reveal), never a source;
 --   * what a character can share is only what it learned IN THIS campaign (M1b): the facts its item_knowledge_events with this
 --     campaign id added (new_revealed - old_revealed), and "identified" only when such an event reached it; items of no campaign
 --     or of this campaign only;
@@ -16,24 +17,33 @@
 -- "Learned from the party" (m3), and "ROW-ABOVE" when a copy already knows more than the character's record (m4: the record is
 -- raised to it; nothing is lowered). Totals at the end, with two sizing counts (M1c exposure; characters without a
 -- cache counter row). With no knowledge data: only the totals (0).
+-- "DM-PARTIAL" on a row: the DM's latest choice for that character was a partial reveal that the catch-up goes beyond (no hide on
+-- record, so no hold: before this release a "Hide" of a character who knew nothing changed nothing and wrote nothing). Review them.
+-- "held" lines (before the rows): every record the migration will hold, with its current level (ids only): the catch-up skips them.
+-- Run as postgres (it reads campaign_audit_events and the knowledge tables); it opens a READ ONLY transaction and rolls it back.
 begin read only;
-with hold_dm as (
-  select distinct on (e.character_id, e.after ->> 'item_id') e.character_id, e.after ->> 'item_id' as item_id, e.after ->> 'mode' as mode, e.created_at
+with hold_pt as (
+  -- the hold rule (v31), the same CTE as public._ik_derived_holds() in the migration: a hold point is a DM audit line with mode
+  -- 'set' or ANY event that took knowledge away; a lift is a later DM 'release' line or a later event that reached 'identified'
+  select e.character_id, e.after ->> 'item_id' as item_id, e.created_at
   from public.campaign_audit_events e
-  where e.event_type = 'item_revealed' and e.visibility = 'dm' and e.character_id is not null and e.after ? 'mode' and e.after ? 'item_id'
-  order by e.character_id, e.after ->> 'item_id', e.created_at desc, e.id desc),
-last_ev as (
-  select distinct on (ev.character_id, ev.item_id) ev.*
-  from public.item_knowledge_events ev order by ev.character_id, ev.item_id, ev.created_at desc, ev.id desc),
+  where e.event_type = 'item_revealed' and e.visibility = 'dm' and e.character_id is not null and e.after ->> 'mode' = 'set'
+    and e.after ? 'item_id'
+  union all
+  select ev.character_id, ev.item_id, ev.created_at
+  from public.item_knowledge_events ev
+  where ev.old_state is not null
+    and not (ev.new_state = 'identified'
+             or (ev.old_state <> 'identified' and coalesce(ev.old_revealed, '{}') <@ coalesce(ev.new_revealed, '{}')))),
+last_hold as (select h.character_id, h.item_id, max(h.created_at) as at from hold_pt h group by 1, 2),
 held as (
-  select h.character_id, h.item_id from hold_dm h
-  where h.mode = 'set' and not exists (select 1 from public.item_knowledge_events ev where ev.character_id = h.character_id
-                                       and ev.item_id = h.item_id and ev.created_at > h.created_at)
-  union
-  select l.character_id, l.item_id from last_ev l
-  where l.old_state is not null
-    and not (l.new_state = 'identified'
-             or (l.old_state <> 'identified' and coalesce(l.old_revealed, '{}') <@ coalesce(l.new_revealed, '{}')))),
+  select l.character_id, l.item_id from last_hold l
+  where not exists (select 1 from public.campaign_audit_events e
+                    where e.event_type = 'item_revealed' and e.visibility = 'dm' and e.character_id = l.character_id
+                      and e.after ->> 'item_id' = l.item_id and e.after ->> 'mode' = 'release' and e.created_at > l.at)
+    and not exists (select 1 from public.item_knowledge_events ev
+                    where ev.character_id = l.character_id and ev.item_id = l.item_id and ev.new_state = 'identified'
+                      and ev.created_at > l.at)),
 rec as (
   select ck.*, c.campaign_id, exists (select 1 from held h where h.character_id = ck.character_id and h.item_id = ck.item_id) as is_held,
          coalesce((select bool_or(e.new_state = 'identified' and e.old_state is distinct from 'identified') from public.item_knowledge_events e
@@ -81,12 +91,27 @@ change as (
   select p.* from planned p
   where not p.is_held and not (p.n_plain > 0 and p.n_disg = 0)
     and (p.cur_state is null or (p.cur_state, p.cur_rev) is distinct from (p.new_state, p.new_rev)))
-select 'row ' || campaign_id || ' ' || character_id || ' ' || item_id || ' ' || coalesce(cur_state, 'none') || '[' || coalesce(array_to_string(cur_rev, ','), '') || ']'
+select line from (
+  select 0 as k, c.campaign_id, h.character_id, h.item_id,
+         'held ' || coalesce(c.campaign_id::text, 'no-campaign') || ' ' || h.character_id || ' ' || h.item_id || ' '
+         || coalesce(ck.state, 'none') || '[' || coalesce(array_to_string(ck.revealed, ','), '') || '] never raised by the catch-up' as line
+  from held h join public.characters c on c.id = h.character_id
+  join public.character_item_knowledge ck on ck.character_id = h.character_id and ck.item_id = h.item_id
+  union all
+  select 1, campaign_id, character_id, item_id,
+         'row ' || campaign_id || ' ' || character_id || ' ' || item_id || ' ' || coalesce(cur_state, 'none') || '[' || coalesce(array_to_string(cur_rev, ','), '') || ']'
        || ' -> ' || new_state || '[' || array_to_string(new_rev, ',') || '] copies renamed ' || n_disg
        || ' pending examines closed ' || (select count(*) from public.item_identify_attempts a where a.character_id = change.character_id
                                           and a.item_id = change.item_id and a.status = 'pending' and change.new_state = 'identified')
        || case when row_ident and coalesce(cur_state, '') <> 'identified' or not (row_rev <@ coalesce(cur_rev, '{}')) then ' ROW-ABOVE' else '' end
-from change order by campaign_id, character_id, item_id;
+       -- the DM's latest choice for this character was a PARTIAL raise that the catch-up exceeds. Not a hold (no hide on record):
+       -- a "Hide" of a character who knew nothing yet changed nothing and left no trace before this release. Review these lines.
+       || case when (select e.after ->> 'mode' = 'raise' and e.after ->> 'state' <> 'identified' from public.campaign_audit_events e
+                     where e.event_type = 'item_revealed' and e.visibility = 'dm' and e.character_id = change.character_id
+                       and e.after ->> 'item_id' = change.item_id and e.after ? 'mode'
+                     order by e.created_at desc, e.id desc limit 1) then ' DM-PARTIAL' else '' end
+  from change) out
+order by k, campaign_id, character_id, item_id;
 
 -- totals
 select 'totals: records ' || (select count(*) from public.character_item_knowledge)

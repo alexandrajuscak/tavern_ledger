@@ -2,8 +2,9 @@
 -- Rollback of 20261114000300_party_item_knowledge.sql. Run as postgres in ONE transaction:
 --   psql -v ON_ERROR_STOP=1 -1 -f supabase/rollback/rollback_party_item_knowledge.sql
 -- Restores the exact previous bodies of the seven replaced functions (captured with pg_get_functiondef from the local database at
--- 20261113000100; md5 of pg_get_functiondef, first 8: _identify_apply ae98ff51, _item_knowledge_log e24b17c6, set_item_knowledge
--- 1df683f9, dm_set_item_knowledge f5115397, get_item_knowledge_overview 320cb154, dm_reveal_item 59c15bc7,
+-- 20261113000100 and re-checked identical at 20261114000200 = production main 82b28e1, ?v=30;
+-- md5 of pg_get_functiondef, first 8: _identify_apply ae98ff51, _item_knowledge_log e24b17c6, set_item_knowledge 1df683f9,
+-- dm_set_item_knowledge f5115397, get_item_knowledge_overview 320cb154, dm_reveal_item 59c15bc7,
 -- tl_cache.bump_item_knowledge 3013a275; grants are unchanged by CREATE OR REPLACE), drops the joiner trigger, every new function,
 -- the tables campaign_item_rules and party_share_pending and the three new columns.
 -- KEPT on purpose (ordinary T4 data, read by the T4 code exactly as before): knowledge records that party sharing raised, the
@@ -379,6 +380,7 @@ drop function if exists public._ik_contains(text, text[], text, text[]);
 drop function if exists public._ik_drop_pending(uuid, text);
 drop function if exists public._ik_campaign_level(uuid, text, uuid);
 drop function if exists public._party_share_on(uuid);
+drop function if exists public._ik_derived_holds();
 alter table public.item_knowledge_events drop column if exists source_character_id, drop column if exists source;
 alter table public.character_item_knowledge drop column if exists held_by_dm;
 drop table if exists public.party_share_pending;

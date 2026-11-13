@@ -7,7 +7,8 @@
 -- * Rule campaign_item_rules.share_identification (a missing row = ON). Off = the per-character model of 20261112000300/0400.
 --   Switching it on catches the campaign up once; switching it off never lowers anything.
 -- * A player-side raise (examine success, the DM's answer, crafting) goes through _identify_apply: it locks its own target in the
---   canonical order, applies (_identify_apply_one = the old body), lifts a DM hold, applies the target's own pending shares and
+--   canonical order, applies (_identify_apply_one = the old body), lifts a DM hold only when the result is 'identified', applies
+--   the target's own pending shares and
 --   shares with the other characters. The DM's bulk calls (dm_set_item_knowledge, dm_reveal_item) apply per character and share
 --   ONCE at the end (worst case O(N) guarded writes for N characters).
 -- * LOCKING (B1): a transaction never waits on another character. A character that is not the transaction's own target is
@@ -23,7 +24,11 @@
 --   the union of the facts its item_knowledge_events of THIS campaign added (new_revealed - old_revealed), and "identified" only
 --   when such an event reached it.
 -- * Explicit DM choices win: mode 'set' and a lowering through the old per-copy editor hold the character back (held_by_dm);
---   sharing never reaches it and it is never a source; an explicit raise of it or dm_release_item_knowledge_hold lifts the hold.
+--   sharing never reaches it and it is never a source. THE HOLD RULE (v31, owner): a hold is lifted ONLY by
+--   dm_release_item_knowledge_hold or when the character's record ends up fully 'identified' (its own success, the DM's reveal of
+--   everything). A partial raise of any kind (examine, the DM's answer, dm_set_item_knowledge 'raise', dm_reveal_item, the
+--   per-copy editor), a rule switch, a sync or another character's reveal never lifts it. The hold follows the character and the
+--   item, also into another campaign (m4).
 -- * A failed or pending examine writes nothing for anyone else. A share never lowers a copy and closes the target's pending
 --   examine attempts as "Learned from the party" (no resolver). Shares are written with no actor (system).
 -- * Joiners: an AFTER INSERT / UPDATE OF campaign_id / DELETE trigger gives a joining character the party level (own rows only,
@@ -506,8 +511,11 @@ begin
   -- this transaction's own target: the canonical order of the existing RPCs (the character row before its counter row)
   perform 1 from public.characters where id = p_character for key share;
   st := public._identify_apply_one(p_character, p_item, p_reveal);
-  -- an explicit raise of this character (its own success, the DM's answer or reveal, crafting) lifts a DM hold on the item
-  update public.character_item_knowledge set held_by_dm = false where character_id = p_character and item_id = p_item and held_by_dm;
+  -- the hold rule: a raise of this character (its own success, the DM's answer, crafting) lifts a DM hold on the item only when the
+  -- character now knows everything; a partial result keeps the hold (and a held character is never a source below)
+  if st = 'identified' then
+    update public.character_item_knowledge set held_by_dm = false where character_id = p_character and item_id = p_item and held_by_dm;
+  end if;
   perform public._party_pending_apply(p_character);
   perform public._party_share_from(p_character, p_item);
   return st;
@@ -549,7 +557,8 @@ create trigger characters_party_knowledge after insert or update of campaign_id 
 -- ---- 5. replaced RPCs ---------------------------------------------------------------------------------------------------------
 -- set_item_knowledge (old per-copy editor; body of 20261112000300 + the marked lines): the character row is taken first (the
 -- canonical order); the DM write supersedes queued party shares of the pair; a write that only ADDED knowledge is shared with the
--- party; a write that took knowledge away holds the character back (party sharing skips it from now on)
+-- party; a write that took knowledge away holds the character back (party sharing skips it from now on); an addition lifts a hold
+-- only when the record ends up identified (the hold rule)
 CREATE OR REPLACE FUNCTION public.set_item_knowledge(p_inventory_item uuid, p_state text, p_revealed text[] DEFAULT NULL::text[], p_magic_known boolean DEFAULT NULL::boolean)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -598,7 +607,10 @@ begin
     select * into ck1 from public.character_item_knowledge where character_id = inv.character_id and item_id = r.item_id;
     if public._ik_contains(ck1.state, ck1.revealed, ck0.state, ck0.revealed) then
       if (ck0.state, ck0.revealed) is distinct from (ck1.state, ck1.revealed) then
-        update public.character_item_knowledge set held_by_dm = false where character_id = inv.character_id and item_id = r.item_id and held_by_dm;
+        -- the hold rule: only a fully identified result lifts a hold; a held character is no source (_party_share_from returns 0)
+        if ck1.state = 'identified' then
+          update public.character_item_knowledge set held_by_dm = false where character_id = inv.character_id and item_id = r.item_id and held_by_dm;
+        end if;
         perform public._party_share_from(inv.character_id, r.item_id);
       end if;
     else
@@ -620,7 +632,8 @@ $function$;
 
 -- dm_set_item_knowledge (body of 20261112000400, changed per character): every character in its own guarded subtransaction (B1).
 -- A busy character is NOT changed and NOT queued: it is named in busy_names ("try again"). The call supersedes queued party
--- shares of every listed character. Mode 'set' holds the character back; mode 'raise' shares with the party ONCE at the end.
+-- shares of every listed character. Mode 'set' holds the character back; mode 'raise' shares with the party ONCE at the end and
+-- lifts a hold only for a character it raises to 'identified' (the hold rule).
 CREATE OR REPLACE FUNCTION public.dm_set_item_knowledge(p_item text, p_characters uuid[], p_reveal text[], p_mode text DEFAULT 'set'::text, p_campaign uuid DEFAULT NULL::uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -685,9 +698,14 @@ begin
         -- never lowers: skipped when the character already knows at least this much
         if not (coalesce(ck.state = 'identified', false)
                 or (not is_full and (cardinality(rev) = 0 or coalesce(ck.character_id is not null and rev <@ ck.revealed, false)))) then
-          perform public._identify_apply_one(cid, p_item, case when is_full then '{all}'::text[] else rev end);
-          update public.character_item_knowledge set held_by_dm = false where character_id = cid and item_id = p_item and held_by_dm;
-          first_raised := coalesce(first_raised, cid);
+          -- the hold rule: only a raise that ends at 'identified' lifts a hold; a held character is no source, so the one share at
+          -- the end comes from the first raised character that is not held
+          if public._identify_apply_one(cid, p_item, case when is_full then '{all}'::text[] else rev end) = 'identified' then
+            update public.character_item_knowledge set held_by_dm = false where character_id = cid and item_id = p_item and held_by_dm;
+          end if;
+          if not exists (select 1 from public.character_item_knowledge where character_id = cid and item_id = p_item and held_by_dm) then
+            first_raised := coalesce(first_raised, cid);
+          end if;
         end if;
       else
         held0 := coalesce(ck.held_by_dm, false);
@@ -737,7 +755,7 @@ end $function$;
 
 -- dm_reveal_item (body of 20261112000300, changed per character): each character in a guarded subtransaction (B1; this loop
 -- deadlocked with players' RPCs at 0a05e81). A busy character is NOT changed and is named in busy_names; one party share at the
--- end (n4: O(N) guarded writes for N characters instead of N x N).
+-- end (n4: O(N) guarded writes for N characters instead of N x N). A partial reveal never lifts a hold (the hold rule).
 CREATE OR REPLACE FUNCTION public.dm_reveal_item(p_item text, p_characters uuid[] DEFAULT NULL::uuid[], p_reveal text[] DEFAULT NULL::text[], p_campaign uuid DEFAULT NULL::uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -766,8 +784,13 @@ begin
       perform set_config('lock_timeout', '200ms', true);
       perform public._ik_lock_target(cid, p_item);
       st := public._identify_apply_one(cid, p_item, coalesce(p_reveal, '{all}'));
-      update public.character_item_knowledge set held_by_dm = false where character_id = cid and item_id = p_item and held_by_dm;
-      first_raised := coalesce(first_raised, cid);
+      -- the hold rule: only a fully identified result lifts a hold; the share at the end comes from a character that is not held
+      if st = 'identified' then
+        update public.character_item_knowledge set held_by_dm = false where character_id = cid and item_id = p_item and held_by_dm;
+      end if;
+      if not exists (select 1 from public.character_item_knowledge where character_id = cid and item_id = p_item and held_by_dm) then
+        first_raised := coalesce(first_raised, cid);
+      end if;
       perform set_config('lock_timeout', lt, true);
     exception when lock_not_available or deadlock_detected then
       busy := busy || coalesce((select name from public.characters where id = cid), '?');
@@ -995,24 +1018,39 @@ begin
     'pending', (select count(*)::int from public.party_share_pending where campaign_id = p_campaign));
 end $$;
 
--- ---- 7. data: holds from the DM's past exact choices, then every campaign catches up (guarded, raise only) ---------------------
-with last_dm as (
-  select distinct on (e.character_id, e.after ->> 'item_id') e.character_id, e.after ->> 'item_id' as item_id, e.after ->> 'mode' as mode, e.created_at
-  from public.campaign_audit_events e
-  where e.event_type = 'item_revealed' and e.visibility = 'dm' and e.character_id is not null and e.after ? 'mode' and e.after ? 'item_id'
-  order by e.character_id, e.after ->> 'item_id', e.created_at desc, e.id desc)
+-- ---- 7. data: holds from the DM's past choices (the hold rule), then every campaign catches up (guarded, raise only) -----------
+-- The hold rule replayed over the history: a HOLD POINT is a DM audit line with mode 'set' (dm_set_item_knowledge 'set', the
+-- per-copy editor's hold line) or ANY knowledge event that took knowledge away; a LIFT is a DM audit line with mode 'release' or
+-- a knowledge event that reached 'identified', strictly AFTER the hold point (a "Set Everything" writes its line and its event in
+-- one transaction, same now(): it stays held, as _ik_apply_set does). Held = the latest hold point has no lift after it. Not
+-- campaign-scoped: the hold follows the character and the item (m4). scripts/fluent/party_share_preview.sql has the same CTE.
+create function public._ik_derived_holds()
+returns table (character_id uuid, item_id text)
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  with hold_pt as (
+    select e.character_id, e.after ->> 'item_id' as item_id, e.created_at
+    from public.campaign_audit_events e
+    where e.event_type = 'item_revealed' and e.visibility = 'dm' and e.character_id is not null and e.after ->> 'mode' = 'set'
+      and e.after ? 'item_id'
+    union all
+    select ev.character_id, ev.item_id, ev.created_at
+    from public.item_knowledge_events ev
+    where ev.old_state is not null and not public._ik_contains(ev.new_state, ev.new_revealed, ev.old_state, ev.old_revealed)),
+  last_hold as (select h.character_id, h.item_id, max(h.created_at) as at from hold_pt h group by 1, 2)
+  select l.character_id, l.item_id from last_hold l
+  where not exists (select 1 from public.campaign_audit_events e
+                    where e.event_type = 'item_revealed' and e.visibility = 'dm' and e.character_id = l.character_id
+                      and e.after ->> 'item_id' = l.item_id and e.after ->> 'mode' = 'release' and e.created_at > l.at)
+    and not exists (select 1 from public.item_knowledge_events ev
+                    where ev.character_id = l.character_id and ev.item_id = l.item_id and ev.new_state = 'identified'
+                      and ev.created_at > l.at);
+$$;
+
 update public.character_item_knowledge ck set held_by_dm = true
-from last_dm l
-where l.mode = 'set' and ck.character_id = l.character_id and ck.item_id = l.item_id and not ck.held_by_dm
-  and not exists (select 1 from public.item_knowledge_events ev where ev.character_id = ck.character_id and ev.item_id = ck.item_id
-                  and ev.created_at > l.created_at);
-with last_ev as (
-  select distinct on (ev.character_id, ev.item_id) ev.*
-  from public.item_knowledge_events ev order by ev.character_id, ev.item_id, ev.created_at desc, ev.id desc)
-update public.character_item_knowledge ck set held_by_dm = true
-from last_ev l
-where ck.character_id = l.character_id and ck.item_id = l.item_id and not ck.held_by_dm and l.old_state is not null
-  and not public._ik_contains(l.new_state, l.new_revealed, l.old_state, l.old_revealed);
+from public._ik_derived_holds() h
+where ck.character_id = h.character_id and ck.item_id = h.item_id and not ck.held_by_dm;
 
 do $$
 declare c uuid; n int := 0; h int;
@@ -1031,7 +1069,7 @@ revoke all on function public._party_share_on(uuid), public._ik_campaign_level(u
   public._ik_apply_set(uuid, text, text, text[]), public._party_apply_to(uuid, text, text, text[], boolean),
   public._party_guarded(uuid, text, text, text[], uuid, uuid, boolean, bigint), public._party_share_from(uuid, text),
   public._party_levels(uuid, uuid, text), public._party_share_pull(uuid, boolean, text), public._party_pending_apply(uuid),
-  public._party_share_sync(uuid), public._party_share_join() from public, anon, authenticated;
+  public._party_share_sync(uuid), public._party_share_join(), public._ik_derived_holds() from public, anon, authenticated;
 revoke all on function public.get_campaign_identification_sharing(uuid), public.set_campaign_identification_sharing(uuid, boolean),
   public.dm_release_item_knowledge_hold(text, uuid[], uuid), public.sync_party_knowledge(uuid), public.dm_sync_party_knowledge(uuid) from public, anon;
 grant execute on function public.get_campaign_identification_sharing(uuid), public.set_campaign_identification_sharing(uuid, boolean),

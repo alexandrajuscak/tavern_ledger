@@ -447,11 +447,14 @@ select public.dm_set_item_knowledge(:'bell', array[:'pa']::uuid[], '{name}', 'se
 select public.dm_set_item_knowledge(:'bell', array[:'pa']::uuid[], '{}', 'set');
 select public.dm_set_item_knowledge(:'bell', array[:'pa']::uuid[], '{magic}', 'raise');
 select tl_test.as_root();
-select tl_test.rec('PK23 M1c P4c: {name} -> Nothing -> raise {magic}: the others get only {magic} (not the name), decoy name kept',
-  tl_test.pk_ck(:'pb', :'bell') = 'partially_identified:magic' and tl_test.pk_rowk(:'pb', :'bell') = 'Pale cup/partially_identified'
+-- v31 hold rule: the partial raise {magic} keeps A's hold, so A is no source and B learns nothing (before v31 the raise lifted the
+-- hold and B got {magic}); M1c still holds for A's own shareable level: {magic} only, never the name the DM took back
+select tl_test.rec('PK23 M1c P4c: {name} -> Nothing -> raise {magic}: A stays held (v31) and shares nothing; A''s shareable level is {magic} only (not the name)',
+  tl_test.pk_ck(:'pa', :'bell') = 'partially_identified:magic:held'
+  and tl_test.pk_ck(:'pb', :'bell') = 'unidentified:' and tl_test.pk_rowk(:'pb', :'bell') = 'Pale cup/unidentified'
   and (select ident from public._ik_campaign_level(:'pa', :'bell', :'camp')) = false
   and (select rev from public._ik_campaign_level(:'pa', :'bell', :'camp')) = '{magic}',
-  concat_ws(' ', tl_test.pk_ck(:'pb', :'bell'), tl_test.pk_rowk(:'pb', :'bell')));
+  concat_ws(' ', tl_test.pk_ck(:'pa', :'bell'), tl_test.pk_ck(:'pb', :'bell'), tl_test.pk_rowk(:'pb', :'bell')));
 
 -- PK24 n8: a DM "set" that only holds the character back (nothing else changes) still writes its DM line (mode set)
 select tl_test.as_user(:'dm');
@@ -466,3 +469,304 @@ select tl_test.rec('PK24 n8 a hold-only set writes a DM audit line with mode set
   and exists (select 1 from public.campaign_audit_events e where e.character_id = :'pb' and e.visibility = 'dm' and e.after ->> 'item_id' = :'qleaf'
               and e.after ->> 'mode' = 'set'),
   :'n8');
+
+-- ---- v31: the hold rule (review v30 B1) ---------------------------------------------------------------------------------------
+-- A DM hide (held_by_dm) is lifted ONLY by dm_release_item_knowledge_hold or when the character ends up fully identified. A partial
+-- raise (examine / the DM's answer through _identify_apply, the per-copy editor, dm_set_item_knowledge 'raise', dm_reveal_item), a
+-- rule switch, a sync or another character's reveal never lifts it, and party sharing never raises a held character.
+-- RV1-RV6 are the reviewer's adversarial cases (v30 review, ported); PK25-PK31 are the worker's variants. Every step is followed
+-- by tl_test.pk_tick() (all history moves back 1 s), so the steps get distinct timestamps as separate production transactions
+-- would: PK31 replays the history with the deploy-time derivation _ik_derived_holds() and compares it with the live holds.
+create function tl_test.pk_tick() returns void language sql security definer as $$
+  update public.item_knowledge_events set created_at = created_at - interval '1 second';
+  update public.campaign_audit_events set created_at = created_at - interval '1 second';
+  update public.party_share_pending set created_at = created_at - interval '1 second' $$;
+create table tl_test.pk_v31 (item_id text primary key);
+grant all on tl_test.pk_v31 to public;
+create function tl_test.pk_new(p_camp uuid, p_name text, p_decoy text, p_chars uuid[]) returns text language plpgsql as $$
+declare id text;
+begin
+  id := public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', p_name, 'kind_id', 'herbs_plants', 'category_id', 'plant-flower',
+    'campaign_id', p_camp, 'stackable', true, 'description', p_name || ' truth')) ->> 'id';
+  perform public.set_item_identify_options(id, jsonb_build_object('unidentified_name', p_decoy, 'identify_dc', 10));
+  perform public.dm_give_item(id, p_chars, 1, false);
+  insert into tl_test.pk_v31 values (id);
+  return id;
+end $$;
+select tl_test.pk_tick();
+
+-- RV1: the party knows X; the DM hides X from B; the DM reveals {magic} to B; the DM syncs -> B keeps {magic} only, held
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Blood Lily', 'Red flower', array[:'pa', :'pb', :'pc']::uuid[]) as x1 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x1', array[:'pa']::uuid[], '{all}', 'raise');
+select tl_test.pk_tick();
+select tl_test.pk_ck(:'pb', :'x1') as r1_b0 \gset
+select public.dm_set_item_knowledge(:'x1', array[:'pb']::uuid[], '{}', 'set');
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x1', array[:'pb']::uuid[], '{magic}', 'raise');
+select tl_test.pk_tick();
+select public.dm_sync_party_knowledge(:'camp') as r1_sync \gset
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('RV1 hide B -> DM reveals {magic} to B -> DM sync: B stays partially_identified:magic and held; B''s copy keeps the decoy name',
+  :'r1_b0' = 'identified:' and tl_test.pk_ck(:'pb', :'x1') = 'partially_identified:magic:held' and tl_test.pk_rowk(:'pb', :'x1') = 'Red flower/partially_identified',
+  concat_ws(' | ', :'r1_b0', tl_test.pk_ck(:'pb', :'x1'), tl_test.pk_rowk(:'pb', :'x1'), :'r1_sync'));
+
+-- RV1b (owner decision a): hide B -> {name} to B -> later A identifies it: B stays at {name}
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Ash Fern', 'Grey frond', array[:'pa', :'pb', :'pc']::uuid[]) as x2 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x2', array[:'pb']::uuid[], '{}', 'set');
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x2', array[:'pb']::uuid[], '{name}', 'raise');
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x2', array[:'pa']::uuid[], '{all}', 'raise');
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('RV1b hide B -> name only to B -> later A identified: B stays partially_identified:name (held); C identified',
+  tl_test.pk_ck(:'pb', :'x2') = 'partially_identified:name:held' and tl_test.pk_ck(:'pc', :'x2') = 'identified:',
+  concat_ws(' | ', tl_test.pk_ck(:'pb', :'x2'), tl_test.pk_ck(:'pc', :'x2'), tl_test.pk_rowk(:'pb', :'x2')));
+
+-- RV1c: rule off; A identified, B hidden, {magic} to B; rule on (catch-up) -> B stays {magic}
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Ice Thorn', 'Cold twig', array[:'pa', :'pb']::uuid[]) as x3 \gset
+select tl_test.pk_tick();
+select public.set_campaign_identification_sharing(:'camp', false);
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x3', array[:'pa']::uuid[], '{all}', 'raise');
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x3', array[:'pb']::uuid[], '{}', 'set');
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x3', array[:'pb']::uuid[], '{magic}', 'raise');
+select tl_test.pk_tick();
+select public.set_campaign_identification_sharing(:'camp', true) as r1c_on \gset
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('RV1c rule off: hide B, {magic} to B, rule on: B stays partially_identified:magic (held)',
+  tl_test.pk_ck(:'pb', :'x3') = 'partially_identified:magic:held', concat_ws(' | ', tl_test.pk_ck(:'pb', :'x3'), :'r1c_on'));
+
+-- RV2 (informational, verified equivalent by the reviewer): a share queued for B before the DM hid the SOURCE A still applies to B
+-- (B would already have known on the non-busy path; hiding A never lowers B)
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Gold Cap', 'Yellow cap', array[:'pa', :'pb']::uuid[]) as x4 \gset
+select tl_test.pk_tick();
+select tl_test.as_root();
+insert into public.party_share_pending (campaign_id, target_character_id, item_id, state, revealed, source_character_id)
+values (:'camp', :'pb', :'x4', 'identified', '{}', :'pa');
+select tl_test.pk_tick();
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge(:'x4', array[:'pa']::uuid[], '{}', 'set');
+select tl_test.pk_tick();
+select tl_test.as_user(:'bob');
+select public.sync_party_knowledge(:'pb') as r2_sync \gset
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('RV2 (info) a pending share queued before the DM hid the SOURCE A applies to B (equivalent to the non-busy path); A held',
+  tl_test.pk_ck(:'pb', :'x4') = 'identified:' and tl_test.pk_ck(:'pa', :'x4') = 'unidentified::held',
+  concat_ws(' | ', tl_test.pk_ck(:'pb', :'x4'), tl_test.pk_ck(:'pa', :'x4'), :'r2_sync'));
+
+-- RV3: hide B -> the per-copy editor sets B's copy to {magic} -> DM sync: B stays {magic}
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Sky Root', 'Blue root', array[:'pa', :'pb']::uuid[]) as x5 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x5', array[:'pa']::uuid[], '{all}', 'raise');
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x5', array[:'pb']::uuid[], '{}', 'set');
+select tl_test.pk_tick();
+select public.set_item_knowledge(tl_test.pk_row(:'pb', :'x5'), 'partially_identified', '{magic}');
+select tl_test.pk_tick();
+select public.dm_sync_party_knowledge(:'camp');
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('RV3 hide B -> per-copy editor {magic} on B -> DM sync: B stays partially_identified:magic (held)',
+  tl_test.pk_ck(:'pb', :'x5') = 'partially_identified:magic:held', tl_test.pk_ck(:'pb', :'x5'));
+
+-- RV4 player-facing: a player cannot read the pending or rule table, sync another player's character, call internals, read the rule
+select tl_test.as_user(:'bob');
+select coalesce(tl_test.raises('select count(*) from public.party_share_pending'), 'NO ERROR') as l1 \gset
+select coalesce(tl_test.raises('select count(*) from public.campaign_item_rules'), 'NO ERROR') as l2 \gset
+select coalesce(tl_test.raises(format('select public.sync_party_knowledge(%L)', :'pa')), 'NO ERROR') as l3 \gset
+select coalesce(tl_test.raises(format('select public._party_share_pull(%L)', :'pb')), 'NO ERROR') as l4 \gset
+select coalesce(tl_test.raises(format('select public.get_campaign_identification_sharing(%L)', :'camp')), 'NO ERROR') as l5 \gset
+select coalesce(tl_test.raises('select count(*) from public._ik_derived_holds()'), 'NO ERROR') as l6 \gset
+select tl_test.as_root();
+select tl_test.rec('RV4 a player cannot read pending / rules, sync another player''s character, call internals (incl. _ik_derived_holds), read the rule',
+  'NO ERROR' not in (:'l1', :'l2', :'l3', :'l4', :'l5', :'l6'),
+  concat_ws(' | ', :'l1', :'l2', :'l3', :'l4', :'l5', :'l6'));
+
+-- RV5 security definer functions of the release: search_path fixed; no internal function of the release executable by
+-- authenticated / anon
+select tl_test.rec('RV5 every new/changed function has a fixed search_path; no internal _party / _ik_ function of the release executable by authenticated / anon',
+  not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and (p.proname like '\_party%' or p.proname like '\_ik\_%' or p.proname in ('_identify_apply_one', 'sync_party_knowledge',
+                     'dm_sync_party_knowledge', 'set_campaign_identification_sharing', 'get_campaign_identification_sharing', 'dm_release_item_knowledge_hold'))
+                and p.prosecdef and not exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%'))
+  and not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and (p.proname like '\_party%' or p.proname like '\_ik\_%' or p.proname = '_identify_apply_one')
+                and (has_function_privilege('authenticated', p.oid, 'execute') or has_function_privilege('anon', p.oid, 'execute'))),
+  (select string_agg(p.proname, ',') from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and (p.proname like '\_party%' or p.proname like '\_ik\_%') and has_function_privilege('authenticated', p.oid, 'execute')));
+
+-- RV6 Realtime: the new tables are in no publication
+select tl_test.rec('RV6 campaign_item_rules / party_share_pending are in no Realtime publication',
+  not exists (select 1 from pg_publication_tables where tablename in ('campaign_item_rules', 'party_share_pending'))
+  and not exists (select 1 from pg_publication where puballtables),
+  (select string_agg(pubname || '.' || tablename, ',') from pg_publication_tables where tablename in ('campaign_item_rules', 'party_share_pending')));
+
+-- PK25: a held character's OWN partial success (_identify_apply: examine, the DM's answer, crafting) keeps the hold; its partial
+-- facts do not spread; a later reveal by another character and a sync do not raise it
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Wind Bloom', 'White bloom', array[:'pa', :'pb', :'pc']::uuid[]) as x6 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x6', array[:'pb']::uuid[], '{}', 'set');
+select tl_test.pk_tick();
+select tl_test.as_root();
+select public._identify_apply(:'pb', :'x6', '{magic}') as p25_st \gset
+select tl_test.pk_tick();
+select tl_test.pk_ck(:'pc', :'x6') as p25_c \gset
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge(:'x6', array[:'pa']::uuid[], '{all}', 'raise');
+select tl_test.pk_tick();
+select public.dm_sync_party_knowledge(:'camp');
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('PK25 hide B -> B''s own partial success {magic} (_identify_apply): B stays held, C learns nothing from B; A identified later -> B still {magic}',
+  :'p25_st' = 'partially_identified' and :'p25_c' = 'unidentified:' and tl_test.pk_ck(:'pb', :'x6') = 'partially_identified:magic:held'
+  and tl_test.pk_ck(:'pc', :'x6') = 'identified:',
+  concat_ws(' | ', :'p25_st', :'p25_c', tl_test.pk_ck(:'pb', :'x6'), tl_test.pk_ck(:'pc', :'x6')));
+
+-- PK26: hide -> partial reveal (dm_reveal_item) -> rule off -> rule on: still held, still partial
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Rain Moss', 'Wet moss', array[:'pa', :'pb']::uuid[]) as x7 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x7', array[:'pa']::uuid[], '{all}', 'raise');
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x7', array[:'pb']::uuid[], '{}', 'set');
+select tl_test.pk_tick();
+select public.dm_reveal_item(:'x7', array[:'pb']::uuid[], '{name}', :'camp');
+select tl_test.pk_tick();
+select public.set_campaign_identification_sharing(:'camp', false);
+select tl_test.pk_tick();
+select public.set_campaign_identification_sharing(:'camp', true);
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('PK26 hide B -> dm_reveal_item {name} to B -> rule off -> rule on: B stays partially_identified:name (held)',
+  tl_test.pk_ck(:'pb', :'x7') = 'partially_identified:name:held', tl_test.pk_ck(:'pb', :'x7'));
+
+-- PK27: hide -> sync (still hidden) -> release -> sync: B now gets the party level (only the release lifts the hold)
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Ember Seed', 'Warm seed', array[:'pa', :'pb']::uuid[]) as x8 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x8', array[:'pa']::uuid[], '{all}', 'raise');
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x8', array[:'pb']::uuid[], '{}', 'set');
+select tl_test.pk_tick();
+select public.dm_sync_party_knowledge(:'camp');
+select tl_test.pk_tick();
+select tl_test.pk_ck(:'pb', :'x8') as p27_before \gset
+select public.dm_release_item_knowledge_hold(:'x8', array[:'pb']::uuid[], :'camp') as p27_rel \gset
+select tl_test.pk_tick();
+select public.dm_sync_party_knowledge(:'camp');
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('PK27 hide B -> sync (still hidden) -> release -> sync: B identified, not held; the copy shows the true name',
+  :'p27_before' = 'unidentified::held' and tl_test.pk_ck(:'pb', :'x8') = 'identified:' and tl_test.pk_rowk(:'pb', :'x8') = 'Ember Seed/identified',
+  concat_ws(' | ', :'p27_before', :'p27_rel', tl_test.pk_ck(:'pb', :'x8'), tl_test.pk_rowk(:'pb', :'x8')));
+
+-- PK28: hide -> FULL reveal to B (dm_set_item_knowledge raise all): the hold is lifted and B behaves normally again: with the rule
+-- switched on B is a source (C gets it by the catch-up)
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Frost Pea', 'Icy pea', array[:'pb', :'pc']::uuid[]) as x9 \gset
+select tl_test.pk_tick();
+select public.set_campaign_identification_sharing(:'camp', false);
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x9', array[:'pb']::uuid[], '{}', 'set');
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x9', array[:'pb']::uuid[], '{all}', 'raise');
+select tl_test.pk_tick();
+select tl_test.pk_ck(:'pc', :'x9') as p28_c_off \gset
+select public.set_campaign_identification_sharing(:'camp', true);
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('PK28 hide B -> full reveal to B: hold lifted, B identified; with the rule switched on B is a source (C identified by the catch-up)',
+  tl_test.pk_ck(:'pb', :'x9') = 'identified:' and :'p28_c_off' = 'unidentified:' and tl_test.pk_ck(:'pc', :'x9') = 'identified:',
+  concat_ws(' | ', tl_test.pk_ck(:'pb', :'x9'), :'p28_c_off', tl_test.pk_ck(:'pc', :'x9')));
+-- the same through dm_reveal_item (everything) and the per-copy editor (identified): both lift the hold
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Dusk Petal', 'Dim petal', array[:'pb', :'pc']::uuid[]) as x10 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x10', array[:'pb', :'pc']::uuid[], '{}', 'set');
+select tl_test.pk_tick();
+select public.dm_reveal_item(:'x10', array[:'pb']::uuid[], null, :'camp');
+select tl_test.pk_tick();
+select public.set_item_knowledge(tl_test.pk_row(:'pc', :'x10'), 'identified', '{}');
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('PK28b hide B and C -> dm_reveal_item everything to B, per-copy editor identified on C: both identified, neither held',
+  tl_test.pk_ck(:'pb', :'x10') = 'identified:' and tl_test.pk_ck(:'pc', :'x10') = 'identified:',
+  concat_ws(' | ', tl_test.pk_ck(:'pb', :'x10'), tl_test.pk_ck(:'pc', :'x10')));
+
+-- PK29: a bulk partial reveal whose FIRST character (by id) is held still shares from the next, non-held character
+-- (dm_reveal_item and dm_set_item_knowledge share once, from the first raised character that is not held)
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Lake Reed', 'Green reed', array[:'pa', :'pb', :'pc']::uuid[]) as x11 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x11', array[:'pb']::uuid[], '{}', 'set');
+select tl_test.pk_tick();
+select public.dm_reveal_item(:'x11', array[:'pb', :'pc']::uuid[], '{magic}', :'camp');
+select tl_test.pk_tick();
+select tl_test.pk_new(:'camp', 'Hill Sage', 'Dry sage', array[:'pa', :'pb', :'pc']::uuid[]) as x12 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x12', array[:'pb']::uuid[], '{}', 'set');
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'x12', array[:'pb', :'pc']::uuid[], '{name}', 'raise') as p29_set \gset
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('PK29 held B sorts first: dm_reveal_item {magic} to B and C -> A gets {magic} from C; dm_set raise {name} to B and C -> A gets {name}; B held',
+  :'pb' < :'pc' and tl_test.pk_ck(:'pa', :'x11') = 'partially_identified:magic' and tl_test.pk_ck(:'pb', :'x11') = 'partially_identified:magic:held'
+  and tl_test.pk_ck(:'pa', :'x12') = 'partially_identified:name' and tl_test.pk_ck(:'pb', :'x12') = 'partially_identified:name:held'
+  and (:'p29_set'::jsonb ->> 'shared_with')::int >= 1,
+  concat_ws(' | ', tl_test.pk_ck(:'pa', :'x11'), tl_test.pk_ck(:'pb', :'x11'), tl_test.pk_ck(:'pa', :'x12'), tl_test.pk_ck(:'pb', :'x12'), :'p29_set'));
+
+-- PK30 (m4): the hold follows the character: Q is held for an official item in camp2, then joins camp, where A identified it.
+-- The joiner pull and a sync skip the held item (Q keeps what it knew); the hold is not campaign-scoped (HIDDEN_DM_DATA.md).
+-- Fixture: the camp2 hold is written as root (an official item cannot be hidden with mode set).
+\set pq f5a00000-0000-0000-0000-00000000000c
+select tl_test.as_root();
+update public.items set secret = true where id = 'handaxe';
+insert into public.characters (id, owner_id, name, campaign_id, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp_max, hp_current, speed)
+values (:'pq', :'bob', 'Mover Q', :'camp2', 1, 10, 12, 12, 10, 14, 10, 10, 10, 30);
+insert into public.character_item_knowledge (character_id, item_id, state, revealed, held_by_dm) values (:'pq', 'handaxe', 'unidentified', '{}', true);
+select tl_test.pk_tick();
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge('handaxe', array[:'pa']::uuid[], '{all}', 'raise', :'camp') as p30_a \gset
+select tl_test.pk_tick();
+select tl_test.as_root();
+update public.characters set campaign_id = :'camp' where id = :'pq';
+select tl_test.pk_tick();
+select tl_test.as_user(:'dm');
+select public.dm_sync_party_knowledge(:'camp');
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('PK30 m4 a hold made in camp2 follows the character into camp: the joiner pull and a sync skip it (unidentified, held); A identified',
+  tl_test.pk_ck(:'pq', 'handaxe') = 'unidentified::held' and tl_test.pk_ck(:'pa', 'handaxe') = 'identified:',
+  concat_ws(' | ', tl_test.pk_ck(:'pq', 'handaxe'), tl_test.pk_ck(:'pa', 'handaxe'), :'p30_a'));
+
+-- PK31: the deploy-time derivation (_ik_derived_holds, the same CTE as scripts/fluent/party_share_preview.sql) replays the history
+-- of this section and finds exactly the live holds: the catch-up at deploy would raise no held character. (PK30's root fixture
+-- has no history and is not in the list.)
+select tl_test.rec('PK31 deploy-time hold derivation == live holds for every record of the v31 section (RV1-RV3, PK25-PK29)',
+  not exists (
+    (select ck.character_id, ck.item_id from public.character_item_knowledge ck join tl_test.pk_v31 v on v.item_id = ck.item_id where ck.held_by_dm
+     except select h.character_id, h.item_id from public._ik_derived_holds() h join tl_test.pk_v31 v on v.item_id = h.item_id)
+    union all
+    (select h.character_id, h.item_id from public._ik_derived_holds() h join tl_test.pk_v31 v on v.item_id = h.item_id
+     except select ck.character_id, ck.item_id from public.character_item_knowledge ck join tl_test.pk_v31 v on v.item_id = ck.item_id where ck.held_by_dm))
+  and (select count(*) from public.character_item_knowledge ck join tl_test.pk_v31 v on v.item_id = ck.item_id where ck.held_by_dm) >= 9,
+  (select string_agg(x, ' ') from (
+     select 'live-only:' || ck.character_id || '/' || ck.item_id as x from public.character_item_knowledge ck join tl_test.pk_v31 v on v.item_id = ck.item_id
+     where ck.held_by_dm and not exists (select 1 from public._ik_derived_holds() h where h.character_id = ck.character_id and h.item_id = ck.item_id)
+     union all
+     select 'derived-only:' || h.character_id || '/' || h.item_id from public._ik_derived_holds() h join tl_test.pk_v31 v on v.item_id = h.item_id
+     where not exists (select 1 from public.character_item_knowledge ck where ck.character_id = h.character_id and ck.item_id = h.item_id and ck.held_by_dm)) z));
