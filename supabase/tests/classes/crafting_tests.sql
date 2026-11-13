@@ -363,3 +363,31 @@ select tl_test.rec('CR17 cache triggers: recipe tables skip (no cached read read
   and not has_function_privilege('authenticated', 'public._craft_produce(uuid, uuid, text, int, boolean, jsonb)', 'execute')
   and has_function_privilege('authenticated', 'public.start_craft_attempt(uuid, uuid, jsonb, int, uuid, text, text)', 'execute')
   and not has_function_privilege('anon', 'public.start_craft_attempt(uuid, uuid, jsonb, int, uuid, text, text)', 'execute'));
+
+-- ---- CR18 a character who left the campaign: the old DM neither sees nor answers its attempt ------------------------------------------
+select tl_test.as_user(:'alice');
+select public.start_craft_attempt(:'ca', :'r_dc', jsonb_build_array(tl_test.cr_sel(1, (select ii.id from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+  where inv.character_id = :'ca' and ii.item_id = :'leaf' and not ii.is_quest_item order by ii.quantity desc limit 1), 1)), 20, gen_random_uuid()) as a18 \gset
+select tl_test.as_root();
+update public.characters set campaign_id = null where id = :'ca';
+select tl_test.as_user(:'dm');
+select tl_test.cr_code(format('select public.dm_resolve_craft_attempt(%L, ''approve'', ''success'')', :'a18'::jsonb ->> 'attempt_id')) as r18 \gset
+select public.get_campaign_craft_attempts(:'camp', null)::text as inbox18 \gset
+select tl_test.as_root();
+select tl_test.rec('CR18 the character left the campaign: the old DM''s approve is refused (55000), the inbox no longer lists the attempt, nothing changed',
+  :'r18' = '55000' and position(:'a18'::jsonb ->> 'attempt_id' in :'inbox18') = 0
+  and (tl_test.cr_att((:'a18'::jsonb ->> 'attempt_id')::uuid)).status = 'pending', :'r18');
+update public.characters set campaign_id = :'camp' where id = :'ca';
+
+-- ---- CR19 a result that arrives unidentified leaves the catalog at publish (a DM action), not at a player's craft ---------------------
+select tl_test.as_user(:'dm');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Plain Result', 'kind_id', 'gear', 'campaign_id', :'camp')) ->> 'id' as plainres \gset
+select public.dm_save_recipe(:'camp', jsonb_build_object('name', 'Mystery Make', 'output_item_id', :'plainres', 'output_identified', false,
+  'ingredients', jsonb_build_array(jsonb_build_object('tag', 'calming')))) ->> 'id' as r19 \gset
+select tl_test.as_root();
+select secret as s19a from public.items where id = :'plainres' \gset
+select tl_test.as_user(:'dm');
+select public.dm_set_recipe_status(:'r19', 'published');
+select tl_test.as_root();
+select tl_test.rec('CR19 output_identified = false: the result becomes secret when the DM publishes the recipe (not while it is a draft)',
+  not :'s19a'::boolean and (select secret from public.items where id = :'plainres'));

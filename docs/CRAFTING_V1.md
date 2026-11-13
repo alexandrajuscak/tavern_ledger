@@ -60,7 +60,8 @@ start ──▶ pending ──DM approve (outcome, corrected roll)──▶ appl
   and the attempt becomes `apply_failed`. The reason is a fixed text with no item names.
 - **Exactly once.** The attempt row is locked `FOR UPDATE`, only `pending` / `apply_failed` can be answered (`55000` otherwise),
   and an optional expected revision is checked (`40001`). Two DMs approving at once, or an approve racing a cancel: the second
-  waits and is refused (`crafting_concurrency_test.sh`).
+  waits and is refused (`crafting_concurrency_test.sh`). A character who left the recipe's campaign is no longer listed in
+  that DM's queue, and that DM can no longer answer its attempts (`55000`; the player can still cancel).
 - **Idempotent starts.** `start_craft_attempt` is idempotent on `(character, request_id)`: a repeat, also a concurrent one,
   replays the first attempt. There is one pending attempt per character and recipe (a unique index; a concurrent second one gets
   `55000`). No character row lock is taken: the auto path locks inventory rows, and examine locks a row and then the character.
@@ -92,8 +93,9 @@ line with the roll, the DC and the details. Recipe status changes and grants are
   - `output_identified = true` (default): the crafter made it, so they know it. Plain rows are added. For a secret item the
     character knew only partly, `_identify_apply('{all}')` runs first, so their other copies follow.
   - `false`: the row is INSERTED already disguised (decoy name and description, plus a knowledge row and the character's
-    record), so the Realtime INSERT never carries the true name. This is refused at save time for official items, because it
-    would flip `items.secret` on a shared row.
+    record), so the Realtime INSERT never carries the true name. The result items become `secret` when the DM publishes the
+    recipe (a DM action, never a player's first craft). This is refused at save time for official items, because it would flip
+    `items.secret` on a shared row.
 - The DM sees everything, including selected rows that are no longer known (they are marked "unidentified").
 
 ## RPCs
@@ -134,7 +136,7 @@ These four functions were replaced with the same signatures; the rollback restor
 
 ## Tests
 
-- `supabase/tests/classes/crafting_tests.sql` (21 checks, CR1–CR17). It covers the governance off-switch (the DM still
+- `supabase/tests/classes/crafting_tests.sql` (23 checks, CR1–CR19). It covers the governance off-switch (the DM still
   manages recipes), auto craft with its events, the DC / approval constraint, pending → approve with an edited roll, reject,
   failure rules and the junk result, critical success, `apply_failed`, idempotency, the revision guard, the knowledge rule
   (byte-identical read, one fixed refusal), the secret result label, a disguised result, discovery, refusals, hidden data

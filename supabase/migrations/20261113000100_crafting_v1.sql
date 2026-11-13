@@ -398,6 +398,9 @@ declare a public.crafting_attempts; r public.crafting_recipes; g public.crafting
 begin
   select * into a from public.crafting_attempts where id = p_attempt;
   select * into r from public.crafting_recipes where id = a.recipe_id;
+  if not exists (select 1 from public.characters c where c.id = a.character_id and c.campaign_id = r.campaign_id) then
+    raise exception 'The character is no longer in this campaign' using errcode = 'TLCRF';
+  end if;
   perform public._rpc_begin();
   perform 1 from public.inventory_items where id in (select (x ->> 'inventory_item_id')::uuid from jsonb_array_elements(a.selected) x)
     order by id for update;
@@ -746,6 +749,10 @@ begin
     values (r.id, n, nullif(btrim(coalesce(g ->> 'item_id', '')), ''), nullif(lower(btrim(coalesce(g ->> 'tag', ''))), ''),
             nullif(left(btrim(coalesce(g ->> 'label', '')), 120), ''), qty, coalesce((g ->> 'consumed')::boolean, true));
   end loop;
+  if r.status = 'published' and not r.output_identified then   -- see dm_set_recipe_status
+    update public.items set secret = true where id in (r.output_item_id, r.crit_output_item_id, r.failure_output_item_id)
+      and owner_id is not null and not secret;
+  end if;
   return public._craft_recipe_dm(r.id);
 end $$;
 
@@ -765,6 +772,11 @@ begin
       or exists (select 1 from public.crafting_recipe_ingredients g where g.recipe_id = r.id and g.item_id is not null
                  and not public._craft_item_ok(g.item_id, r.campaign_id))) then
     raise exception 'An item of this recipe is archived or not available in the campaign' using errcode = '22023';
+  end if;
+  -- results that arrive unidentified leave the players' catalog now (a DM action), never at a player's first craft
+  if p_status = 'published' and not r.output_identified then
+    update public.items set secret = true where id in (r.output_item_id, r.crit_output_item_id, r.failure_output_item_id)
+      and owner_id is not null and not secret;
   end if;
   if r.status <> p_status then
     update public.crafting_recipes set status = p_status, revision = revision + 1, updated_by = auth.uid(), updated_at = now() where id = r.id;
@@ -826,6 +838,10 @@ begin
   if a.id is null then raise exception 'Attempt not found' using errcode = 'P0002'; end if;
   select * into r from public.crafting_recipes where id = a.recipe_id;
   perform public._craft_dm_gate(r.campaign_id);
+  -- the DM of the recipe's campaign answers only while the character is still in it (the player can still cancel)
+  if not exists (select 1 from public.characters c where c.id = a.character_id and c.campaign_id = r.campaign_id) then
+    raise exception 'The character is no longer in this campaign' using errcode = '55000';
+  end if;
   if p_expected_revision is not null and p_expected_revision <> a.revision then
     raise exception 'Someone else answered this attempt meanwhile. Reload and try again.' using errcode = '40001';
   end if;
@@ -896,7 +912,8 @@ begin
   perform public._craft_dm_gate(p_campaign);
   return (select coalesce(jsonb_agg(public._craft_attempt_dm(a) order by (a.status in ('pending', 'apply_failed')) desc, a.created_at desc, a.id), '[]')
           from (select x.* from public.crafting_attempts x join public.crafting_recipes r on r.id = x.recipe_id
-                where r.campaign_id = p_campaign
+                join public.characters ch on ch.id = x.character_id
+                where r.campaign_id = p_campaign and ch.campaign_id = p_campaign   -- a character who left the campaign is not listed
                   and (p_status is null or (p_status = 'open' and x.status in ('pending', 'apply_failed'))
                        or (p_status = 'closed' and x.status not in ('pending', 'apply_failed')) or x.status = p_status)
                 order by x.created_at desc, x.id limit 200) a);
@@ -911,7 +928,8 @@ as $$
 begin
   perform public._craft_dm_gate(p_campaign);
   return (select count(*)::int from public.crafting_attempts x join public.crafting_recipes r on r.id = x.recipe_id
-          where r.campaign_id = p_campaign and x.status in ('pending', 'apply_failed'));
+          join public.characters ch on ch.id = x.character_id
+          where r.campaign_id = p_campaign and ch.campaign_id = p_campaign and x.status in ('pending', 'apply_failed'));
 end $$;
 
 -- the recipe editor's item picker: official items and items of this campaign (not archived), by name
