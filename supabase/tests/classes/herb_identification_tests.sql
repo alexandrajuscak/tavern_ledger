@@ -371,6 +371,20 @@ select public.set_item_knowledge((tl_test.hi_row(:'h3', :'sun')).id, 'partially_
 select tl_test.as_root();
 select tl_test.rec('HI40 a DM reveal through the RPC: the character''s revision and cache counter move, the global counter does not (item already secret)',
   tl_test.hi_cache_rev(:'h3') > :c3b and tl_test.hi_revs(:'h3') > :rv3b and tl_test.hi_grev() = :g0 and tl_test.hi_cache_rev(:'h2') = :c2);
+-- cache == direct: a cached read of the holder is invalidated by a knowledge change and recomputed equal to the direct read
+-- (the per-transaction markers are reset first: a character bumped in the running transaction is never served from the cache)
+select tl_test.hi_fresh(:'h3');
+select tl_test.as_user(:'bob');
+select public.get_character_reads(:'h3', array['get_character_derived_stats']);
+select public.get_character_reads(:'h3', array['get_character_derived_stats']) -> 'cache' ->> 'hits' as hit1 \gset
+select tl_test.as_root();
+select tl_test.hi_fresh(:'h3'), set_config('tl_cache.i' || md5(:'sun' || txid_current()::text), '', true);
+update public.inventory_item_knowledge set revealed = '{description,magic}' where inventory_item_id = (tl_test.hi_row(:'h3', :'sun')).id;
+select tl_test.as_user(:'bob');
+select public.get_character_reads(:'h3', array['get_character_derived_stats']) as rd45 \gset
+select tl_test.rec('HI45 cache == direct: hit before, miss after the knowledge change, the recomputed read equals the direct read',
+  :hit1::int >= 1 and (:'rd45'::jsonb -> 'cache' ->> 'hits')::int = 0
+  and :'rd45'::jsonb -> 'reads' -> 'get_character_derived_stats' = public.get_character_derived_stats(:'h3'), :'rd45'::jsonb ->> 'cache');
 
 -- ---- m5: retry after a long rest, replay of a duplicate request, transfer to the party stash ------------------------------
 select tl_test.as_user(:'dm');
@@ -398,7 +412,7 @@ select public.examine_inventory_item(:'mr', 'nature', 18, 'e0000000-0000-0000-00
 select tl_test.as_user(:'bob');
 select tl_test.hi_code(format('select public.examine_inventory_item(%L, %L, 18, %L)', :'mr', 'nature', 'e0000000-0000-0000-0000-000000000042')) as bob_replay \gset
 select tl_test.as_root();
-select tl_test.rec('HI43 a duplicate request after an auto success replays the same attempt (no 22023 / 23505, no second row); another user is refused',
+select tl_test.rec('HI43 a duplicate request (serial) after an auto success replays the same attempt, no second row; another user is refused',
   (:'m3'::jsonb ->> 'replayed')::boolean and :'m3'::jsonb ->> 'attempt_id' = :'m2'::jsonb ->> 'attempt_id' and :'m3'::jsonb ->> 'status' = 'succeeded'
   and :n_req = 1 and (select count(*) from public.item_identify_attempts where request_id = 'e0000000-0000-0000-0000-000000000042') = 1
   and :'bob_replay' = '42501', :'m3');
