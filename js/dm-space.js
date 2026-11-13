@@ -73,8 +73,8 @@ function setHiddenBadge(n) {
 async function hiddenBadge() {
   const forCampaign = campaignId;
   try {
-    const list = await dm.getIdentifyAttempts(forCampaign, 'pending');
-    if (forCampaign === campaignId) setHiddenBadge((list || []).length);
+    const n = await dm.getPendingExamineCount(forCampaign);   // a count only: this runs on every DM Space realtime event
+    if (forCampaign === campaignId) setHiddenBadge(Number(n) || 0);
   } catch { /* the badge is optional */ }
 }
 
@@ -702,6 +702,28 @@ const levelText = (st, rev) => {
   const l = levelOf(st, rev);
   return l === 'custom' ? `Partly: ${(rev || []).join(', ')}` : LEVELS.find(([k]) => k === l)[1];
 };
+// 0 nothing .. 3 everything (the server's _ik_rank)
+const rankOf = (st, rev) => (st === 'identified' ? 3 : (rev || []).includes('name') && (rev || []).includes('description') ? 2 : (rev || []).length ? 1 : 0);
+const namesOf = (list) => list.map((c) => c.name).join(', ');
+/** The confirm text when "Set" / "Hide" takes knowledge away, from the overview; null when no confirmation is needed. */
+function hideWarning(ov, ids, level) {
+  const it = ov.item;
+  const reveal = LEVELS.find(([k]) => k === level)?.[2] || [];
+  const target = reveal.includes('all') ? 3 : rankOf('partially_identified', reveal);
+  const lowered = ov.characters.filter((c) => ids.includes(c.character_id) && rankOf(c.effective?.state, c.effective?.revealed) > target);
+  if (!lowered.length) return null;
+  const others = ov.characters.filter((c) => !ids.includes(c.character_id) && c.plain_rows > 0);
+  const stash = (ov.stash || []).filter((s) => !s.disguised);
+  const equipped = lowered.filter((c) => c.equipped_rows > 0);
+  if (it.secret && !others.length && !stash.length && !equipped.length) return null;
+  const out = [`Hide “${it.name}” from ${namesOf(lowered)}? ${level === 'none' ? `They will see only “${it.decoy_name}”.`
+    : `They will know only: ${LEVELS.find(([k]) => k === level)[1].toLowerCase()}.`}`];
+  if (others.length) out.push(`${namesOf(others)} still ${others.length > 1 ? 'hold' : 'holds'} an undisguised copy and will still see the real item; their players keep it in the “Add item” catalog.`);
+  if (stash.length) out.push(`The ${[...new Set(stash.map((s) => s.inventory_name || s.inventory_kind))].join(', ')} still ${stash.length > 1 ? 'hold' : 'holds'} an undisguised copy: every party member will still see the real item there, and it stays in their “Add item” catalog.`);
+  if (!others.length && !stash.length && !it.secret) out.push('The item leaves the players’ “Add item” catalog in this campaign.');
+  if (equipped.length) out.push(`${namesOf(equipped)} ${equipped.length > 1 ? 'have' : 'has'} it equipped: on the player’s sheet it stops counting until you reveal it again (armour falls back to unarmoured AC); your DM view still shows the full numbers.`);
+  return out.join('\n');
+}
 async function revealPanel(box, alive) {
   if (!box) return;
   const items = await dm.getCampaignKnowledgeItems(campaignId);
@@ -724,7 +746,7 @@ async function revealPanel(box, alive) {
     body.innerHTML = `
       <p class="small">Characters who do not know it see <b>${esc(it.decoy_name)}</b>${it.decoy_description ? ` — <span class="muted">${esc(it.decoy_description)}</span>` : ''}.</p>
       ${it.official ? '<p class="small muted">Official item: you can reveal it, but hiding it again needs a campaign copy (Content → Duplicate official).</p>' : ''}
-      ${!it.secret && it.can_hide ? '<p class="small muted">Not hidden yet. Lowering a character’s level disguises their copies and takes the item out of the players’ “Add item” catalog in this campaign.</p>' : ''}
+      ${!it.secret && it.can_hide ? '<p class="small muted">Not hidden yet. Lowering a character’s level disguises their copies and makes the item secret (before saving you see who will still see the real item).</p>' : ''}
       <table class="dm-rule-table dm-reveal-table"><thead><tr><th scope="col"><input type="checkbox" data-rv-all aria-label="Select every character"></th><th scope="col">Character</th>
         <th scope="col">Holds</th><th scope="col">Knows now</th><th scope="col">Set to</th><th scope="col"><span class="sr-only">Action</span></th></tr></thead>
       <tbody>${ov.characters.map((c) => { const e = c.effective || {}; const cur = levelOf(e.state, e.revealed); return `<tr data-rv-char="${esc(c.character_id)}">
@@ -749,12 +771,13 @@ async function revealPanel(box, alive) {
   const apply = async (ids, level, mode) => {
     if (!ids.length) { toast('Choose at least one character.', 'bad'); return; }
     if (level === 'custom') return;
-    const it = ov.item;
-    const lowering = mode === 'set' && level !== 'all';
-    if (lowering && !it.secret && !await confirmDialog(`Hide “${it.name}”? The chosen characters will see only “${it.decoy_name}”, and the item leaves the players’ “Add item” catalog in this campaign.`, { okLabel: 'Hide' })) return;
+    const lowerMsg = mode === 'set' ? hideWarning(ov, ids, level) : null;
+    if (lowerMsg && !await confirmDialog(lowerMsg, { okLabel: 'Hide' })) return;
     const res = await dm.setItemKnowledgeFor(itemId, ids, LEVELS.find(([k]) => k === level)[2], mode, campaignId);
     const warn = (res.results || []).find((x) => x.warning);
-    toast(warn ? warn.warning : res.changed ? `Saved for ${res.changed} character(s).` : 'Nothing changed.', warn ? 'bad' : 'good');
+    const skipped = (res.results || []).filter((x) => x.skipped).length;
+    toast(warn ? warn.warning : res.changed ? `Saved for ${res.changed} character(s).`
+      : skipped ? 'Nothing changed: they already hold an undisguised copy and see everything.' : 'Nothing changed.', warn ? 'bad' : 'good');
     await draw();
   };
   box.addEventListener('change', (e) => {

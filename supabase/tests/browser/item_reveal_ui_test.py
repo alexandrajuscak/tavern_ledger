@@ -7,7 +7,8 @@ leak check for B: no REST response, no Realtime frame (also an unfiltered devtoo
 inventory_items), no DOM text and no localStorage / sessionStorage value of B's session ever carries the true name or
 description; REST / RPC with B's token afterwards are clean. Then: undo for A (Set Nothing) -> A's sheet is back to the decoy
 live; partial reveal "Name only" to B -> B sees the name, not the description; the history lists the changes; the Hidden tab
-shows the number of pending examine requests; ?fluent=0 for B shows only what B knows.
+shows the number of pending examine requests; the Hide confirmation names who still sees the real item; ?fluent=0 for B shows
+only what B knows.
 Usage: APP_URL=... python item_reveal_ui_test.py   (run_browser_local.sh sets the environment)
 """
 import json
@@ -163,6 +164,27 @@ def run(t):
         ok = D.wait(lambda: dp.locator('[data-dm-section="hidden"] [data-examine-count]').count() == 1, 10000)
         check("R15 the Hidden tab shows the number of pending examine requests",
               st == 200 and ok and dp.locator('[data-dm-section="hidden"] [data-examine-count]').inner_text().strip() == "1", (st, ex))
+
+        # ---- Hide confirmation names who still sees the real item (A and B hold an undisguised copy; hide from A, then cancel)
+        plain = f"Sunleaf {RUN}"
+        st, hb2 = dm.rpc("create_homebrew_item", p_request_id=str(uuid.uuid4()), p_definition={
+            "name": plain, "kind_id": "herbs_plants", "category_id": "plant-flower", "campaign_id": camp, "stackable": True,
+            "description": "Bright."}, p_stats={})
+        st2, _ = dm.rpc("dm_give_item", p_item=hb2["id"], p_characters=[cha, chb], p_quantity=1, p_identified=True)
+        dp.goto(APP + "#/dm/hidden")
+        D.wait(lambda: dp.locator(f'[data-rv-item] option[value="{hb2["id"]}"]').count() == 1)
+        dp.select_option("[data-rv-item]", hb2["id"])
+        D.wait(lambda: dp.locator(f'[data-rv-sel][value="{cha}"]').count() == 1)
+        dp.locator(f'[data-rv-sel][value="{cha}"]').check()
+        dp.locator('[data-rv="hide-selected"]').click()
+        dp.wait_for_selector(".modal [data-ok]")
+        ct = dp.locator(".modal").inner_text()
+        dp.locator(".modal [data-close]").first.click()
+        dp.wait_for_timeout(800)
+        st3, rows_a2 = call("GET", f"/rest/v1/v_inventory_detail?character_id=eq.{cha}&item_id=eq.{hb2['id']}&select=name", token=pa.jwt, key=ANON)
+        check("R17 Hide confirm names who still sees the real item (B holds an undisguised copy); Cancel changes nothing",
+              st == 200 and st2 == 200 and f"IR Beta {RUN}" in ct and "still holds an undisguised copy" in ct
+              and "leaves the players" not in ct and st3 == 200 and rows_a2 and rows_a2[0]["name"] == plain, ct[:400])
 
         # ---- legacy path for B
         bp.goto(f"{APP}?fluent=0#/c/{chb}")

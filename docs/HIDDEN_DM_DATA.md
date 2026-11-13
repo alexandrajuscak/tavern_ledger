@@ -166,18 +166,28 @@ as "custom" and is kept.
   which can take knowledge away again (undo, "Hide from selected"). A lower level also disguises the character's undisguised
   copies (they get a knowledge row first, then follow the record), and the item becomes `secret`. Official items can be revealed
   but not hidden (`22023`: copy them to campaign homebrew first). A character whose level does not change writes nothing.
-  Hiding a player-created item warns that its creator can still look it up in the catalog.
-- `get_item_knowledge_overview(item, campaign)` and `get_campaign_knowledge_items(campaign)`: DM-only reads.
+  Hiding a player-created item warns that its creator can still look it up in the catalog. `raise` skips a character who
+  holds only an undisguised copy (they already see everything; nothing is written, the result says `skipped`). The rows and
+  the record are locked without waiting: while the player is examining the item, the DM gets "The player is examining this
+  item right now, try again in a moment" (nothing changed) instead of a wait or a deadlock.
+- `get_item_knowledge_overview(item, campaign)` and `get_campaign_knowledge_items(campaign)`: DM-only reads. Another user's
+  personal homebrew (no campaign) is reachable through these and `dm_set_item_knowledge` only while a copy is held in the
+  campaign; otherwise they answer "Item not found" (`P0002`), exactly as for an unknown id.
+- Before "Set" / "Hide" takes knowledge away, DM Space says who will still see the real item (other characters' undisguised
+  copies, an undisguised party stash copy) and warns when a chosen character has the item equipped: the player's sheet stops
+  counting it (equipped armour falls back to unarmoured AC; derived stats read the catalog row as the player), while the DM's
+  view keeps the full numbers.
 - `item_knowledge_events`: append-only history of every record change, from every path (examine, DM answer, reveal, set,
   `set_item_knowledge`, transfer). DM-only (no grants; read through the overview), not in Realtime.
 - The player side is unchanged: a player sees only what their own character knows (masked view row, knowledge read). A
   change writes one `character_revisions` row for that character only, so the open sheet refreshes live. The cache counter
   of other holders of the item moves (a counter, no data); the global counter moves only the first time an item becomes secret.
-- The "Hidden" tab shows the number of examine requests waiting for the DM.
+- The "Hidden" tab shows the number of examine requests waiting for the DM (`get_campaign_pending_examine_count`, a count only).
 - Parked (needs a decision, see the night design note): party stash rows (they keep their own knowledge), official items given
   unidentified through DM Content, per-user catalog visibility, derived stats of unidentified magic items, fully invisible items.
 
-Tests: `supabase/tests/classes/item_reveal_tests.sql` (IR1–IR16: refusals, validation, A sees / B does not, partial levels,
-idempotency, raise vs set, whole party, undo, hiding an undisguised copy, the DM reads, history, backfill) and
-`browser/item_reveal_ui_test.py`. `scripts/fluent/item_visibility_snapshot.sql` is a read-only per-character hash of what each
-player sees (run it before and after a deploy).
+Tests: `supabase/tests/classes/item_reveal_tests.sql` (IR1–IR21: refusals, validation, A sees / B does not, partial levels,
+idempotency, raise vs set, whole party, undo, hiding an undisguised copy, the DM reads, history, backfill, another user's
+personal item, raise on an undisguised holder, the NOWAIT locks, equipped armour after a hide, the examine count) and
+`browser/item_reveal_ui_test.py`. `scripts/fluent/item_visibility_snapshot.sql` is a read-only hash of what each character's
+owner and each user (every profile and campaign member) sees (run it before and after a deploy; the outputs must be identical).

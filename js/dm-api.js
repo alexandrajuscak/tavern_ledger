@@ -87,6 +87,8 @@ export const setItemKnowledgeFor = (itemId, characterIds, reveal, mode = 'set', 
 /** Who knows what about one item: every campaign character (record, rows, effective level), stash rows, history. */
 export const getItemKnowledgeOverview = (itemId, campaignId) => rpc('get_item_knowledge_overview', { p_item: itemId, p_campaign: campaignId });
 export const getCampaignKnowledgeItems = (campaignId) => rpc('get_campaign_knowledge_items', { p_campaign: campaignId });
+/** The number of examine requests waiting for the DM (the Hidden tab's badge; a count, not the list). */
+export const getPendingExamineCount = (campaignId) => rpc('get_campaign_pending_examine_count', { p_campaign: campaignId });
 export const setItemIdentifyOptions = (itemId, options) => rpc('set_item_identify_options', { p_item: itemId, p_options: options });
 export const giveItem = (itemId, characterIds, quantity = 1, identified = false) =>
   rpc('dm_give_item', { p_item: itemId, p_characters: characterIds, p_quantity: quantity, p_identified: identified });
