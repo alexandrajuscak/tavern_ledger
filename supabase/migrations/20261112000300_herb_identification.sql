@@ -19,6 +19,10 @@
 --   catalog row and child tables stay hidden; official items assigned unidentified keep their readable slug (L3, unchanged).
 -- * Cache: item_secrets feeds no cached read -> tl_cache.skip() (a hidden DM edit no longer invalidates every cache). The new
 --   tables carry character_id -> tl_cache.bump('character'); every change on them is visible to the player (status, reveal).
+--   inventory_item_knowledge (no character_id: it was bump('global')) -> tl_cache.bump_item_knowledge(): the characters holding
+--   the item only (cached reads see items through RLS, which depends on the knowledge rows).
+-- * DM Content keeps its identification options in the content definition (one source of truth); set_item_identify_options
+--   is for campaign homebrew (hb-) only. A stack's stored keys follow items.secret (items_secret_stack_keys).
 -- Rollback: supabase/rollback/rollback_herb_identification.sql.
 -- =============================================================================
 
@@ -79,6 +83,41 @@ create trigger tl_cache_rev after insert or update or delete on public.item_iden
 drop trigger if exists tl_cache_rev on public.item_secrets;
 create trigger tl_cache_rev after insert or update or delete on public.item_secrets
   for each row execute function tl_cache.skip();
+-- inventory_item_knowledge has no character_id, so 20261030000200 gave it bump('global'): every reveal / examine invalidated
+-- every cached read of every character (57014 pattern). It cannot be skipped: cached reads run as the caller (get_character_reads
+-- is security invoker) and _derived_stats_core, _character_effects, _cf_equipment, ... read public.items, whose RLS
+-- (_item_visible) depends on the knowledge rows (an equipped secret item becomes visible once identified). The rows' visibility
+-- effect is per item, so the counter of every character that holds a row of the same item is bumped (that covers another
+-- character of the same viewer and party-stash rows); nobody else's cache is touched. Deleted rows (cascade from
+-- inventory_items) bump nothing here: the inventory_items trigger already bumped their character.
+create function tl_cache.bump_item_knowledge()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare rid uuid; iid text; cid uuid; k text;
+begin
+  if tg_op = 'UPDATE' and to_jsonb(old) = to_jsonb(new) then return null; end if;
+  foreach rid in array array_remove(array[case when tg_op <> 'DELETE' then new.inventory_item_id end,
+                                          case when tg_op <> 'INSERT' then old.inventory_item_id end], null) loop
+    select ii.item_id into iid from public.inventory_items ii where ii.id = rid;
+    continue when iid is null;
+    k := 'tl_cache.i' || md5(iid || txid_current()::text);   -- once per item and transaction
+    continue when current_setting(k, true) = '1';
+    perform set_config(k, '1', true);
+    for cid in select distinct inv.character_id from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+               where ii.item_id = iid and inv.character_id is not null loop
+      k := 'tl_cache.c' || md5(cid::text || txid_current()::text);   -- the dedup key of tl_cache.bump
+      continue when current_setting(k, true) = '1';
+      insert into tl_cache.character_rev as r (character_id, rev)
+      select cid, 1 where exists (select 1 from public.characters c where c.id = cid)
+      on conflict (character_id) do update set rev = r.rev + 1;
+      perform set_config(k, '1', true);
+    end loop;
+  end loop;
+  return null;
+end $$;
+revoke all on function tl_cache.bump_item_knowledge() from public, anon, authenticated;
+drop trigger if exists tl_cache_rev on public.inventory_item_knowledge;
+create trigger tl_cache_rev after insert or update or delete on public.inventory_item_knowledge
+  for each row execute function tl_cache.bump_item_knowledge();
 
 -- ---- 3. helpers -----------------------------------------------------------------------------------------------------------
 -- the caller sees the truth of every item in this inventory (admin, or DM of its campaign)
@@ -260,6 +299,15 @@ begin
     end if;
   end if;
   select * into r from public.inventory_items where id = p_inventory_item for update;
+  -- a concurrent duplicate waited for the row lock: once it holds the lock the first call has committed, so the replay (not the
+  -- "nothing more to find out" / "not answered yet" checks below) answers it
+  if p_request is not null then
+    select * into a from public.item_identify_attempts where request_id = p_request;
+    if a.id is not null then
+      if a.created_by is distinct from auth.uid() then raise exception 'Item not found' using errcode = '42501'; end if;
+      return public._identify_attempt_player(a) || jsonb_build_object('replayed', true);
+    end if;
+  end if;
   if r.id is null then raise exception 'Item not found' using errcode = 'P0002'; end if;
   select * into inv from public.inventories where id = r.inventory_id;
   select * into ch from public.characters where id = inv.character_id;
@@ -283,7 +331,12 @@ begin
   if not public._identify_retry_ok(s.identify_retry, last) then raise exception 'You cannot try again yet' using errcode = '55000'; end if;
 
   insert into public.item_identify_attempts (character_id, inventory_item_id, item_id, check_key, roll_total, request_id)
-  values (ch.id, r.id, r.item_id, chk, p_roll, p_request) returning * into a;
+  values (ch.id, r.id, r.item_id, chk, p_roll, p_request) on conflict (request_id) do nothing returning * into a;
+  if a.id is null then   -- the same request id on another row, committed meanwhile: replay it as well (never a 23505)
+    select * into a from public.item_identify_attempts where request_id = p_request;
+    if a.created_by is distinct from auth.uid() then raise exception 'Item not found' using errcode = '42501'; end if;
+    return public._identify_attempt_player(a) || jsonb_build_object('replayed', true);
+  end if;
   insert into public.character_item_knowledge (character_id, item_id, state, revealed, updated_by)
   values (ch.id, r.item_id, k.state, k.revealed, auth.uid()) on conflict (character_id, item_id) do nothing;
   if s.identify_auto then
@@ -376,7 +429,9 @@ begin
   return jsonb_build_object('item_id', p_item, 'characters', n);
 end $$;
 
--- DM-only identification options (and the disguise) of a campaign item: DM Content or campaign homebrew (never official rows)
+-- DM-only identification options (and the disguise) of a campaign homebrew item (hb-: the Inventory homebrew form). Never
+-- official rows, and never DM Content: its options live in the content definition ("Identification by players" in the
+-- Content editor, definition.hidden), the one source _dm_item_secrets_sync copies on every publish / restore
 create function public.set_item_identify_options(p_item text, p_options jsonb)
 returns jsonb
 language plpgsql security definer
@@ -388,6 +443,10 @@ begin
   if it.id is null or it.owner_id is null or auth.uid() is null
      or not (public.is_admin() or (it.campaign_id is not null and public.is_campaign_dm(it.campaign_id))) then
     raise exception 'Only the DM of the item''s campaign can set how it is identified' using errcode = '42501';
+  end if;
+  if exists (select 1 from public.dm_content_versions v where v.catalog_ref = p_item) then
+    raise exception 'This item is DM Content: set how it is identified in Content (New version, "Identification by players", Publish)'
+      using errcode = '55000';
   end if;
   if jsonb_typeof(o) <> 'object' then raise exception 'Options must be an object' using errcode = '22023'; end if;
   if o ? 'identify_dc' and jsonb_typeof(o -> 'identify_dc') <> 'null' then
@@ -503,6 +562,23 @@ begin
              || case when coalesce(sec, false) then '|n:' || coalesce(r.name, '') else '' end);   -- 20261112000300
 end;
 $function$;
+
+-- when an item becomes secret (or stops being one) the stored keys of its rows are recomputed (the BEFORE trigger of
+-- inventory_items computes the key; only the key changes: no merge, no quantity change). Without it, rows stored before the
+-- flip keep the key without the name part and could merge with a row of another name.
+create function public._items_secret_stack_keys()
+returns trigger
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+begin
+  update public.inventory_items ii set stack_key = public.compute_stack_key(ii)
+   where ii.item_id = new.id and ii.stack_key is distinct from public.compute_stack_key(ii);
+  return null;
+end $$;
+revoke all on function public._items_secret_stack_keys() from public, anon, authenticated;
+create trigger items_secret_stack_keys after update of secret on public.items
+  for each row when (old.secret is distinct from new.secret) execute function public._items_secret_stack_keys();
 
 -- merge only into a row with the same knowledge (state and revealed facts)
 CREATE OR REPLACE FUNCTION public._try_auto_merge(p_id uuid)
@@ -762,7 +838,7 @@ begin
   if p_state = 'identified' then
     update public.inventory_items set name = coalesce(k.true_name, it.name), description = coalesce(it.description, '') where id = r.id;
   else
-    update public.items set secret = true where id = r.item_id;
+    update public.items set secret = true where id = r.item_id and not secret;   -- 20261112000300: no global cache bump when already secret
     update public.inventory_items set name = coalesce(s.unidentified_name, 'Unidentified item'), description = coalesce(s.unidentified_description, '')
     where id = r.id and old_state = 'identified';
   end if;
@@ -820,7 +896,11 @@ begin
                         where a.character_id = p_character and a.item_id = ii.item_id order by a.created_at desc, a.id limit 1)))
                || case when dm then jsonb_build_object('dc', s.identify_dc, 'reveal', to_jsonb(coalesce(s.identify_reveal, '{all}')),
                     'auto', coalesce(s.identify_auto, false), 'retry', coalesce(s.identify_retry, 'dm'), 'fail_hint', s.fail_hint,
-                    'face_kind_id', s.face_kind_id, 'secrets_editable', it.owner_id is not null) else '{}'::jsonb end end)
+                    'face_kind_id', s.face_kind_id,
+                    -- DM Content keeps its options in the content definition: the DM edits them in the Content editor
+                    'content_id', (select v.content_id from public.dm_content_versions v where v.catalog_ref = it.id limit 1),
+                    'secrets_editable', it.owner_id is not null
+                      and not exists (select 1 from public.dm_content_versions v where v.catalog_ref = it.id)) else '{}'::jsonb end end)
            order by ii.name), '[]')
           from public.inventories inv join public.inventory_items ii on ii.inventory_id = inv.id
           join public.inventory_item_knowledge k on k.inventory_item_id = ii.id
@@ -830,14 +910,19 @@ begin
 end;
 $function$;
 
--- secrets (and, since 20261112000300, the identification options) of a published custom item come from definition.hidden
+-- secrets (and, since 20261112000300, the identification options) of a published custom item come from definition.hidden: the
+-- ONE source of truth for DM Content (set_item_identify_options refuses DM Content). Every version has its own catalog row
+-- (cc-<id>-v<n>); copies of an earlier version that players already hold follow the identification options of the version
+-- published last, when its definition has an identification section (a definition without one changes nothing there).
+-- The decoy, curse and properties stay per version, as before.
 CREATE OR REPLACE FUNCTION public._dm_item_secrets_sync()
  RETURNS trigger
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public', 'pg_temp'
 AS $function$
-declare t text; h jsonb; kind text; dc int; show boolean;
+declare t text; h jsonb; kind text; dc int; show boolean; s public.item_secrets; o record; fk text;
+  ident constant text[] := array['identify_dc', 'identify_checks', 'identify_reveal', 'identify_auto', 'identify_retry', 'fail_hint', 'kind_face', 'show_kind'];
 begin
   if new.status <> 'published' or new.catalog_ref is null or (tg_op = 'UPDATE' and old.status = 'published') then return new; end if;
   select content_type into t from public.dm_content where id = new.content_id;
@@ -866,10 +951,29 @@ begin
     curse = excluded.curse, properties = excluded.properties, updated_by = excluded.updated_by, updated_at = now(),
     face_kind_id = excluded.face_kind_id, identify_dc = excluded.identify_dc, identify_checks = excluded.identify_checks,
     identify_reveal = excluded.identify_reveal, identify_auto = excluded.identify_auto, identify_retry = excluded.identify_retry,
-    fail_hint = excluded.fail_hint;
+    fail_hint = excluded.fail_hint
+  returning * into s;
   -- 20261112000300: an item with a disguise leaves the players' catalog as soon as it is published
   if nullif(h ->> 'unidentified_name', '') is not null or dc is not null then
     update public.items set secret = true where id = new.catalog_ref and not secret and owner_id is not null;
+  end if;
+  -- the identification options reach the catalog rows of the content's other versions (copies players already hold)
+  if h ?| ident then
+    for o in select v.catalog_ref as ref, it.kind_id from public.dm_content_versions v join public.items it on it.id = v.catalog_ref
+             where v.content_id = new.content_id and v.id <> new.id and v.catalog_ref is distinct from new.catalog_ref loop
+      -- the type shown follows the same rule, for that version's own type
+      fk := case when (case when h ->> 'kind_face' = 'show' then true when h ->> 'kind_face' = 'hide' then false
+                            when jsonb_typeof(h -> 'show_kind') = 'boolean' then (h ->> 'show_kind')::boolean
+                            else o.kind_id = 'herbs_plants' end) then o.kind_id end;
+      insert into public.item_secrets (item_id, updated_by) values (o.ref, auth.uid()) on conflict (item_id) do nothing;
+      update public.item_secrets x set identify_dc = s.identify_dc, identify_checks = s.identify_checks, identify_reveal = s.identify_reveal,
+             identify_auto = s.identify_auto, identify_retry = s.identify_retry, fail_hint = s.fail_hint, face_kind_id = fk,
+             updated_by = auth.uid(), updated_at = now()
+       where x.item_id = o.ref
+         and (x.identify_dc, x.identify_checks, x.identify_reveal, x.identify_auto, x.identify_retry, x.fail_hint, x.face_kind_id)
+             is distinct from (s.identify_dc, s.identify_checks, s.identify_reveal, s.identify_auto, s.identify_retry, s.fail_hint, fk);
+      if dc is not null then update public.items set secret = true where id = o.ref and not secret and owner_id is not null; end if;
+    end loop;
   end if;
   return new;
 end;

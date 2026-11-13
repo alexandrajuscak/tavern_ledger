@@ -93,9 +93,14 @@ unidentified: herbs show Herbs & Plants by default, other items hide their type)
 `identify_reveal` (`all`, or parts: `name`, `description`, `details`, `magic`, `rarity`, `attunement`, `curse`, property
 keys), `identify_auto` (reveal on roll >= DC without the DM), `identify_retry` (`dm`: only after the DM allows it (default),
 `once`, `per_long_rest`: after a long rest recorded in `character_resource_events`, `unlimited`), `fail_hint` (shown after a
-failure, may be wrong but plausible). Set them in the DM Content item editor ("Identification by players", synced on publish)
-or for any campaign custom item, including herbs made with the Inventory homebrew form, in **DM Space → Hidden →
-Identification settings**. A campaign item with a disguise or a DC leaves the players' catalog (`items.secret`). Official
+failure, may be wrong but plausible). **One source of truth per item:** DM Content keeps them in its definition (Content
+editor, "Identification by players", synced on publish; New version → change → Publish). Every version has its own catalog
+row, and copies of earlier versions that players hold follow the identification options of the version published last (when
+its definition has identification fields; the decoy, curse and properties stay per version). For DM Content the DM Space
+button opens the Content editor at that section and `set_item_identify_options` refuses it (55000). Campaign homebrew (`hb-`,
+e.g. herbs made with the Inventory homebrew form) is set in **DM Space → Hidden → Identification settings**.
+A campaign item with a disguise or a DC leaves the players' catalog (`items.secret`); its rows' stored stack keys are
+recomputed when `items.secret` flips (no merge, no quantity change). Official
 catalog rows cannot get options; giving an official item unidentified works only through DM Content (behaviour unchanged).
 
 **Knowledge is per character.** `character_item_knowledge (character, item)` is the record; the character's disguised
@@ -113,7 +118,11 @@ roll, DM note, allow retry, reveal)` answers it exactly once (a failed attempt c
 characters, quantity, identified)` gives a campaign custom item (unidentified by default); `set_item_identify_options(item,
 options)` stores the options; `get_campaign_identify_attempts(campaign, status)` is the DM inbox. Every visible change
 (attempt, answer, reveal) writes a `character_revisions` row, so the player's open sheet refreshes; a hidden option change
-writes none and does not touch the cache counters (`item_secrets` → `tl_cache.skip()`).
+writes none and does not touch the cache counters (`item_secrets` → `tl_cache.skip()`). A change of
+`inventory_item_knowledge` bumps the cache counter of every character holding a row of that item, never the global counter
+(`tl_cache.bump_item_knowledge()`: cached reads see `items` through RLS, which depends on the knowledge rows). A duplicate
+examine request (same request id), also a concurrent one, replays the first attempt.
+Known (T4b): an identified row deposited in a party stash keeps its own knowledge, so stash readers see its true name.
 
 **What a player reads before a reveal.** `v_inventory_detail` (and the inventory bundle of `get_character_reads`) masks an
 unidentified instance for a non-DM caller: `item_id`, `category_id`, `rarity_id`, `is_magic`, `requires_attunement` are null,

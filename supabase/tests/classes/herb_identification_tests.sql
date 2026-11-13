@@ -287,3 +287,128 @@ select tl_test.as_root();
 select tl_test.rec('HI32 the DM Content herb is unknown to h1 (knowledge is per character)',
   not exists (select 1 from public.character_item_knowledge where character_id = :'h1' and item_id = :'gref')
   and (select state from public.character_item_knowledge where character_id = :'h2' and item_id = :'gref') = 'identified');
+
+-- ---- review round 2 (M1): DM Content keeps its options in the definition; the direct RPC refuses it -------------------------
+create function tl_test.hi_idcols(p_item text) returns text language sql security definer as $$
+  select concat_ws('|', identify_dc, identify_checks::text, identify_reveal::text, identify_auto, identify_retry, fail_hint, face_kind_id)
+  from public.item_secrets where item_id = p_item $$;
+create function tl_test.hi_def(p_content uuid) returns jsonb language sql security definer as $$
+  select v.definition from public.dm_content c join public.dm_content_versions v on v.id = c.current_version_id where c.id = p_content $$;
+create function tl_test.hi_grev() returns bigint language sql security definer as $$ select rev from tl_cache.global_rev where id = 1 $$;
+grant execute on all functions in schema tl_test to public;
+select tl_test.hi_idcols(:'gref') as gcols \gset
+select tl_test.as_user(:'dm');
+select tl_test.hi_code(format('select public.set_item_identify_options(%L, %L)', :'gref', '{"identify_dc": 5}')) as cc_code \gset
+select (select x from jsonb_array_elements(public.get_character_item_knowledge(:'h2')) x where x ->> 'item_id' = :'gref') as gkn \gset
+select (select x from jsonb_array_elements(public.get_character_item_knowledge(:'h2')) x where x ->> 'item_id' = :'herb' limit 1) as hkn \gset
+select tl_test.rec('HI33 DM Content: set_item_identify_options refuses it (55000) and changes nothing; the DM view links the content (no direct editing), homebrew stays editable',
+  :'cc_code' = '55000' and tl_test.hi_idcols(:'gref') = :'gcols' and :'gkn'::jsonb -> 'identify' ->> 'content_id' = :'gc'
+  and not (:'gkn'::jsonb -> 'identify' ->> 'secrets_editable')::boolean and (:'hkn'::jsonb -> 'identify' ->> 'secrets_editable')::boolean
+  and :'hkn'::jsonb -> 'identify' ->> 'content_id' is null, :'cc_code' || ' ' || coalesce(:'gkn'::jsonb ->> 'identify', ''));
+-- republish without a change: identical options on the new version's catalog row, the held copy untouched
+select public.new_dm_content_version(:'gc');
+select public.publish_dm_content(:'gc');
+select tl_test.hi_ref(:'gc') as gref2 \gset
+select tl_test.rec('HI34 a new version published without a change keeps the identification options (round trip), the held v1 copy is unchanged',
+  :'gref2' <> :'gref' and tl_test.hi_idcols(:'gref2') = :'gcols' and tl_test.hi_idcols(:'gref') = :'gcols', tl_test.hi_idcols(:'gref2'));
+-- the DM changes the DC and the hint in the content: copies players already hold (v1) follow; their decoy stays
+select public.new_dm_content_version(:'gc');
+select public.save_dm_content(:'gc', jsonb_build_object('definition', jsonb_set(jsonb_set(tl_test.hi_def(:'gc'), '{hidden,identify_dc}', '16'),
+  '{hidden,fail_hint}', '"Just a mushroom."')));
+select public.publish_dm_content(:'gc');
+select tl_test.hi_ref(:'gc') as gref3 \gset
+select tl_test.as_root();
+select tl_test.rec('HI35 a changed DC / hint in a new version reaches every version''s catalog row (held copies included); the decoy stays per version',
+  (select identify_dc from public.item_secrets where item_id = :'gref') = 16 and (select fail_hint from public.item_secrets where item_id = :'gref') = 'Just a mushroom.'
+  and (select identify_dc from public.item_secrets where item_id = :'gref3') = 16 and (select unidentified_name from public.item_secrets where item_id = :'gref') = 'Pale mushroom'
+  and tl_test.hi_idcols(:'gref') = tl_test.hi_idcols(:'gref3'), tl_test.hi_idcols(:'gref'));
+-- a definition without an identification section (an API caller) wipes nothing on the earlier versions
+select tl_test.as_user(:'dm');
+select public.new_dm_content_version(:'gc');
+select public.save_dm_content(:'gc', jsonb_build_object('definition', (tl_test.hi_def(:'gc') - 'hidden') || '{"hidden": {"unidentified_name": "Grey mushroom"}}'));
+select public.publish_dm_content(:'gc');
+select tl_test.as_root();
+select tl_test.rec('HI36 a published definition without identification fields leaves the earlier versions'' options as they were',
+  (select identify_dc from public.item_secrets where item_id = :'gref') = 16 and (select identify_dc from public.item_secrets where item_id = :'gref3') = 16
+  and (select fail_hint from public.item_secrets where item_id = :'gref') = 'Just a mushroom.');
+
+-- ---- m2: a stack's stored key follows items.secret --------------------------------------------------------------------
+select tl_test.as_user(:'dm');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Sunroot', 'kind_id', 'herbs_plants', 'category_id', 'plant-flower',
+  'campaign_id', :'camp', 'stackable', true, 'is_consumable', true)) ->> 'id' as sun \gset
+select tl_test.as_user(:'alice');
+select tl_test.give(:'h1', :'sun', null, 2) as sr \gset
+select tl_test.as_root();
+select stack_key as sk0 from public.inventory_items where id = :'sr' \gset
+select tl_test.as_user(:'dm');
+select public.set_item_identify_options(:'sun', '{"identify_dc": 10}');
+select tl_test.as_root();
+select tl_test.rec('HI37 the item becomes secret: its stored row keys are recomputed (name part), quantity and rows unchanged, no merge',
+  (select secret from public.items where id = :'sun') and (select stack_key from public.inventory_items where id = :'sr') is distinct from :'sk0'
+  and (select stack_key = public.compute_stack_key(ii) from public.inventory_items ii where id = :'sr') and (select quantity from public.inventory_items where id = :'sr') = 2
+  and tl_test.hi_rows(:'h1', :'sun') = 1);
+select tl_test.rec('HI38 stack keys: every row''s stored key (secret items included) equals the recomputed key',
+  not exists (select 1 from public.inventory_items ii where ii.stack_key is distinct from public.compute_stack_key(ii)));
+
+-- ---- m3: a knowledge change bumps the holders of the item only, never the global counter -------------------------------
+select tl_test.as_user(:'dm');
+select public.dm_give_item(:'sun', array[:'h3']::uuid[], 1, false);
+select tl_test.as_root();
+select tl_test.hi_fresh(:'h3'), tl_test.hi_fresh(:'h2'), tl_test.hi_fresh(:'h1'), set_config('tl_cache.i' || md5(:'sun' || txid_current()::text), '', true);
+select tl_test.hi_grev() as g0 \gset
+select tl_test.hi_cache_rev(:'h3') as c3 \gset
+select tl_test.hi_cache_rev(:'h1') as c1 \gset
+select tl_test.hi_cache_rev(:'h2') as c2 \gset
+update public.inventory_item_knowledge set revealed = '{magic}' where inventory_item_id = (tl_test.hi_row(:'h3', :'sun')).id;
+select tl_test.rec('HI39 a knowledge row change bumps every holder of the item (h3, h1), not the others (h2), not the global counter',
+  tl_test.hi_cache_rev(:'h3') > :c3 and tl_test.hi_cache_rev(:'h1') > :c1 and tl_test.hi_cache_rev(:'h2') = :c2 and tl_test.hi_grev() = :g0
+  and (select tgfoid = 'tl_cache.bump_item_knowledge()'::regprocedure from pg_trigger where tgrelid = 'public.inventory_item_knowledge'::regclass and tgname = 'tl_cache_rev'));
+select tl_test.hi_fresh(:'h3'), tl_test.hi_fresh(:'h2'), set_config('tl_cache.i' || md5(:'sun' || txid_current()::text), '', true);
+select tl_test.hi_cache_rev(:'h3') as c3b \gset
+select tl_test.hi_revs(:'h3') as rv3b \gset
+select tl_test.as_user(:'dm');
+select public.set_item_knowledge((tl_test.hi_row(:'h3', :'sun')).id, 'partially_identified', '{description}');
+select tl_test.as_root();
+select tl_test.rec('HI40 a DM reveal through the RPC: the character''s revision and cache counter move, the global counter does not (item already secret)',
+  tl_test.hi_cache_rev(:'h3') > :c3b and tl_test.hi_revs(:'h3') > :rv3b and tl_test.hi_grev() = :g0 and tl_test.hi_cache_rev(:'h2') = :c2);
+
+-- ---- m5: retry after a long rest, replay of a duplicate request, transfer to the party stash ------------------------------
+select tl_test.as_user(:'dm');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Moonleaf', 'kind_id', 'herbs_plants', 'category_id', 'plant-flower',
+  'campaign_id', :'camp', 'stackable', true)) ->> 'id' as moon \gset
+select public.set_item_identify_options(:'moon', '{"unidentified_name": "Silver leaf", "identify_dc": 15, "identify_auto": true, "identify_retry": "per_long_rest"}');
+select public.dm_give_item(:'moon', array[:'h1']::uuid[], 1, false);
+select tl_test.as_user(:'alice');
+select (tl_test.hi_row(:'h1', :'moon')).id as mr \gset
+select public.examine_inventory_item(:'mr', 'nature', 5) as m1 \gset
+select tl_test.rec('HI41 retry "per_long_rest": after a failure no new attempt before a long rest',
+  :'m1'::jsonb ->> 'status' = 'failed' and tl_test.hi_code(format('select public.examine_inventory_item(%L, %L, 20)', :'mr', 'nature')) = '55000'
+  and not ((select x from jsonb_array_elements(public.get_character_item_knowledge(:'h1')) x where x ->> 'inventory_item_id' = :'mr') -> 'identify' ->> 'can_examine')::boolean);
+select tl_test.as_root();
+-- one transaction: now() is frozen, so the rest is stamped explicitly after the failed attempt
+insert into public.character_resource_events (character_id, event_type, pool, created_at) values (:'h1', 'long_rest', 'rest', now() + interval '1 minute');
+select tl_test.as_user(:'alice');
+select ((select x from jsonb_array_elements(public.get_character_item_knowledge(:'h1')) x where x ->> 'inventory_item_id' = :'mr') -> 'identify' ->> 'can_examine')::boolean as can2 \gset
+select public.examine_inventory_item(:'mr', 'nature', 18, 'e0000000-0000-0000-0000-000000000042') as m2 \gset
+select tl_test.rec('HI42 after a long rest the player may examine again (auto success)', :'can2' and :'m2'::jsonb ->> 'status' = 'succeeded', :'m2');
+select tl_test.as_root();
+select (select count(*) from public.item_identify_attempts where request_id = 'e0000000-0000-0000-0000-000000000042') as n_req \gset
+select tl_test.as_user(:'alice');
+select public.examine_inventory_item(:'mr', 'nature', 18, 'e0000000-0000-0000-0000-000000000042') as m3 \gset
+select tl_test.as_user(:'bob');
+select tl_test.hi_code(format('select public.examine_inventory_item(%L, %L, 18, %L)', :'mr', 'nature', 'e0000000-0000-0000-0000-000000000042')) as bob_replay \gset
+select tl_test.as_root();
+select tl_test.rec('HI43 a duplicate request after an auto success replays the same attempt (no 22023 / 23505, no second row); another user is refused',
+  (:'m3'::jsonb ->> 'replayed')::boolean and :'m3'::jsonb ->> 'attempt_id' = :'m2'::jsonb ->> 'attempt_id' and :'m3'::jsonb ->> 'status' = 'succeeded'
+  and :n_req = 1 and (select count(*) from public.item_identify_attempts where request_id = 'e0000000-0000-0000-0000-000000000042') = 1
+  and :'bob_replay' = '42501', :'m3');
+-- current behaviour (documented, T4b): a party stash keeps the row's own knowledge, so an identified copy deposited there
+-- shows its true name to every member who can read the stash
+insert into public.inventories (kind, name, campaign_id) values ('party_stash', 'Herb Stash', :'camp') returning id as stash \gset
+select tl_test.as_user(:'alice');
+select public.transfer_inventory_item(:'mr', :'stash') as ms \gset
+select tl_test.as_user(:'bob');
+select tl_test.rec('HI44 (documented) an identified row moved into the party stash keeps its knowledge and true name; party members read it',
+  (select name from public.inventory_items where id = :'ms') = 'Moonleaf'
+  and (select knowledge_state from public.v_inventory_detail where id = :'ms') = 'identified'
+  and (select item_id from public.v_inventory_detail where id = :'ms') = :'moon');

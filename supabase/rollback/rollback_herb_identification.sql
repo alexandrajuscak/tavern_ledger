@@ -4,7 +4,8 @@
 --   psql -v ON_ERROR_STOP=1 -1 -f supabase/rollback/rollback_herb_identification.sql
 -- Data kept on purpose: inventory rows keep the names / descriptions the new code wrote (a revealed name stays revealed),
 -- items.secret stays as set (also by set_item_identify_options / _dm_item_secrets_sync), inventory_item_knowledge rows created
--- by the new split / transfer / add paths stay (the old code reads them as before). Lost: the DM identification options
+-- by the new split / transfer / add paths stay (the old code reads them as before), stored stack keys of secret items' rows keep
+-- their name part until the row is next written (such a row only stops auto-merging until then). Lost: the DM identification options
 -- (item_secrets columns), per-character knowledge and the examine attempts (export them first if they matter:
 --   select * from public.character_item_knowledge; select * from public.item_identify_attempts;).
 -- Deploy order for a rollback: the previous frontend (?v=24) first, then this file.
@@ -486,6 +487,11 @@ drop table public.item_identify_attempts;
 drop table public.character_item_knowledge;
 drop trigger if exists tl_cache_rev on public.item_secrets;
 create trigger tl_cache_rev after insert or update or delete on public.item_secrets for each row execute function tl_cache.bump('global');
+drop trigger if exists tl_cache_rev on public.inventory_item_knowledge;
+create trigger tl_cache_rev after insert or update or delete on public.inventory_item_knowledge for each row execute function tl_cache.bump('global');
+drop function tl_cache.bump_item_knowledge();
+drop trigger items_secret_stack_keys on public.items;
+drop function public._items_secret_stack_keys();
 alter table public.item_secrets
   drop column face_kind_id, drop column identify_dc, drop column identify_checks, drop column identify_reveal,
   drop column identify_auto, drop column identify_retry, drop column fail_hint;
