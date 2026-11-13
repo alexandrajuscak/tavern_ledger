@@ -151,7 +151,7 @@ def run(t):
         page.wait_for_timeout(1500)
         txt = page.locator("body").inner_text()
         check("ERR1 a failing derived-stats read leaves a usable sheet (tabs, HP) without database text on the page",
-              page.locator(".tab").count() == 6 and page.locator("#hp-card").count() == 1 and not any(w in txt for w in TECH),
+              page.locator(".tab").count() == 7 and page.locator("#hp-card").count() == 1 and not any(w in txt for w in TECH),
               [w for w in TECH if w in txt])
         page.unroute("**/rest/v1/rpc/get_character_derived_stats*")
         s.open(ch)
@@ -205,7 +205,7 @@ def run(t):
         s.tab("inventory")
         s.tab("combat")
         check("ASSET1 with every icon and font failing to load the sheet still renders its tabs and actions, without page errors",
-              page.locator(".tab").count() == 6 and page.locator('[data-cf-action="res-use"]').count() > 0
+              page.locator(".tab").count() == 7 and page.locator('[data-cf-action="res-use"]').count() > 0
               and len([e for e in s.errors if e.startswith("pageerror")]) == errors_before)
         page.unroute("**/*.{webp,svg,woff2}")
         SHOTS.mkdir(parents=True, exist_ok=True)

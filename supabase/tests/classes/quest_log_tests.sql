@@ -193,6 +193,27 @@ select tl_test.rec('QL20 campaign move: A sees only the new campaign''s quests; 
   concat_ws(' / ', :'a_moved', :'b_a_moved', :'e_a_moved', :'dm_a_moved'));
 select tl_test.rec('QL21 moving back: A sees its old campaign''s quests again (they were kept)', :'a_back' like '%PrivA%' and :'a_back' like '%Indiv%', :'a_back');
 
+-- ---- 6b. campaign membership --------------------------------------------------------------------------------------------------
+-- bob is not a member of camp2: moving his character there is refused (governance trigger TLDMO first; the characters update
+-- policy would refuse it too), so he can never read camp2's quests that way
+select tl_test.as_user(:'bob');
+select tl_test.qcode(format('update public.characters set campaign_id = %L where id = %L', :'camp2', :'cb')) as b_move \gset
+select tl_test.as_root();
+select tl_test.rec('QL24 a player cannot move a character into a campaign they are not a member of (refused: governance TLDMO / RLS)',
+  :'b_move' in ('42501', 'TLDMO') and (select campaign_id = :'camp' from public.characters where id = :'cb'), :'b_move');
+-- a player removed from the campaign keeps the character's campaign_id: no quest log any more
+delete from public.campaign_members where campaign_id = :'camp' and user_id = :'bob';
+select tl_test.as_user(:'bob');
+select public.get_character_quests(:'cb')::text as b_removed \gset
+select tl_test.as_root();
+insert into public.campaign_members (campaign_id, user_id, role) values (:'camp', :'bob', 'player');
+select tl_test.as_user(:'bob');
+select tl_test.qtitles(public.get_character_quests(:'cb')) as b_readded \gset
+select tl_test.as_root();
+select tl_test.rec('QL25 a player removed from the campaign sees no quests (character still points at it); re-added: visible again',
+  jsonb_array_length((:'b_removed')::jsonb -> 'quests') = 0 and (:'b_removed')::jsonb ->> 'campaign_id' is null and :'b_readded' like '%Party%',
+  :'b_removed' || ' / ' || :'b_readded');
+
 -- ---- 7. cache classification, character deletion -------------------------------------------------------------------------------
 select rev as g0 from tl_cache.global_rev where id = 1 \gset
 select coalesce((select rev from tl_cache.character_rev where character_id = :'ca'), 0) as c0 \gset

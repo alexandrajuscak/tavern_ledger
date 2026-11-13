@@ -43,7 +43,9 @@ The tab reads when it is shown, so it is never part of opening the sheet. There 
 - **Reads.** `get_character_quests(character)`: one request, security definer, allowed for whoever may open the character
   (owner, the campaign's DM, admin) and always the **player view of that character**: quests of the character's current
   campaign, not archived, that are `party`, `individual` (target still in that campaign) or `private` with exactly this
-  character as target. It never reads `quest_dm_notes`. `get_campaign_quests(campaign, include_archived)`: DM / admin only,
+  character as target. It never reads `quest_dm_notes`. A player removed from the campaign (whose character still points at it)
+  gets an empty list; moving a character into a campaign its owner is not a member of is refused already (governance / the
+  characters update policy). `get_campaign_quests(campaign, include_archived)`: DM / admin only,
   with notes and the campaign's characters.
 - **Writes** (DM of the quest's campaign or admin, `42501` otherwise): `dm_save_quest(campaign, quest, expected revision)`
   (create / edit, objectives as the full ordered list, `40001` on a stale revision), `dm_set_quest_status`,
@@ -65,10 +67,11 @@ The tab reads when it is shown, so it is never part of opening the sheet. There 
 
 ## Tests
 
-`supabase/tests/classes/quest_log_tests.sql` (QL1–QL23: DM, owning player, other player of the party, player of another campaign
+`supabase/tests/classes/quest_log_tests.sql` (QL1–QL25: DM, owning player, other player of the party, player of another campaign
 and anon; DM notes never in a player read; REST refused; not in Realtime; RLS and grants; security definer and search_path;
 tick; ordering; objectives archived; validation and stale revision; archive / restore; campaign move both ways; cache counters
-untouched; a deleted character's private quest stays DM-only) and `supabase/tests/browser/quest_log_ui_test.py` (QU1–QU10: the DM
+untouched; a deleted character's private quest stays DM-only; membership: no move into a foreign campaign, a removed player
+sees nothing) and `supabase/tests/browser/quest_log_ui_test.py` (QU1–QU10: the DM
 creates a party, an individual and a private quest in DM Space; player A sees all three, player B the party quest and A's
 individual quest only; neither session receives a DM note, B never receives A's private quest (REST, websocket, DOM,
 storage); one lazy request; a ticked objective shows for the player; `?fluent=0`; phone width; no console errors).

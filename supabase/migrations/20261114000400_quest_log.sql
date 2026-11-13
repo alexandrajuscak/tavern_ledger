@@ -17,7 +17,8 @@
 --      open the character (can_access_character: owner, DM of its campaign, admin) and always gets the PLAYER view of that
 --      character, whoever calls: quests of the character's CURRENT campaign, not archived, that are party, individual (target
 --      still in that campaign) or private to exactly this character. It never selects quest_dm_notes. A character without a
---      campaign gets an empty list; a character moved to another campaign sees only that campaign's quests.
+--      campaign (or whose owner is no longer a member of it) gets an empty list; a character moved to another campaign sees only
+--      that campaign's quests (the characters update policy already requires membership of the new campaign).
 --    * get_campaign_quests(campaign, include_archived): DM of the campaign / admin only; includes DM notes and the campaign's
 --      characters for the target picker.
 -- 3. Writes (DM of the quest's campaign or admin; 42501 otherwise): dm_save_quest (create / edit incl. objectives and notes,
@@ -144,6 +145,10 @@ begin
     raise exception 'Character not found' using errcode = '42501';
   end if;
   select c.campaign_id into camp from public.characters c where c.id = p_character;
+  -- a player removed from the campaign keeps the character's campaign_id: without membership (or the DM role) no quest log
+  if camp is not null and not (public.is_admin() or public.is_campaign_dm(camp) or public.is_campaign_member(camp)) then
+    camp := null;
+  end if;
   return jsonb_build_object('character_id', p_character, 'campaign_id', camp, 'quests', coalesce((
     select jsonb_agg(jsonb_build_object('id', q.id, 'title', q.title, 'description', q.description, 'status', q.status,
              'visibility', q.visibility, 'mine', coalesce(q.target_character_id = p_character, false),

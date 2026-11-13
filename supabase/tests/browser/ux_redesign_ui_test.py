@@ -92,8 +92,8 @@ def main():
         s.open(barb)
         tabs = page.locator(".tabs .tab")
         labels = [t.strip() for t in page.locator(".tabs .tab .tab-label").all_inner_texts()]
-        check("UX3 six sections in player order: Play, Abilities, Spells, Inventory, Build, Bio",
-              labels == ["Play", "Abilities", "Spells", "Inventory", "Build", "Bio"], labels)
+        check("UX3 seven sections in player order: Play, Abilities, Spells, Inventory, Build, Quests, Bio (Quests since ?v=32)",
+              labels == ["Play", "Abilities", "Spells", "Inventory", "Build", "Quests", "Bio"], labels)
         check("UX4 tabs are a WAI-ARIA tablist: aria-controls points at a tabpanel, one selected tab in the tab order",
               all(page.locator(f"#{tabs.nth(i).get_attribute('aria-controls')}[role=tabpanel]").count() == 1 for i in range(tabs.count()))
               and page.locator(".tabs .tab[tabindex='0']").count() == 1)
