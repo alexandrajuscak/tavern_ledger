@@ -44,13 +44,15 @@ function fallbackSrc(key) {
 /**
  * <img> for an icon. size in CSS px; label makes it meaningful (alt text), otherwise it is decorative.
  * labelled: true uses the registry label as the alt text.
+ * src: the DM's own icon of an item (js/custom-icons.js customIconUrl, docs/CUSTOM_ICONS.md) shown instead of the registry
+ * asset; name stays the default, which replaces it when the file fails to load.
  */
-export function icon(name, { label = '', labelled = false, size = 20, cls = '' } = {}) {
+export function icon(name, { label = '', labelled = false, size = 20, cls = '', src = null } = {}) {
   if (!name) return '';
   const r = resolveIcon(name);
   const alt = label || (labelled ? r.label : '');
-  return `<img class="tl-icon ${esc(cls)}" src="${esc(`${BASE}/${r.asset}.webp`)}" width="${size}" height="${size}" loading="lazy" decoding="async"
-    data-icon="${esc(r.key)}" alt="${esc(alt)}"${alt ? '' : ' aria-hidden="true"'}>`;
+  return `<img class="tl-icon ${esc(cls)}${src ? ' tl-icon-custom' : ''}" src="${esc(src || `${BASE}/${r.asset}.webp`)}" width="${size}" height="${size}" loading="lazy" decoding="async"
+    data-icon="${esc(r.key)}"${src ? ' data-custom-icon="1"' : ''} alt="${esc(alt)}"${alt ? '' : ' aria-hidden="true"'}>`;
 }
 
 // A file that fails to load (missing, corrupt) is replaced by its fallback at the same size, then by the generic icon.
@@ -58,6 +60,8 @@ if (typeof document !== 'undefined') {
   document.addEventListener('error', (e) => {
     const img = e.target;
     if (!(img instanceof HTMLImageElement) || !img.classList.contains('tl-icon')) return;
+    // a DM's own icon that fails: the item's default icon (its fallback chain continues from there)
+    if (img.dataset.customIcon) { delete img.dataset.customIcon; img.classList.remove('tl-icon-custom'); img.src = iconSrc(img.dataset.icon); return; }
     const step = Number(img.dataset.fallbackStep || 0);
     if (step >= 2) return;
     img.dataset.fallbackStep = String(step + 1);

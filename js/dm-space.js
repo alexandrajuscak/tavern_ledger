@@ -10,6 +10,7 @@ import { icon } from './icons.js?v=29';
 import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=29';
 import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=29';
 import { CRAFTING } from './config.js?v=29';
+import { openItemIconsDialog } from './custom-icons.js?v=29';
 
 // Crafting (docs/CRAFTING_V1.md) only when js/config.js CRAFTING is not 'off'; its module is loaded on demand (never with 'off')
 const craftingOn = () => (CRAFTING || 'off') !== 'off';
@@ -179,6 +180,7 @@ async function onClick(e) {
   if (a === 'create') return createMenu();
   if (a === 'review') return openReview(b.dataset.id);
   if (a === 'goto') { if (b.dataset.filter) approvalFilter = { ...approvalFilter, ...JSON.parse(b.dataset.filter) }; return show(b.dataset.to); }
+  if (a === 'item-icons') return openItemIconsDialog({ campaignId });
   if (a === 'dup-official') return openDuplicateOfficial({ campaignId, onCreated: (c) => { show('content'); openContentEditor({ content: { id: c.id }, campaignId, onChanged: () => show('content') }); } });
   if (a === 'usage-content') return openUsage({ id: b.dataset.id }, { onChanged: () => show('content'), onDeleted: () => show('content') });
   if (a === 'edit-content') return openContentEditor({ content: { id: b.dataset.id }, campaignId, onChanged: () => show('content'), onAssign: (c) => { assignPreset = { contentId: c.id }; show('assign'); } });
@@ -519,7 +521,8 @@ async function content(panel, alive) {
       <label class="field"><span>Search</span><input type="search" data-cq></label>
     </div>
     <div class="dm-create-inline" role="group" aria-label="Create new content"><span class="muted small">Create:</span>${Object.entries(TYPE).map(([k, t]) => `<button type="button" class="btn btn-sm btn-quiet" data-dm="new-content" data-type="${k}">${t.icon}${esc(t.label.split(' / ')[0])}</button>`).join('')}
-      ${contentManagementEnabled() ? '<button type="button" class="btn btn-sm" data-dm="dup-official">Duplicate official…</button>' : ''}</div>
+      ${contentManagementEnabled() ? '<button type="button" class="btn btn-sm" data-dm="dup-official">Duplicate official…</button>' : ''}
+      <button type="button" class="btn btn-sm" data-dm="item-icons">${icon('dm/item', { size: 18 })}Item icons…</button></div>
     <ul class="dm-content-list" data-c-list></ul>`;
   $('[data-cs]', panel).value = f.status;
   panel.addEventListener('click', (e) => {

@@ -99,7 +99,7 @@ export function weaponCardHTML(w, info, { open = new Set(), infused = null } = {
   return `
     <article class="entry derived-weapon wpn-card" data-weapon="${esc(w.inventory_item_id)}" data-dmg="${esc(w.damage_type || 'none')}"${rarity ? ` data-rarity="${esc(rarity)}"` : ''}>
       <div class="wpn-top">
-        ${icon(iconName, { size: 36, cls: 'wpn-icon' })}
+        ${icon(iconName, { size: 36, cls: 'wpn-icon', src: known ? info?.iconSrc : null })}
         <h3 class="entry-name wpn-title">${esc(name)}</h3>
         <span class="badge wpn-slot" title="Equipped">${esc(SLOT[w.slot_id] || w.slot_id)}</span>
       </div>

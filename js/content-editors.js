@@ -9,6 +9,7 @@ import { spellIconHTML } from './spell-icons.js?v=29';
 import { iconPickerHTML } from './item-icon-gallery.js?v=29';
 import { supabase } from './supabase.js?v=29';
 import { CONTENT_MANAGEMENT } from './config.js?v=29';
+import { openItemIconsDialog } from './custom-icons.js?v=29';
 
 /** The content management actions (usage report, delete any unused content, duplicate official) are behind js/config.js
  *  CONTENT_MANAGEMENT; 'off' keeps the earlier buttons. The database authorizes every action itself. */
@@ -548,6 +549,9 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
   const current = () => c?.versions?.find((v) => v.id === c.current_version_id) || { name: '', definition: {} };
   const m = openModal({ title: c ? `${TYPE[type].label}: ${c.name}` : `New ${TYPE[type].label.toLowerCase()}`, wide: true, body: '<div data-ce></div>', footer: '<div data-ce-actions class="ce-actions"></div>' });
   const editable = () => !c || ['draft', 'validation_failed', 'ready_for_review'].includes(current().status);
+  // the DM's own icon (js/custom-icons.js): a published campaign item; it applies to every version of the item
+  const iconRef = () => (type === 'item' && c?.campaign_id && c.scope !== 'private'
+    ? c.versions?.find((v) => v.id === c.published_version_id)?.catalog_ref || null : null);
   let mgmt = null;   // get_dm_content_usage: whether Delete permanently is offered (the server decides; re-checked on delete)
   const refreshMgmt = async () => {
     if (!c?.id || !contentManagementEnabled()) { mgmt = null; return; }
@@ -582,6 +586,7 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
       ${c && c.published_version_id && st !== 'archived' ? '<button type="button" class="btn btn-gold" data-ce-act="assign">Assign…</button>' : ''}
       ${c && c.scope === 'private' ? '<button type="button" class="btn" data-ce-act="copy">Copy to this campaign</button>' : ''}
       ${c ? '<button type="button" class="btn" data-ce-act="duplicate">Duplicate</button>' : ''}
+      ${iconRef() ? '<button type="button" class="btn" data-ce-act="icon">Item icon…</button>' : ''}
       ${c && st === 'archived' ? '<button type="button" class="btn" data-ce-act="restore">Restore</button>' : ''}
       ${c && c.published_version_id && st !== 'archived' ? '<button type="button" class="btn btn-bad" data-ce-act="archive">Archive</button>' : ''}
       ${c && contentManagementEnabled() ? '<button type="button" class="btn" data-ce-act="usage">View usage…</button>' : ''}
@@ -655,6 +660,7 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
           toast('Published.', 'good'); onChanged?.(); break;
         case 'newversion': c = await dm.newContentVersion(c.id); toast('New draft version created.'); break;
         case 'assign': m.close(); onAssign?.(c); return;
+        case 'icon': openItemIconsDialog({ campaignId: c.campaign_id, focusItemId: iconRef() }); btn.disabled = false; return;
         case 'copy': c = await dm.duplicateContent(c.id, campaignId); toast('Copied to the campaign as a draft.', 'good'); onChanged?.(); break;
         case 'duplicate': c = await dm.duplicateContent(c.id); toast('Duplicated as a new draft.', 'good'); onChanged?.(); break;
         case 'restore': c = await dm.restoreContent(c.id); toast('Restored.', 'good'); onChanged?.(); break;

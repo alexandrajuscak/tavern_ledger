@@ -9,6 +9,7 @@ import { isAnyDM } from './store.js?v=29';
 import { icon, ITEM_ICONS } from './icons.js?v=29';
 import { sectionHead } from './section.js?v=29';
 import { CRAFTING } from './config.js?v=29';
+import { customIconUrl } from './custom-icons.js?v=29';
 
 const CATEGORIES = [
   ['all', 'All', () => true],
@@ -42,6 +43,10 @@ function itemDetailsHTML(d) {
 // 1. the item's own gallery icon (items.icon_key), 2. the category default, 3. the generic icon (icons.js fallback chain)
 const itemIcon = (r, ui) => galleryIcon(r.icon_key || ui?.detail?.(r)?.icon_key) || (/shield/.test(r.category_id || '') ? 'equipment-slots/shield' : null)
   || ITEM_ICONS[r.kind_id] || (r.is_magic ? ITEM_ICONS.magic : ui?.isContainer?.(r) ? ITEM_ICONS.containers : ITEM_ICONS.gear);
+// 0. the DM's own icon (docs/CUSTOM_ICONS.md): the server sends custom_icon only for a copy the viewer knows (NULL while it is
+// masked); a copy the loaded knowledge marks as not identified never shows it either. The default stays the fallback.
+const customOf = (r, ui) => (ui?.known?.(r) === false ? null : customIconUrl(r.custom_icon));
+const itemIconHTML = (r, ui, opts) => icon(itemIcon(r, ui), { ...opts, src: customOf(r, ui) });
 const LOW_AMMO = 10;
 const VAGUE_RARITIES = ['unknown', 'unique'];
 const PAGE_SIZE = 50;
@@ -119,7 +124,7 @@ export function mountInventory(el, opts) {
   const canStack = (r) => !r.equipped && !isLegacy(r) && r.stackable;
   const reviewOf = (r) => (s.review.get(r.id) || []);
   const needsEquipReview = (r) => !r.equipped && reviewOf(r).some((x) => EQUIP_REVIEW.includes(x.category));
-  const ui = { isContainer, detail };
+  const ui = { isContainer, detail, known: (r) => !knowledgeOf(r) };
 
   function compatibleSlots(r) {
     if (isLegacy(r) || !s.lookups) return [];
@@ -350,7 +355,7 @@ export function mountInventory(el, opts) {
 
   // ---- smaller sections beside the item list: shown only when they have something in them --------------------------
   const sideRow = (r, extra, actions) => `<li class="inv-side-row">
-      ${icon(itemIcon(r, ui), { size: 22 })}<span class="inv-side-name">${esc(r.display_name || 'Unnamed item')}${extra ? ` <span class="muted small">${extra}</span>` : ''}</span>
+      ${itemIconHTML(r, ui, { size: 22 })}<span class="inv-side-name">${esc(r.display_name || 'Unnamed item')}${extra ? ` <span class="muted small">${extra}</span>` : ''}</span>
       <span class="inv-side-actions">${actions}</span></li>`;
 
   function attunementHTML() {
@@ -510,7 +515,7 @@ export function mountInventory(el, opts) {
       <article class="inv-item ${isLegacy(r) ? 'legacy' : ''} ${r.equipped ? 'equipped' : ''}" data-row="${r.id}" style="--depth:${Math.max(depth, 0)}">
         <div class="inv-item-row">
           <button type="button" class="inv-item-main" data-inv="detail" data-id="${r.id}">
-            ${icon(itemIcon(r, ui), { size: 30, cls: 'inv-item-icon' })}
+            ${itemIconHTML(r, ui, { size: 30, cls: 'inv-item-icon' })}
             <span class="inv-item-name">${esc(r.display_name || 'Unnamed item')}</span>
             <span class="inv-item-badges">${badgesHTML(r)}</span>
             <span class="inv-item-meta">${esc(metaText(r))}</span>
@@ -1310,7 +1315,7 @@ export function mountInventory(el, opts) {
       const rarity = rarityOf(r);
       const facts = k?.facts || {};
       return {
-        known: !k, state: k?.state || 'identified', name: r.display_name || r.custom_name || r.name, icon: itemIcon(r, ui),
+        known: !k, state: k?.state || 'identified', name: r.display_name || r.custom_name || r.name, icon: itemIcon(r, ui), iconSrc: k ? null : customOf(r, ui),
         rarity, rarityLabel: rarity ? rarityLabel(rarity) : '', magic: magicOf(r),
         attunement: k ? !!facts.attunement : !!(r.requires_attunement ?? d?.requires_attunement), attuned: !!r.is_attuned,
         description: k ? (r.description || '') : (d?.description || r.description || ''), notes: r.notes || '',

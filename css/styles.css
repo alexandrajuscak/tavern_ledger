@@ -2789,3 +2789,15 @@ details.combat-group.passive-group > summary { cursor: pointer; }
 .units-switch .btn.is-on { border-color: var(--gold); background: var(--gold-soft); color: var(--heading); }
 .us-unit-note { display: none; font-weight: 500; color: var(--text-3); }
 html.units-metric .us-unit-note { display: inline; }
+
+/* The DM's own item icons (js/custom-icons.js, docs/CUSTOM_ICONS.md) */
+.ii-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; max-height: 60vh; overflow-y: auto; }
+.ii-row { display: grid; grid-template-columns: 36px 36px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 8px;
+  border: 1px solid var(--border, rgba(127, 127, 127, .3)); border-radius: 8px; }
+.ii-row.is-focus { outline: 2px solid var(--gold, #c9a227); outline-offset: 1px; }
+.ii-prev { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; }
+.ii-none { opacity: .6; }
+.ii-name { min-width: 0; overflow-wrap: anywhere; }
+.ii-acts { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.tl-icon-custom { object-fit: contain; border-radius: 4px; }
+@media (max-width: 560px) { .ii-row { grid-template-columns: 36px 36px minmax(0, 1fr); } .ii-acts { grid-column: 1 / -1; justify-content: flex-start; } }

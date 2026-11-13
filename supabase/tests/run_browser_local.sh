@@ -60,6 +60,8 @@ echo "== per-character item reveal (DM Space Who knows what: reveal to one / par
 (cd supabase/tests/browser && "$PY" item_reveal_ui_test.py) || RC=1
 echo "== Realtime gap of an opening sheet (catch-up once live; one revision read per open and per reconnect)"
 (cd supabase/tests/browser && "$PY" realtime_gap_ui_test.py) || RC=1
+echo "== the DM's own item icons (upload in DM Space, identified copy shows it, disguised copy never, remove, Storage limits)"
+(cd supabase/tests/browser && "$PY" custom_icons_ui_test.py) || RC=1
 echo "== metric display and weapon cards (US / Metric switch, converter unit tests, weapon cards incl. an unidentified weapon)"
 (cd supabase/tests/browser && "$PY" metric_weapon_cards_ui_test.py) || RC=1
 echo "== player-first redesign (typography, sections, bottom navigation, home cards, icons, Build, Wild Shape vitals, DM Needs you)"
