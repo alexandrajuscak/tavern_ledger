@@ -242,9 +242,11 @@ switching it off never takes knowledge away.
   Preview it read-only on production first: `scripts/fluent/party_share_preview.sql` (as postgres; a READ ONLY transaction,
   rolled back; ids and counts only, no item names): one `held` line per record that will be held and one `row` line per record
   the catch-up will change. Limit: before this release a "Hide" of a character who knew nothing yet changed nothing and wrote
-  nothing, so such a hide cannot be derived; when the DM then revealed part of the item to that character, the catch-up gives it
-  the party level. The preview marks those rows `DM-PARTIAL` (the DM's latest choice for that character was a partial reveal
-  that the catch-up exceeds): review them before the deploy (the DM can hide the item from them again afterwards).
+  nothing, so such a hide cannot be derived: the catch-up treats that character as an ordinary target (also when the DM later
+  revealed part of the item to it). The preview marks every row whose character knows part of the item now `PARTIAL`, or
+  `DM-PARTIAL` when the record's latest change was made by a DM (any DM path: reveal, answer, per-copy editor): review these
+  rows, and the item rows of characters the DM meant to keep in the dark, with the owner before the deploy (the DM can hide the
+  item from them again afterwards).
 - **Locking (never wait on another character).** Inside the examiner's or the DM's transaction, a character that is not the
   transaction's own target is touched only in a subtransaction with a 200 ms `lock_timeout` (restored) and NOWAIT locks in the
   order of the existing RPCs: `characters` (key share) → `tl_cache.character_rev` → its rows (id order) → their row knowledge →

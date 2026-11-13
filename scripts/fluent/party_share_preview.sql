@@ -17,8 +17,10 @@
 -- "Learned from the party" (m3), and "ROW-ABOVE" when a copy already knows more than the character's record (m4: the record is
 -- raised to it; nothing is lowered). Totals at the end, with two sizing counts (M1c exposure; characters without a
 -- cache counter row). With no knowledge data: only the totals (0).
--- "DM-PARTIAL" on a row: the DM's latest choice for that character was a partial reveal that the catch-up goes beyond (no hide on
--- record, so no hold: before this release a "Hide" of a character who knew nothing changed nothing and wrote nothing). Review them.
+-- "PARTIAL" / "DM-PARTIAL" on a row: the character knows part of the item now and the catch-up goes beyond it (DM-PARTIAL: the
+-- record's latest change was made by a DM). There is no hide on record for them: before this release a "Hide" of a character who
+-- knew nothing changed nothing and wrote nothing, so such a hide cannot be derived (also for rows of characters who know nothing).
+-- Review these rows with the owner before the deploy.
 -- "held" lines (before the rows): every record the migration will hold, with its current level (ids only): the catch-up skips them.
 -- Run as postgres (it reads campaign_audit_events and the knowledge tables); it opens a READ ONLY transaction and rolls it back.
 begin read only;
@@ -104,12 +106,14 @@ select line from (
        || ' pending examines closed ' || (select count(*) from public.item_identify_attempts a where a.character_id = change.character_id
                                           and a.item_id = change.item_id and a.status = 'pending' and change.new_state = 'identified')
        || case when row_ident and coalesce(cur_state, '') <> 'identified' or not (row_rev <@ coalesce(cur_rev, '{}')) then ' ROW-ABOVE' else '' end
-       -- the DM's latest choice for this character was a PARTIAL raise that the catch-up exceeds. Not a hold (no hide on record):
-       -- a "Hide" of a character who knew nothing yet changed nothing and left no trace before this release. Review these lines.
-       || case when (select e.after ->> 'mode' = 'raise' and e.after ->> 'state' <> 'identified' from public.campaign_audit_events e
-                     where e.event_type = 'item_revealed' and e.visibility = 'dm' and e.character_id = change.character_id
-                       and e.after ->> 'item_id' = change.item_id and e.after ? 'mode'
-                     order by e.created_at desc, e.id desc limit 1) then ' DM-PARTIAL' else '' end
+       -- the character knows part of the item now and the catch-up goes beyond it. Not a hold (no hide on record): before this
+       -- release a "Hide" of a character who knew nothing changed nothing and left no trace, so it cannot be derived. DM-PARTIAL:
+       -- the latest change of that record was made by a DM of the campaign (any DM path); PARTIAL: by anyone else. Review them.
+       || case when cur_state = 'partially_identified' then
+            case when (select e.actor in (select m.user_id from public.campaign_members m where m.campaign_id = change.campaign_id and m.role = 'dm')
+                       from public.item_knowledge_events e where e.character_id = change.character_id and e.item_id = change.item_id
+                       order by e.created_at desc, e.id desc limit 1) then ' DM-PARTIAL' else ' PARTIAL' end
+          else '' end
   from change) out
 order by k, campaign_id, character_id, item_id;
 
