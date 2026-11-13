@@ -68,6 +68,7 @@ let ctx = null; // { reload, onDeleted }
 let unsubscribe = null;
 let liveCharacterId = null;  // the character of the Realtime channel: kept when the same sheet is reloaded (no leave + join)
 let liveFluent = false;      // which subscription the kept channel is (legacy 70 bindings or fluent 2)
+let liveReady = false;       // fluent: Realtime confirmed it delivers changes on the kept channel ("Subscribed to PostgreSQL")
 // Fluent read path (js/read-layer.js): this sheet was mounted from one get_character_view response; its later reads are
 // coalesced, Realtime is one revision table, the inventory panel loads on its first open. Never mixed with the legacy path.
 let sheetFluent = false;
@@ -3505,7 +3506,12 @@ export function mountSheet(container, bundle, options = {}) {
   // one channel per character: a reload of the same sheet (reconnect, refused change) keeps it instead of leave + join
   if (liveCharacterId !== C().id || liveFluent !== sheetFluent) {
     unsubscribe?.();
-    unsubscribe = sheetFluent ? subscribeCharacterFluent(C().id, onRemote, onRevision, resyncSoon) : subscribeCharacter(C().id, onRemote, resyncSoon);
+    // fluent: once Realtime delivers changes, one revision check catches a change committed between the open and that moment.
+    // The open, Realtime going live and a reconnect share ONE debounce (catchUpSoon): at most one revision read per burst.
+    liveReady = false;
+    unsubscribe = sheetFluent
+      ? subscribeCharacterFluent(C().id, onRemote, onRevision, () => catchUpSoon({ reconnect: true }), () => { liveReady = true; catchUpSoon(); })
+      : subscribeCharacter(C().id, onRemote, resyncSoon);
     liveCharacterId = C().id;
     liveFluent = sheetFluent;
   }
@@ -3540,8 +3546,13 @@ export function mountSheet(container, bundle, options = {}) {
   if (playTiming) rerenderPlayFeatures();
   else loadPlayTiming().then((m) => { playTiming = m; rerenderPlayFeatures(); });   // once per page session (catalog table)
   if (!sheetFluent && !fluentEnabled()) cacheSet(`bundle:${C().id}`, B);
-  // a prefetched view may be a few seconds old: one revision check catches what changed in between (no full reload)
-  else if (options.view?.fetched_at && Date.now() - options.view.fetched_at > 1500) reconcileSoon();
+  // a prefetched view may be a few seconds old: one revision check catches what changed in between (no full reload). A new
+  // channel does that check once it is live (onLive above), which also covers the view; only a kept channel checks now. If
+  // Realtime never confirms (blocked websocket), the check still runs after a few seconds.
+  else if (options.view?.fetched_at && Date.now() - options.view.fetched_at > 1500) {
+    if (liveReady) catchUpSoon();
+    else { const id = C().id; setTimeout(() => { if (B && C().id === id && !liveReady) catchUpSoon(); }, 6000); }
+  }
 }
 
 function mountInventoryPanel() {
@@ -3637,15 +3648,31 @@ async function reconcile() {
   if (data.reads?.characters) onRemote('characters', 'UPDATE', data.reads.characters, null);
   for (const [t, r] of Object.entries(data.reads?.revisions || {})) if (r > knownRevision(t)) onRevision(t, r);
 }
-const reconcileSoon = debounce(reconcile, 300);
 
-// After a dropped connection: own unsaved edits are saved first, then the stored state is shown. A flaky network that drops
-// and returns several times in a few seconds causes one reload, not one per return.
+// Fluent catch-up: ONE debounce for the three triggers (a stale prefetched view, Realtime going live, a reconnect), so a sheet
+// open or a reconnect (Realtime sends "Subscribed to PostgreSQL" again after it) does at most one revision read. After a
+// reconnect, own unsaved edits are saved first; a flaky network that drops and returns several times in a few seconds causes
+// one read, not one per return.
+let catchUpReconnect = false;
+const catchUpDebounced = debounce(() => {
+  const reconnect = catchUpReconnect;
+  catchUpReconnect = false;
+  if (!B || !sheetFluent || liveCharacterId !== C().id) return;
+  if (!reconnect) { reconcile(); return; }
+  toast('Connection restored — showing the latest values.', 'info');
+  saver.flush().finally(() => reconcile());
+}, 1500);
+function catchUpSoon({ reconnect = false } = {}) {
+  if (reconnect) catchUpReconnect = true;
+  catchUpDebounced();
+}
+
+// Legacy path (?fluent=0) after a dropped connection: own unsaved edits are saved first, then the whole sheet reloads (once
+// per burst of reconnects).
 const resyncSoon = debounce(() => {
   if (!B || liveCharacterId !== C().id) return;
   toast('Connection restored — showing the latest values.', 'info');
-  // fluent: one revision check refreshes what changed while offline; legacy: the whole sheet reloads
-  saver.flush().finally(() => (sheetFluent ? reconcile() : ctx?.reload?.()));
+  saver.flush().finally(() => ctx?.reload?.());
 }, 1500);
 
 /** Close the sheet. keepRealtimeFor: the character about to be mounted again (its channel stays open). */
@@ -3696,6 +3723,7 @@ export function unmountSheet({ keepRealtimeFor = null } = {}) {
     unsubscribe = null;
     liveCharacterId = null;
     liveFluent = false;
+    liveReady = false;
   }
   serverChar = null;
   spellbookStale = false;

@@ -477,14 +477,20 @@ export function subscribeCharacter(id, handler, onResync) {
  *  - character_revisions INSERT (filtered): {source_table, id = revision} once per committed transaction and table (an
  *    append-only log); the sheet refreshes only that table's domain.
  * Events carry no hidden data: a revision row says only which table of a readable character changed.
- * onRevision(table, rev); onResync() once after a dropped connection (the sheet reconciles revisions, no full reload).
+ * onRevision(table, rev); onResync() once after a dropped connection (the sheet reconciles revisions, no full reload);
+ * onLive() each time Realtime confirms it delivers changes (after the first join AND after every rejoin). A reconnect therefore
+ * calls both onResync and onLive: the caller must merge them (js/sheet.js catchUpSoon: one shared debounce, one read).
  */
-export function subscribeCharacterFluent(id, handler, onRevision, onResync) {
+export function subscribeCharacterFluent(id, handler, onRevision, onResync, onLive) {
   const rev = (p) => { if (p.new?.character_id === id && p.new?.source_table) onRevision(p.new.source_table, Number(p.new.id) || 0); };
   const channel = supabase
     .channel(`sheet-${id}-${Math.random().toString(36).slice(2, 8)}`)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'characters', filter: `id=eq.${id}` }, (p) => handler('characters', p.eventType, p.new, p.old))
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'character_revisions', filter: `character_id=eq.${id}` }, rev);
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'character_revisions', filter: `character_id=eq.${id}` }, rev)
+    // 'SUBSCRIBED' (phx_reply) comes BEFORE Realtime delivers postgres changes: the server confirms that later with a system
+    // message "Subscribed to PostgreSQL" (seconds later when Realtime is cold). A change committed in that gap is never
+    // delivered, so once changes are live the sheet checks its revisions once (onLive: one small read, only changed domains).
+    .on('system', {}, (p) => { if (p?.extension === 'postgres_changes' && p?.status === 'ok') onLive?.(); });
   let dropped = false;
   channel.subscribe((status) => {
     if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') dropped = true;
