@@ -90,8 +90,8 @@ export function weaponCardHTML(w, info, { open = new Set(), infused = null } = {
   if (w.attack_disadvantage) notes.push('Disadvantage on this attack: you wear armor or a shield you aren’t proficient with.');
   const key = `weapon:${w.inventory_item_id}`;
   const known = info?.known !== false;
-  // the name the player sees on their own copy (decoy while unidentified); the derived name only without inventory data
-  const name = info?.name || w.name;
+  // the name the player sees on their own copy (decoy while unidentified); "Weapon" when no row is loaded
+  const name = info?.name || 'Weapon';   // never the derived (catalog) name: it may be the true name of a disguised copy
   const iconName = info?.icon || ITEM_ICONS.weapon;
   const inf = infused?.get?.(w.inventory_item_id) || null;
   const desc = info?.description || '';   // the catalog text when known, the decoy text otherwise (already masked by weaponInfo)
