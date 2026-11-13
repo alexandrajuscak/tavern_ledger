@@ -29,6 +29,14 @@
 -- Rollback: supabase/rollback/rollback_crafting_v1.sql.
 -- =============================================================================
 
+-- The CLI (2.118) sends this file and its schema_migrations row as ONE batch in an implicit transaction: a failing statement
+-- changes nothing (verified locally: a failed apply left no object behind). Inside that implicit transaction SET LOCAL only warns
+-- ("can only be used in transaction blocks"), so the setting is made for the CLI's own connection and reset at the end of the
+-- file. The foreign keys below take SHARE ROW EXCLUSIVE on items, characters, campaigns, inventories and profiles: wait at most
+-- 5 s for them instead of queueing behind live traffic. No database or role setting changes. If it fires, the whole migration
+-- fails atomically and nothing is applied; push again in a quieter moment.
+set lock_timeout = '5s';
+
 -- ---- 1. governance action (disabled in every preset) ---------------------------------------------------------------------
 insert into public.governance_actions (action_key, category, lock_class, relaxed, standard, strict, max_player, can_request, sort_order, label, description)
 values ('inventory.craft', 'inventory', 'inventory_acquire', 'disabled', 'disabled', 'disabled', 'player_managed', false, 71, 'Crafting',
@@ -183,7 +191,24 @@ as $$
     where inv.character_id = p_character and ii.item_id = p_item) r;
 $$;
 
--- does an inventory row fit an ingredient line (exact item, or a tag of the item's details.ingredient_tags)?
+-- an item the DM side of this campaign vouches for: official, DM Content (cc-, authored in DM Space), or a campaign item whose
+-- author is a DM of the campaign. Player-authored items (legacy rows, the JSON import's homebrew) are never used by recipes:
+-- neither named in a recipe nor matched by their (player-written) ingredient tags.
+create function public._craft_item_trusted(p_item text, p_campaign uuid)
+returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select exists (select 1 from public.items i where i.id = p_item
+                 and (i.owner_id is null
+                      or (i.campaign_id = p_campaign
+                          and (exists (select 1 from public.dm_content_versions v where v.catalog_ref = i.id)
+                               or exists (select 1 from public.campaign_members m
+                                          where m.campaign_id = p_campaign and m.user_id = i.owner_id and m.role = 'dm')))));
+$$;
+
+-- does an inventory row fit an ingredient line (exact item, or a tag of the item's details.ingredient_tags)? Tags count only on
+-- trusted items (_craft_item_trusted, for the recipe's campaign): a player cannot forge an ingredient by tagging their own item.
 create function public._craft_row_matches(p_item_id text, p_ing public.crafting_recipe_ingredients)
 returns boolean
 language sql stable security definer
@@ -194,7 +219,8 @@ as $$
     else exists (select 1 from public.items i
                  cross join lateral jsonb_array_elements_text(case when jsonb_typeof(i.details -> 'ingredient_tags') = 'array'
                                                                    then i.details -> 'ingredient_tags' else '[]'::jsonb end) t
-                 where i.id = p_item_id and lower(btrim(t)) = p_ing.ingredient_tag) end;
+                 where i.id = p_item_id and lower(btrim(t)) = p_ing.ingredient_tag)
+         and public._craft_item_trusted(p_item_id, (select r.campaign_id from public.crafting_recipes r where r.id = p_ing.recipe_id)) end;
 $$;
 
 -- may a row be CONSUMED? Never equipped, attuned, a quest item or a container with something in it
@@ -319,14 +345,14 @@ as $$
   from public.crafting_recipes r where r.id = p_recipe;
 $$;
 
--- an item a recipe of this campaign may name: official or of this campaign, not archived
+-- an item a recipe of this campaign may name: trusted (official, DM Content, a DM's campaign item) and not archived
 create function public._craft_item_ok(p_item text, p_campaign uuid)
 returns boolean
 language sql stable security definer
 set search_path = public, pg_temp
 as $$
-  select exists (select 1 from public.items i where i.id = p_item and i.archived_at is null
-                 and (i.owner_id is null or i.campaign_id = p_campaign));
+  select public._craft_item_trusted(p_item, p_campaign)
+     and exists (select 1 from public.items i where i.id = p_item and i.archived_at is null);
 $$;
 
 -- Produce p_quantity of an item into the character's inventory, as a DM assignment would (_dm_add_item semantics, without its
@@ -345,6 +371,16 @@ begin
   if it.id is null or it.archived_at is not null then
     raise exception 'The result of this recipe is no longer available' using errcode = 'TLCRF';
   end if;
+  -- lock order: the caller holds the ingredient rows; examine holds a row, then the character, the record, the other rows. Taking
+  -- the character's rows of the result and its record WITHOUT waiting means a crossing examine can never deadlock with an
+  -- approval: a busy lock raises TLCRF (the caller's savepoint rolls back every partial write -> apply_failed, the DM retries).
+  begin
+    perform 1 from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+     where inv.character_id = p_character and ii.item_id = p_item order by ii.id for update of ii nowait;
+    perform 1 from public.character_item_knowledge where character_id = p_character and item_id = p_item for update nowait;
+  exception when lock_not_available then
+    raise exception 'The player is busy with this item right now (examining it); try again in a moment' using errcode = 'TLCRF';
+  end;
   select * into ck from public.character_item_knowledge where character_id = p_character and item_id = p_item;
   plain := coalesce(p_identified, true) or coalesce(ck.state = 'identified', false) or it.owner_id is null;   -- official rows are never disguised
   if plain then
@@ -525,7 +561,11 @@ begin
                      and rc.status = 'published' and rc.visibility = 'discoverable'
                      and not exists (select 1 from public.character_known_recipes k where k.character_id = ch.id and k.recipe_id = rc.id)),
     'attempts', (select coalesce(jsonb_agg(public._craft_attempt_player(a) order by a.created_at desc, a.id), '[]')
-                 from (select * from public.crafting_attempts x where x.character_id = ch.id order by x.created_at desc, x.id limit 20) a));
+                 from (select x.* from public.crafting_attempts x join public.crafting_recipes r on r.id = x.recipe_id
+                       where x.character_id = ch.id
+                         -- a DM sees only the attempts of their campaign's recipes (not the history of a campaign the character left)
+                         and (not dm or public.is_admin() or r.campaign_id is not distinct from ch.campaign_id)
+                       order by x.created_at desc, x.id limit 20) a));
 end $$;
 
 -- p_selected: [{seq, inventory_item_id, quantity}] (one row per ingredient line or more; a row only once)
@@ -630,7 +670,11 @@ begin
   if auth.uid() is null then raise exception 'Not authenticated' using errcode = '42501'; end if;
   select * into a from public.crafting_attempts where id = p_attempt for update;
   if a.id is null then raise exception 'Attempt not found' using errcode = 'P0002'; end if;
-  perform public._craft_player_gate(a.character_id);
+  -- the owner only, WITHOUT the campaign rule: a player can always take back their own pending attempt (also after the DM turned
+  -- crafting off, or after the character moved to a campaign where it is off)
+  if not exists (select 1 from public.characters c where c.id = a.character_id and (c.owner_id = auth.uid() or public.is_admin())) then
+    raise exception 'Only the character''s player can cancel this attempt' using errcode = '42501';
+  end if;
   if a.status <> 'pending' then raise exception 'This attempt was already answered' using errcode = '55000'; end if;
   update public.crafting_attempts set status = 'cancelled', resolved_at = now(), resolved_by = auth.uid(), revision = revision + 1
    where id = a.id returning * into a;
@@ -694,7 +738,8 @@ begin
     raise exception 'Choose an official item or an item of this campaign (not archived)' using errcode = '22023';
   end if;
   ident := coalesce((o ->> 'output_identified')::boolean, true);
-  if not ident and exists (select 1 from public.items i where i.id in (out_item, crit, fail) and i.owner_id is null) then
+  -- the main result only: an official critical / failure result simply arrives identified (_craft_produce)
+  if not ident and exists (select 1 from public.items i where i.id = out_item and i.owner_id is null) then
     raise exception 'Copy an official item to campaign homebrew before its result can arrive unidentified' using errcode = '22023';
   end if;
   key := nullif(lower(btrim(coalesce(o ->> 'check_key', ''))), '');
@@ -945,6 +990,7 @@ begin
                     'tags', case when jsonb_typeof(i.details -> 'ingredient_tags') = 'array' then i.details -> 'ingredient_tags' else '[]'::jsonb end)
                     order by (i.owner_id is null), i.name, i.id), '[]')
           from (select * from public.items i where i.archived_at is null and (i.owner_id is null or i.campaign_id = p_campaign)
+                  and public._craft_item_trusted(i.id, p_campaign)   -- never a player-authored item
                   and (q is null or strpos(lower(i.name), lower(left(q, 80))) > 0)
                 order by (i.owner_id is null), i.name, i.id limit 40) i);
 end $$;
@@ -998,14 +1044,29 @@ begin
   if (d ->> 'items_based_on_it')::int > 0 then reasons := reasons || 'other items are based on it'::text; end if;
   if (d ->> 'pending_requests')::int > 0 then reasons := reasons || 'submitted change requests'::text; end if;
   if (d ->> 'dm_content_versions')::int > 0 then reasons := reasons || 'other DM content versions'::text; end if;
-  -- 20261113000100: the recipes by name (up to three)
+  -- 20261113000100: recipes are DM data. Named (up to three) only for the DM of the recipe's campaign or an admin; anybody else
+  -- (e.g. the player who authored the item) gets one fixed reason and a count of at most 1, which tells nothing about how many
+  -- or which (draft, secret) recipes there are. The delete stays blocked either way.
   if coalesce((d ->> 'crafting_recipes')::int, 0) > 0 then
-    reasons := reasons || (select 'used in crafting recipe' || case when count(*) > 1 then 's ' else ' ' end
-                                  || string_agg('“' || x.name || '”', ', ' order by x.name) || case when (d ->> 'crafting_recipes')::int > 3 then ' …' else '' end
-                           from (select cr.name from public.crafting_recipes cr
-                                 where p_item in (cr.output_item_id, cr.crit_output_item_id, cr.failure_output_item_id)
-                                    or exists (select 1 from public.crafting_recipe_ingredients g where g.recipe_id = cr.id and g.item_id = p_item)
-                                 order by cr.name limit 3) x);
+    if exists (select 1 from public.crafting_recipes cr
+               where (p_item in (cr.output_item_id, cr.crit_output_item_id, cr.failure_output_item_id)
+                      or exists (select 1 from public.crafting_recipe_ingredients g where g.recipe_id = cr.id and g.item_id = p_item))
+                 and (public.is_admin() or public.is_campaign_dm(cr.campaign_id))) then
+      reasons := reasons || (select 'used in crafting recipe' || case when count(*) > 1 then 's ' else ' ' end
+                                    || string_agg('“' || x.name || '”', ', ' order by x.name) filter (where x.rn <= 3)
+                                    || case when count(*) > 3 then ' …' else '' end
+                             from (select cr.name, row_number() over (order by cr.name) as rn from public.crafting_recipes cr
+                                   where (p_item in (cr.output_item_id, cr.crit_output_item_id, cr.failure_output_item_id)
+                                          or exists (select 1 from public.crafting_recipe_ingredients g where g.recipe_id = cr.id and g.item_id = p_item))
+                                     and (public.is_admin() or public.is_campaign_dm(cr.campaign_id))) x);
+    end if;
+    if exists (select 1 from public.crafting_recipes cr
+               where (p_item in (cr.output_item_id, cr.crit_output_item_id, cr.failure_output_item_id)
+                      or exists (select 1 from public.crafting_recipe_ingredients g where g.recipe_id = cr.id and g.item_id = p_item))
+                 and not (public.is_admin() or public.is_campaign_dm(cr.campaign_id))) then
+      reasons := reasons || 'used by your DM''s crafting'::text;
+      d := jsonb_set(d, '{crafting_recipes}', '1'::jsonb);
+    end if;
   end if;
   if (d ->> 'inventory_history')::int > 0 then hist := hist || format('%s inventory history entr%s', d ->> 'inventory_history', case when (d ->> 'inventory_history')::int = 1 then 'y' else 'ies' end); end if;
   if (d ->> 'request_history')::int > 0 then hist := hist || 'draft or outdated change requests'::text; end if;
@@ -1233,7 +1294,7 @@ end $$;
 revoke all on function public._craft_row_known(uuid), public._craft_item_known(uuid, text),
   public._craft_row_matches(text, public.crafting_recipe_ingredients), public._craft_row_free(uuid), public._craft_recipe_player(uuid, uuid),
   public._craft_attempt_player(public.crafting_attempts), public._craft_attempt_dm(public.crafting_attempts), public._craft_recipe_dm(uuid),
-  public._craft_item_ok(text, uuid), public._craft_produce(uuid, uuid, text, int, boolean, jsonb), public._craft_apply(uuid, text, text),
+  public._craft_item_ok(text, uuid), public._craft_item_trusted(text, uuid), public._craft_produce(uuid, uuid, text, int, boolean, jsonb), public._craft_apply(uuid, text, text),
   public._craft_audit(public.crafting_attempts), public._craft_player_gate(uuid), public._craft_dm_gate(uuid)
   from public, anon, authenticated;
 revoke all on function public.get_character_recipes(uuid), public.start_craft_attempt(uuid, uuid, jsonb, int, uuid, text, text),
@@ -1249,4 +1310,5 @@ grant execute on function public.get_character_recipes(uuid), public.start_craft
   public.get_campaign_craft_attempts(uuid, text), public.get_campaign_pending_craft_count(uuid), public.get_campaign_craft_items(uuid, text)
   to authenticated, service_role;
 
+reset lock_timeout;
 notify pgrst, 'reload schema';

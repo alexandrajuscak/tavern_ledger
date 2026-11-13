@@ -10,9 +10,13 @@
 --   select * from public.crafting_recipes; select * from public.crafting_recipe_ingredients;
 --   select * from public.character_known_recipes; select * from public.crafting_attempts;
 -- KEPT: inventory rows produced / consumed by applied attempts (ordinary inventory rows), their inventory_events
--- (metadata.craft_attempt), knowledge records written by a produced item, audit events.
+-- (metadata.craft_attempt), knowledge records written by a produced item, audit events, and items.secret = true where publishing
+-- a recipe whose result arrives unidentified (or producing such a result) set it on a campaign item (the item then stays out of
+-- the players' catalog, exactly as after a DM's unidentified assignment; set it back by hand only if no copy is disguised).
 -- Deploy order for a rollback: the previous frontend (?v=27) first, then this file.
+-- The -1 flag runs the file as one transaction; lock_timeout below applies to that transaction only (no database / role setting).
 -- =============================================================================
+set local lock_timeout = '5s';
 do $$
 begin
   if exists (select 1 from public.change_requests where action_type = 'inventory.craft')
@@ -317,6 +321,7 @@ drop function if exists public._craft_row_known(uuid);
 drop function if exists public._craft_row_free(uuid);
 drop function if exists public._craft_item_known(uuid, text);
 drop function if exists public._craft_item_ok(text, uuid);
+drop function if exists public._craft_item_trusted(text, uuid);
 drop function if exists public._craft_player_gate(uuid);
 drop function if exists public._craft_dm_gate(uuid);
 drop table if exists public.crafting_attempts;

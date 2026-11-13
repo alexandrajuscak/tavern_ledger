@@ -391,3 +391,88 @@ select public.dm_set_recipe_status(:'r19', 'published');
 select tl_test.as_root();
 select tl_test.rec('CR19 output_identified = false: the result becomes secret when the DM publishes the recipe (not while it is a draft)',
   not :'s19a'::boolean and (select secret from public.items where id = :'plainres'));
+-- ==== review round 1 =====================================================================================================================
+-- ---- CR20 (Major 1) recipe names never reach a player through the deletion preview ------------------------------------------------------
+select 'hb-' || gen_random_uuid() as pitem \gset
+insert into public.items (id, name, kind_id, owner_id, campaign_id) values (:'pitem', 'Alice Pebble', 'gear', :'alice', :'camp');   -- e.g. the JSON import's homebrew
+select tl_test.as_user(:'dm');
+select tl_test.cr_code(format('select public.dm_save_recipe(%L, %L::jsonb)', :'camp', jsonb_build_object('name', 'Uses Pebble', 'output_item_id', :'draught',
+  'ingredients', jsonb_build_array(jsonb_build_object('item_id', :'pitem'))))) as c20_save \gset
+select public.get_campaign_craft_items(:'camp', 'Pebble')::text as c20_items \gset
+select tl_test.as_root();
+-- legacy state (recipes made before this rule, or by SQL): two recipes, one a secret draft, name the player's item
+insert into public.crafting_recipes (campaign_id, name, visibility, output_item_id) values (:'camp', 'SECRET-RECIPE-XYZ', 'secret', :'pitem'), (:'camp', 'SECRET-RECIPE-ABC', 'secret', :'draught');
+insert into public.crafting_recipe_ingredients (recipe_id, seq, item_id) select id, 1, :'pitem' from public.crafting_recipes where name = 'SECRET-RECIPE-ABC';
+select tl_test.as_user(:'alice');
+select public.preview_item_deletion(:'pitem') as pv20 \gset
+select tl_test.as_user(:'dm');
+select public.preview_item_deletion(:'pitem') as pv20dm \gset
+select tl_test.as_root();
+select tl_test.rec('CR20 a player-authored campaign item: the DM cannot use it in a recipe (22023, not in the picker); in legacy recipes the player''s preview names no recipe (fixed reason, count 1, still blocked); the DM''s preview names them',
+  :'c20_save' = '22023' and position('Alice Pebble' in :'c20_items') = 0
+  and position('SECRET-RECIPE' in :'pv20') = 0 and :'pv20'::jsonb -> 'reasons' ? 'used by your DM''s crafting'
+  and (:'pv20'::jsonb -> 'dependencies' ->> 'crafting_recipes')::int = 1 and not (:'pv20'::jsonb ->> 'deletable')::boolean
+  and position('SECRET-RECIPE-ABC' in :'pv20dm') > 0 and position('SECRET-RECIPE-XYZ' in :'pv20dm') > 0
+  and (:'pv20dm'::jsonb -> 'dependencies' ->> 'crafting_recipes')::int = 2, :'pv20');
+delete from public.crafting_recipes where name like 'SECRET-RECIPE-%';
+
+-- ---- CR21 (2) a player-tagged item never fits a tag ingredient ----------------------------------------------------------------------
+select 'hb-' || gen_random_uuid() as fake \gset
+insert into public.items (id, name, kind_id, owner_id, details) values (:'fake', 'Fake Silver Rock', 'gear', :'alice', '{"ingredient_tags": ["silver"]}');
+select tl_test.as_user(:'dm');
+select public.dm_save_recipe(:'camp', jsonb_build_object('name', 'Silver Auto', 'output_item_id', :'draught', 'requires_dm_approval', false,
+  'ingredients', jsonb_build_array(jsonb_build_object('tag', 'silver')))) ->> 'id' as r21 \gset
+select public.dm_set_recipe_status(:'r21', 'published');
+select tl_test.as_user(:'alice');
+select tl_test.give(:'ca', :'fake') as fake_row \gset
+select public.get_character_recipes(:'ca') as rd21 \gset
+select tl_test.cr_msg(format('select public.start_craft_attempt(%L, %L, %L::jsonb, null, gen_random_uuid())', :'ca', :'r21',
+  jsonb_build_array(tl_test.cr_sel(1, :'fake_row', 1)))) as s21 \gset
+select tl_test.as_root();
+select tl_test.rec('CR21 a player''s own item tagged "silver" is no candidate and is refused ("does not fit"); nothing crafted',
+  position(:'fake_row' in (tl_test.cr_rec(:'rd21'::jsonb, :'r21') -> 'ingredients')::text) = 0
+  and :'s21' = '22023 This item does not fit that ingredient' and tl_test.cr_qty(:'ca', :'fake') = 1, :'s21');
+
+-- ---- CR22 (3) cancel works after the DM turned crafting off ----------------------------------------------------------------------------
+-- the attempt of CR18 is still pending
+select tl_test.as_user(:'dm');
+select public.set_campaign_governance(:'camp', '{"overrides": {"inventory.craft": "disabled"}}');
+select tl_test.as_user(:'alice');
+select tl_test.cr_code(format('select public.get_character_recipes(%L)', :'ca')) as g22 \gset
+select tl_test.cr_code(format('select public.cancel_craft_attempt(%L)', :'a18'::jsonb ->> 'attempt_id')) as c22 \gset
+select tl_test.as_user(:'bob');
+select tl_test.cr_code(format('select public.cancel_craft_attempt(%L)', :'a18'::jsonb ->> 'attempt_id')) as c22b \gset
+select tl_test.as_user(:'dm');
+select public.set_campaign_governance(:'camp', '{"overrides": {"inventory.craft": "player_managed"}}');
+select tl_test.as_root();
+select tl_test.rec('CR22 crafting turned off: reads refused (TLDIS) but the owner can still cancel a pending attempt; another player cannot (42501)',
+  :'g22' = 'TLDIS' and :'c22' = 'ok' and :'c22b' = '42501' and (tl_test.cr_att((:'a18'::jsonb ->> 'attempt_id')::uuid)).status = 'cancelled',
+  concat_ws(',', :'g22', :'c22', :'c22b'));
+
+-- ---- CR23 (4) an official critical / failure result does not block an unidentified main result -------------------------------------------
+select tl_test.as_user(:'dm');
+select tl_test.cr_code(format('select public.dm_save_recipe(%L, %L::jsonb)', :'camp', jsonb_build_object('name', 'Mixed', 'output_item_id', :'elixir', 'output_identified', false,
+  'crit_output_item_id', 'candle', 'failure_output_item_id', 'candle', 'ingredients', jsonb_build_array(jsonb_build_object('tag', 'calming'))))) as c23 \gset
+select tl_test.as_root();
+select tl_test.rec('CR23 output_identified = false with official critical / failure results is accepted (they arrive identified)', :'c23' = 'ok', :'c23');
+
+-- ---- CR24 (5) the result's rows and record are taken NOWAIT while ingredient rows are locked (text check; one-session harness) --------------
+select tl_test.rec('CR24 _craft_produce locks the result rows and record NOWAIT and maps lock_not_available to TLCRF (-> apply_failed, DM retries)',
+  (select (length(d) - length(replace(d, 'nowait', ''))) / 6 = 2 and position('when lock_not_available' in d) > 0 and position('TLCRF' in d) > 0
+   from (select pg_get_functiondef('public._craft_produce(uuid, uuid, text, int, boolean, jsonb)'::regprocedure) as d) f));
+
+-- ---- CR25 (10) a DM of the character's NEW campaign does not read the old campaign's crafting history ---------------------------------------
+\set camp2 c1c00000-0000-0000-0000-0000000000c2
+insert into public.campaigns (id, name, created_by) values (:'camp2', 'Second Table', :'eve');
+insert into public.campaign_members (campaign_id, user_id, role) values (:'camp2', :'eve', 'dm');
+update public.characters set campaign_id = :'camp2' where id = :'ca';
+select tl_test.as_user(:'eve');
+select public.get_character_recipes(:'ca') as rd25 \gset
+select tl_test.as_root();
+update public.characters set campaign_id = :'camp' where id = :'ca';
+select tl_test.as_user(:'dm');
+select public.get_character_recipes(:'ca') as rd25b \gset
+select tl_test.as_root();
+select tl_test.rec('CR25 after a move, the new DM sees none of the old campaign''s attempts; the old campaign''s DM (character back) sees them',
+  jsonb_array_length(:'rd25'::jsonb -> 'attempts') = 0 and jsonb_array_length(:'rd25b'::jsonb -> 'attempts') > 0
+  and position('Well done' in :'rd25') = 0, left(:'rd25', 200));

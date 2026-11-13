@@ -104,7 +104,7 @@ line with the roll, the DC and the details. Recipe status changes and grants are
 |---|---|---|
 | `get_character_recipes(character)` | owner (TLDIS while off), DM | Visible recipes: published, the character's campaign, `known` or learned. For each: what the character has and is missing, candidate stacks, check label, whether the DM confirms. Plus the last 20 attempts and the number of `discoverable` recipes still to find. |
 | `start_craft_attempt(character, recipe, selected, roll_total, request_id, natural, note)` | owner | See above. A roll is required when the recipe has a check. |
-| `cancel_craft_attempt(attempt)` | owner | Only while pending. |
+| `cancel_craft_attempt(attempt)` | owner | Only while pending. Owner check only, without the campaign rule: a player can always take back their own pending attempt. |
 | `mark_recipes_seen(character)` | owner | Clears "new". |
 | `dm_save_recipe(campaign, recipe, expected_revision)` | DM | Insert or update (draft / published). Ingredients are replaced as a set. Items must be official or of this campaign and not archived. An archived recipe must be restored first. |
 | `dm_set_recipe_status(recipe, status)` | DM | `draft` / `published` / `archived`. Archived keeps attempts, and pending ones can still be answered. |
@@ -125,18 +125,26 @@ Internal helpers (`_craft_*`) are not executable by `authenticated`.
 - The DM's queue badge refreshes when DM Space re-reads (navigation, or its realtime events on requests and characters), not
   on each new attempt.
 
+## Which items recipes may use (trusted items)
+
+A recipe may name only official items, DM Content, or campaign items authored by a DM of the campaign (`_craft_item_trusted`; the
+editor's picker lists only those). An item authored by a player, such as a legacy row or the JSON import's homebrew, is refused (`22023`). A
+tag ingredient matches only trusted items too, so a player cannot forge an ingredient by tagging their own item.
+
 ## Deleting items used by recipes
 
 `_item_dependencies` has a blocking key `crafting_recipes`, which counts every recipe of any status that names the item: the
 result, the critical or failure result, or an ingredient. `preview_item_deletion` lists the recipes by name ("used in crafting
 recipe “X”"). `_dm_content_dependencies` adds the key in its item branch. `get_dm_content_usage_detail` lists a
-`crafting_recipe` place. Delete therefore answers `TLUSE` instead of a raw foreign-key error.
+`crafting_recipe` place. Delete therefore answers `TLUSE` instead of a raw foreign-key error. Recipe names are DM data: they are
+named only to the DM of the recipe's campaign or an admin. Anybody else, for example the player who authored the item, gets the
+fixed reason "used by your DM's crafting" and a count of at most 1. The delete stays blocked.
 
 These four functions were replaced with the same signatures; the rollback restores their exact previous bodies.
 
 ## Tests
 
-- `supabase/tests/classes/crafting_tests.sql` (23 checks, CR1–CR19). It covers the governance off-switch (the DM still
+- `supabase/tests/classes/crafting_tests.sql` (29 checks, CR1–CR25). It covers the governance off-switch (the DM still
   manages recipes), auto craft with its events, the DC / approval constraint, pending → approve with an edited roll, reject,
   failure rules and the junk result, critical success, `apply_failed`, idempotency, the revision guard, the knowledge rule
   (byte-identical read, one fixed refusal), the secret result label, a disguised result, discovery, refusals, hidden data
@@ -150,7 +158,19 @@ These four functions were replaced with the same signatures; the rollback restor
   - the REQUIRED leak check: the player's REST / RPC bodies, websocket frames, DOM and storage never hold the DC, the DM notes
     or the secret ingredient's true name.
 
+## Locks
+
+`_craft_produce` takes the character's rows of the result and its knowledge record `NOWAIT`. If the player is examining that item
+at that moment, the approval becomes `apply_failed` (all partial writes rolled back) and the DM tries again. It never deadlocks
+with examine (row, then character, then record, then rows). The migration sets `lock_timeout = 5s` for the CLI connection (reset at
+the end); the rollback sets it for its `psql -1` transaction.
+
 ## Known limits (v1)
+
+- Read cost: `get_character_recipes` checks every inventory row against every ingredient line through per-row functions. That is
+  about 0.4 s locally for 30 recipes × 5 tag lines × 300 rows, and the read runs again on every inventory change while the panel
+  is open. A set-based prefilter is planned before crafting is turned on for players; the knowledge rule must stay exactly the
+  same.
 
 - One stack per ingredient line in the player dialog. The server accepts several, but the dialog offers only stacks large
   enough on their own. `have` may count a stack that also fits another line.
@@ -158,6 +178,8 @@ These four functions were replaced with the same signatures; the rollback restor
 - A recipe edited after an attempt is checked against its current ingredients at approval. An attempt that no longer fits
   becomes `apply_failed`, and the DM can reject it.
 - Choosing a named preset in Campaign rules resets the Crafting override to `disabled`, like every other override.
+- An old cached `?v=27` DM page lists the Crafting rule in Campaign rules (generic renderer). A DM could turn it on there; players
+  still have no UI, and every RPC stays governed.
 - The raw `inventory_events.item_id` of a disguised result is readable by its holder. This is the documented T4 residual, and
   herbs and DM content have opaque ids.
 - Ideas not in v1 (experimenting with unknown herbs, quality tiers, journal, harvesting, downtime, shared workshop) are parked
