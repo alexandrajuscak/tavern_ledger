@@ -38,6 +38,9 @@ def run(t):
     q(f"insert into public.campaigns (id, name, created_by) values ('{camp}', 'HI Table {RUN}', '{dm.id}');"
       f"insert into public.campaign_members (campaign_id, user_id, role) values ('{camp}', '{dm.id}', 'dm'), ('{camp}', '{pl.id}', 'player'), ('{camp}', '{pl2.id}', 'player');"
       f"insert into public.campaign_governance (campaign_id, preset) values ('{camp}', 'relaxed');")
+    # this test covers the PER-CHARACTER model ("second player still disguised"): party sharing (20261114000100, on by default)
+    # is switched off for its campaign; party sharing itself: ra_release_ui_test.py
+    q(f"insert into public.campaign_item_rules (campaign_id, share_identification) values ('{camp}', false);")
     ch = pl.character(f"HI Herbalist {RUN}", [("fighter-phb", 1)])
     ch2 = pl2.character(f"HI Other {RUN}", [("fighter-phb", 1)])
     q(f"update public.characters set campaign_id = '{camp}' where id in ('{ch}', '{ch2}');"
