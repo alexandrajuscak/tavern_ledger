@@ -26,7 +26,8 @@
 begin read only;
 with hold_pt as (
   -- the hold rule (v31), the same CTE as public._ik_derived_holds() in the migration: a hold point is a DM audit line with mode
-  -- 'set' or ANY event that took knowledge away; a lift is a later DM 'release' line or a later event that reached 'identified'
+  -- 'set' or ANY event that took knowledge away; a lift is a later DM 'release' line or a later event that moved the record INTO
+  -- 'identified' (old state not identified)
   select e.character_id, e.after ->> 'item_id' as item_id, e.created_at
   from public.campaign_audit_events e
   where e.event_type = 'item_revealed' and e.visibility = 'dm' and e.character_id is not null and e.after ->> 'mode' = 'set'
@@ -45,7 +46,7 @@ held as (
                       and e.after ->> 'item_id' = l.item_id and e.after ->> 'mode' = 'release' and e.created_at > l.at)
     and not exists (select 1 from public.item_knowledge_events ev
                     where ev.character_id = l.character_id and ev.item_id = l.item_id and ev.new_state = 'identified'
-                      and ev.created_at > l.at)),
+                      and ev.old_state is distinct from 'identified' and ev.created_at > l.at)),
 rec as (
   select ck.*, c.campaign_id, exists (select 1 from held h where h.character_id = ck.character_id and h.item_id = ck.item_id) as is_held,
          coalesce((select bool_or(e.new_state = 'identified' and e.old_state is distinct from 'identified') from public.item_knowledge_events e

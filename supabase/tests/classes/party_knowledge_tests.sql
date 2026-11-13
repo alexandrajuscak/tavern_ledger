@@ -729,6 +729,113 @@ select tl_test.rec('PK29 held B sorts first: dm_reveal_item {magic} to B and C -
   and (:'p29_set'::jsonb ->> 'shared_with')::int >= 1,
   concat_ws(' | ', tl_test.pk_ck(:'pa', :'x11'), tl_test.pk_ck(:'pb', :'x11'), tl_test.pk_ck(:'pa', :'x12'), tl_test.pk_ck(:'pb', :'x12'), :'p29_set'));
 
+
+-- ---- v31 review round 2: the hold is lifted only on a TRANSITION into identified (B1: a "Set to Everything" record is identified
+-- already, so a later partial reveal must not lift its hold); m1: a DM raise of a non-held character pulls the party level.
+-- PK32-PK36 are the reviewer's V1-V5 (rv_v31.sql), PK37 is m3. PK31 below replays these too.
+-- V1: Set B -> Everything (held, B is no source by design); then a PARTIAL dm_reveal_item {magic} to B alone
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Mire Lotus', 'Dark lotus', array[:'pa', :'pb', :'pc']::uuid[]) as v1 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'v1', array[:'pb']::uuid[], '{all}', 'set');
+select tl_test.pk_tick();
+select tl_test.as_root();
+select concat_ws(' | ', tl_test.pk_ck(:'pa', :'v1'), tl_test.pk_ck(:'pb', :'v1'), tl_test.pk_ck(:'pc', :'v1')) as v1_s0 \gset
+select tl_test.as_user(:'dm');
+select public.dm_reveal_item(:'v1', array[:'pb']::uuid[], '{magic}', :'camp')::text as v1_r \gset
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('PK32 V1 Set B Everything (held) -> partial reveal {magic} to B only: hold kept, A and C learn nothing',
+  tl_test.pk_ck(:'pb', :'v1') in ('identified::held', 'identified:magic:held') and tl_test.pk_ck(:'pa', :'v1') = 'unidentified:' and tl_test.pk_ck(:'pc', :'v1') = 'unidentified:',
+  concat_ws(' || ', :'v1_s0', tl_test.pk_ck(:'pa', :'v1'), tl_test.pk_ck(:'pb', :'v1'), tl_test.pk_ck(:'pc', :'v1'), tl_test.pk_rowk(:'pa', :'v1')));
+select tl_test.rec('PK32b V1d derivation == live for V1',
+  (exists (select 1 from public._ik_derived_holds() h where h.character_id = :'pb' and h.item_id = :'v1'))
+   = coalesce((select held_by_dm from public.character_item_knowledge where character_id = :'pb' and item_id = :'v1'), false),
+  'derived=' || (exists (select 1 from public._ik_derived_holds() h where h.character_id = :'pb' and h.item_id = :'v1'))::text);
+
+-- V2: Set B Everything -> reveal {magic} to the whole party (p_characters null) -> DM sync
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Fen Bell', 'Pale bell', array[:'pa', :'pb', :'pc']::uuid[]) as v2 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'v2', array[:'pb']::uuid[], '{all}', 'set');
+select tl_test.pk_tick();
+select public.dm_reveal_item(:'v2', null, '{magic}', :'camp');
+select tl_test.pk_tick();
+select tl_test.as_root();
+select concat_ws(' | ', tl_test.pk_ck(:'pa', :'v2'), tl_test.pk_ck(:'pb', :'v2'), tl_test.pk_ck(:'pc', :'v2')) as v2_s1 \gset
+select tl_test.as_user(:'dm');
+select public.dm_sync_party_knowledge(:'camp');
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('PK33 V2 Set B Everything -> reveal {magic} to all -> DM sync: A and C stay at {magic}',
+  tl_test.pk_ck(:'pa', :'v2') = 'partially_identified:magic' and tl_test.pk_ck(:'pc', :'v2') = 'partially_identified:magic',
+  concat_ws(' || ', :'v2_s1', tl_test.pk_ck(:'pa', :'v2'), tl_test.pk_ck(:'pb', :'v2'), tl_test.pk_ck(:'pc', :'v2')));
+
+-- V3 (control): dm_set raise {magic} on a Set-Everything B
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Salt Reed', 'Grey reed', array[:'pa', :'pb', :'pc']::uuid[]) as v3 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'v3', array[:'pb']::uuid[], '{all}', 'set');
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'v3', array[:'pb']::uuid[], '{magic}', 'raise');
+select tl_test.pk_tick();
+select public.dm_sync_party_knowledge(:'camp');
+select tl_test.as_root();
+select tl_test.rec('PK34 V3 (control) Set B Everything -> dm_set raise {magic} to B -> sync: B held, A nothing',
+  tl_test.pk_ck(:'pb', :'v3') = 'identified::held' and tl_test.pk_ck(:'pa', :'v3') = 'unidentified:',
+  concat_ws(' || ', tl_test.pk_ck(:'pa', :'v3'), tl_test.pk_ck(:'pb', :'v3'), tl_test.pk_ck(:'pc', :'v3')));
+
+-- V4: Set B {name} -> per-copy editor {magic,name} on B -> C identified -> sync
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Moon Sedge', 'Silver sedge', array[:'pa', :'pb', :'pc']::uuid[]) as v4 \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'v4', array[:'pb']::uuid[], '{name}', 'set');
+select tl_test.pk_tick();
+select public.set_item_knowledge(tl_test.pk_row(:'pb', :'v4'), 'partially_identified', '{magic,name}');
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'v4', array[:'pc']::uuid[], '{all}', 'raise');
+select tl_test.pk_tick();
+select public.dm_sync_party_knowledge(:'camp');
+select tl_test.as_root();
+select tl_test.rec('PK35 V4 Set B {name} -> per-copy {magic,name} on B -> C identified -> sync: B stays {magic,name} held; A identified',
+  tl_test.pk_ck(:'pb', :'v4') = 'partially_identified:magic,name:held' and tl_test.pk_ck(:'pa', :'v4') = 'identified:',
+  concat_ws(' || ', tl_test.pk_ck(:'pa', :'v4'), tl_test.pk_ck(:'pb', :'v4'), tl_test.pk_ck(:'pc', :'v4')));
+
+-- V5 (liveness, info): a queued identified share for B is dropped by a later partial DM raise of B (B not held)
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Ember Moss', 'Red moss', array[:'pa', :'pb']::uuid[]) as v5 \gset
+select tl_test.pk_tick();
+select public.set_campaign_identification_sharing(:'camp', false);
+select public.dm_set_item_knowledge(:'v5', array[:'pa']::uuid[], '{all}', 'raise');
+select tl_test.as_root();
+update public.campaign_item_rules set share_identification = true where campaign_id = :'camp';
+insert into public.party_share_pending (campaign_id, target_character_id, item_id, state, revealed, source_character_id)
+values (:'camp', :'pb', :'v5', 'identified', '{}', :'pa');
+select tl_test.pk_tick();
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge(:'v5', array[:'pb']::uuid[], '{magic}', 'raise');
+select tl_test.as_user(:'bob');
+select public.sync_party_knowledge(:'pb');
+select tl_test.as_root();
+select tl_test.rec('PK36 V5 m1 a queued identified share for B + the DM''s partial raise {magic} of non-held B: B gets the party level without a DM sync',
+  tl_test.pk_ck(:'pb', :'v5') in ('identified:', 'identified:magic'),
+  concat_ws(' || ', tl_test.pk_ck(:'pa', :'v5'), tl_test.pk_ck(:'pb', :'v5')));
+
+-- PK37 m3: Set B -> Everything (held) -> "Reveal all" (dm_reveal_item, no parts): B stays held (no transition into identified),
+-- A and C learn it only through the reveal itself, and the live hold equals the derived one
+select tl_test.as_user(:'dm');
+select tl_test.pk_new(:'camp', 'Bog Myrtle', 'Brown sprig', array[:'pa', :'pb']::uuid[]) as m3i \gset
+select tl_test.pk_tick();
+select public.dm_set_item_knowledge(:'m3i', array[:'pb']::uuid[], '{all}', 'set');
+select tl_test.pk_tick();
+select public.dm_reveal_item(:'m3i', array[:'pb']::uuid[], null, :'camp');
+select tl_test.pk_tick();
+select tl_test.as_root();
+select tl_test.rec('PK37 m3 Set B Everything -> Reveal all to B: B identified and still held, A learns nothing; derived hold == live hold',
+  tl_test.pk_ck(:'pb', :'m3i') = 'identified::held' and tl_test.pk_ck(:'pa', :'m3i') = 'unidentified:'
+  and exists (select 1 from public._ik_derived_holds() h where h.character_id = :'pb' and h.item_id = :'m3i'),
+  concat_ws(' || ', tl_test.pk_ck(:'pa', :'m3i'), tl_test.pk_ck(:'pb', :'m3i')));
+
 -- PK30 (m4): the hold follows the character: Q is held for an official item in camp2, then joins camp, where A identified it.
 -- The joiner pull and a sync skip the held item (Q keeps what it knew); the hold is not campaign-scoped (HIDDEN_DM_DATA.md).
 -- Fixture: the camp2 hold is written as root (an official item cannot be hidden with mode set).
@@ -756,7 +863,7 @@ select tl_test.rec('PK30 m4 a hold made in camp2 follows the character into camp
 -- PK31: the deploy-time derivation (_ik_derived_holds, the same CTE as scripts/fluent/party_share_preview.sql) replays the history
 -- of this section and finds exactly the live holds: the catch-up at deploy would raise no held character. (PK30's root fixture
 -- has no history and is not in the list.)
-select tl_test.rec('PK31 deploy-time hold derivation == live holds for every record of the v31 section (RV1-RV3, PK25-PK29)',
+select tl_test.rec('PK31 deploy-time hold derivation == live holds for every record of the v31 section (RV1-RV3, PK25-PK29, PK32-PK37)',
   not exists (
     (select ck.character_id, ck.item_id from public.character_item_knowledge ck join tl_test.pk_v31 v on v.item_id = ck.item_id where ck.held_by_dm
      except select h.character_id, h.item_id from public._ik_derived_holds() h join tl_test.pk_v31 v on v.item_id = h.item_id)

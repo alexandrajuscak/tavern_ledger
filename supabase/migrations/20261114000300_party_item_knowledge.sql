@@ -25,8 +25,9 @@
 --   when such an event reached it.
 -- * Explicit DM choices win: mode 'set' and a lowering through the old per-copy editor hold the character back (held_by_dm);
 --   sharing never reaches it and it is never a source. THE HOLD RULE (v31, owner): a hold is lifted ONLY by
---   dm_release_item_knowledge_hold or when the character's record ends up fully 'identified' (its own success, the DM's reveal of
---   everything). A partial raise of any kind (examine, the DM's answer, dm_set_item_knowledge 'raise', dm_reveal_item, the
+--   dm_release_item_knowledge_hold or when a raise moves the character's record INTO 'identified' from a lower state (its own
+--   full success, the DM's reveal of everything); "Set" at any level, also Everything, holds, and a later raise of a record that
+--   is identified already keeps the hold. A non-held character raised by the DM also gets the party level of the item (m1). A partial raise of any kind (examine, the DM's answer, dm_set_item_knowledge 'raise', dm_reveal_item, the
 --   per-copy editor), a rule switch, a sync or another character's reveal never lifts it. The hold follows the character and the
 --   item, also into another campaign (m4).
 -- * A failed or pending examine writes nothing for anyone else. A share never lowers a copy and closes the target's pending
@@ -506,14 +507,16 @@ CREATE OR REPLACE FUNCTION public._identify_apply(p_character uuid, p_item text,
  SECURITY DEFINER
  SET search_path TO 'public', 'pg_temp'
 AS $function$
-declare st text;
+declare st text; old_st text;
 begin
   -- this transaction's own target: the canonical order of the existing RPCs (the character row before its counter row)
   perform 1 from public.characters where id = p_character for key share;
+  select state into old_st from public.character_item_knowledge where character_id = p_character and item_id = p_item for update;
   st := public._identify_apply_one(p_character, p_item, p_reveal);
-  -- the hold rule: a raise of this character (its own success, the DM's answer, crafting) lifts a DM hold on the item only when the
-  -- character now knows everything; a partial result keeps the hold (and a held character is never a source below)
-  if st = 'identified' then
+  -- the hold rule: a raise of this character (its own success, the DM's answer, crafting) lifts a DM hold on the item only on the
+  -- TRANSITION into 'identified' (v31 r2: a record the DM "Set to Everything" is identified already; a later partial raise of it
+  -- must not lift its hold); a partial result keeps the hold (and a held character is never a source below)
+  if st = 'identified' and old_st is distinct from 'identified' then
     update public.character_item_knowledge set held_by_dm = false where character_id = p_character and item_id = p_item and held_by_dm;
   end if;
   perform public._party_pending_apply(p_character);
@@ -607,9 +610,13 @@ begin
     select * into ck1 from public.character_item_knowledge where character_id = inv.character_id and item_id = r.item_id;
     if public._ik_contains(ck1.state, ck1.revealed, ck0.state, ck0.revealed) then
       if (ck0.state, ck0.revealed) is distinct from (ck1.state, ck1.revealed) then
-        -- the hold rule: only a fully identified result lifts a hold; a held character is no source (_party_share_from returns 0)
-        if ck1.state = 'identified' then
+        -- the hold rule: only the transition into 'identified' lifts a hold; a held character is no source (_party_share_from
+        -- returns 0). A non-held character also gets the party level of the item (its queued shares were dropped above: m1)
+        if ck1.state = 'identified' and ck0.state is distinct from 'identified' then
           update public.character_item_knowledge set held_by_dm = false where character_id = inv.character_id and item_id = r.item_id and held_by_dm;
+        end if;
+        if not exists (select 1 from public.character_item_knowledge where character_id = inv.character_id and item_id = r.item_id and held_by_dm) then
+          perform public._party_share_pull(inv.character_id, true, r.item_id);
         end if;
         perform public._party_share_from(inv.character_id, r.item_id);
       end if;
@@ -642,7 +649,7 @@ CREATE OR REPLACE FUNCTION public.dm_set_item_knowledge(p_item text, p_character
 AS $function$
 declare it public.items; camp uuid; is_full boolean; rev text[]; st text; cid uuid; ck public.character_item_knowledge;
   fp0 text; fp1 text; changed boolean; skip_plain boolean; d record; shown text; owner_uid uuid; out jsonb := '[]'; n int := 0;
-  lt text := current_setting('lock_timeout'); busy text[] := '{}'; first_raised uuid; held0 boolean := true;
+  lt text := current_setting('lock_timeout'); busy text[] := '{}'; first_raised uuid; held0 boolean := true; sw text;
 begin
   if auth.uid() is null then raise exception 'Not authenticated' using errcode = '42501'; end if;
   select * into it from public.items where id = p_item;
@@ -698,13 +705,19 @@ begin
         -- never lowers: skipped when the character already knows at least this much
         if not (coalesce(ck.state = 'identified', false)
                 or (not is_full and (cardinality(rev) = 0 or coalesce(ck.character_id is not null and rev <@ ck.revealed, false)))) then
-          -- the hold rule: only a raise that ends at 'identified' lifts a hold; a held character is no source, so the one share at
-          -- the end comes from the first raised character that is not held
-          if public._identify_apply_one(cid, p_item, case when is_full then '{all}'::text[] else rev end) = 'identified' then
+          -- the hold rule: only a raise INTO 'identified' (from a lower state) lifts a hold; a held character is no source, so the
+          -- one share at the end comes from the first raised character that is not held
+          if public._identify_apply_one(cid, p_item, case when is_full then '{all}'::text[] else rev end) = 'identified'
+             and ck.state is distinct from 'identified' then
             update public.character_item_knowledge set held_by_dm = false where character_id = cid and item_id = p_item and held_by_dm;
           end if;
           if not exists (select 1 from public.character_item_knowledge where character_id = cid and item_id = p_item and held_by_dm) then
             first_raised := coalesce(first_raised, cid);
+            -- m1: the queued party shares of this pair were dropped above; a non-held character gets the party level instead
+            -- (not counted in shared_with: that counts the others)
+            sw := current_setting('tl.ik_shared', true);
+            perform public._party_share_pull(cid, true, p_item);
+            perform set_config('tl.ik_shared', coalesce(sw, '0'), true);
           end if;
         end if;
       else
@@ -763,7 +776,7 @@ CREATE OR REPLACE FUNCTION public.dm_reveal_item(p_item text, p_characters uuid[
  SET search_path TO 'public', 'pg_temp'
 AS $function$
 declare it public.items; camp uuid; targets uuid[]; cid uuid; st text; n int := 0; busy text[] := '{}'; lt text := current_setting('lock_timeout');
-  first_raised uuid;
+  first_raised uuid; old_st text;
 begin
   select * into it from public.items where id = p_item;
   if it.id is null then raise exception 'Item not found' using errcode = 'P0002'; end if;
@@ -783,13 +796,16 @@ begin
     begin
       perform set_config('lock_timeout', '200ms', true);
       perform public._ik_lock_target(cid, p_item);
+      select state into old_st from public.character_item_knowledge where character_id = cid and item_id = p_item;
       st := public._identify_apply_one(cid, p_item, coalesce(p_reveal, '{all}'));
-      -- the hold rule: only a fully identified result lifts a hold; the share at the end comes from a character that is not held
-      if st = 'identified' then
+      -- the hold rule: only the transition into 'identified' lifts a hold (v31 r2: a "Set to Everything" record is identified
+      -- already; a later partial or full reveal of it keeps the hold); the share at the end comes from a character that is not held
+      if st = 'identified' and old_st is distinct from 'identified' then
         update public.character_item_knowledge set held_by_dm = false where character_id = cid and item_id = p_item and held_by_dm;
       end if;
       if not exists (select 1 from public.character_item_knowledge where character_id = cid and item_id = p_item and held_by_dm) then
         first_raised := coalesce(first_raised, cid);
+        perform public._party_share_pull(cid, true, p_item);   -- m1: its queued shares were dropped above; the party level instead
       end if;
       perform set_config('lock_timeout', lt, true);
     exception when lock_not_available or deadlock_detected then
@@ -1021,7 +1037,7 @@ end $$;
 -- ---- 7. data: holds from the DM's past choices (the hold rule), then every campaign catches up (guarded, raise only) -----------
 -- The hold rule replayed over the history: a HOLD POINT is a DM audit line with mode 'set' (dm_set_item_knowledge 'set', the
 -- per-copy editor's hold line) or ANY knowledge event that took knowledge away; a LIFT is a DM audit line with mode 'release' or
--- a knowledge event that reached 'identified', strictly AFTER the hold point (a "Set Everything" writes its line and its event in
+-- a knowledge event that moved the record INTO 'identified' (old state not identified), strictly AFTER the hold point (a "Set Everything" writes its line and its event in
 -- one transaction, same now(): it stays held, as _ik_apply_set does). Held = the latest hold point has no lift after it. Not
 -- campaign-scoped: the hold follows the character and the item (m4). scripts/fluent/party_share_preview.sql has the same CTE.
 create function public._ik_derived_holds()
@@ -1045,7 +1061,7 @@ as $$
                       and e.after ->> 'item_id' = l.item_id and e.after ->> 'mode' = 'release' and e.created_at > l.at)
     and not exists (select 1 from public.item_knowledge_events ev
                     where ev.character_id = l.character_id and ev.item_id = l.item_id and ev.new_state = 'identified'
-                      and ev.created_at > l.at);
+                      and ev.old_state is distinct from 'identified' and ev.created_at > l.at);
 $$;
 
 update public.character_item_knowledge ck set held_by_dm = true
