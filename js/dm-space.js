@@ -2,21 +2,21 @@
 // Approvals, Party, Content (custom content library + editors), Assign, Hidden, Rules (governance and content policy), Audit.
 // Visible only to campaign DMs and admins; every read and write is checked again by the database.
 
-import { supabase } from './supabase.js?v=31';
-import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=31';
-import * as dm from './dm-api.js?v=31';
-import * as gov from './governance-api.js?v=31';
-import { icon } from './icons.js?v=31';
-import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=31';
-import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=31';
-import { CRAFTING } from './config.js?v=31';
-import { openItemIconsDialog } from './custom-icons.js?v=31';
+import { supabase } from './supabase.js?v=32';
+import { $, $$, esc, toast, openModal, confirmDialog, debounce, focusByKey } from './utils.js?v=32';
+import * as dm from './dm-api.js?v=32';
+import * as gov from './governance-api.js?v=32';
+import { icon } from './icons.js?v=32';
+import { diffHTML, stepHTML, statusChip, fieldLabel } from './request-ui.js?v=32';
+import { openContentEditor, openDuplicateOfficial, openUsage, contentManagementEnabled, TYPE, STATUS as CSTATUS } from './content-editors.js?v=32';
+import { CRAFTING } from './config.js?v=32';
+import { openItemIconsDialog } from './custom-icons.js?v=32';
 
 // Crafting (docs/CRAFTING_V1.md) only when js/config.js CRAFTING is not 'off'; its module is loaded on demand (never with 'off')
 const craftingOn = () => (CRAFTING || 'off') !== 'off';
 const SECTIONS = [['overview', 'Overview'], ['approvals', 'Approvals'], ['party', 'Party'], ['content', 'Content'], ['assign', 'Assign'],
   ['hidden', 'Hidden'], ['quests', 'Quests'], ...(craftingOn() ? [['crafting', 'Crafting']] : []), ['rules', 'Campaign rules'], ['audit', 'Audit log']];
-const craftingModule = () => import('./crafting.js?v=31');
+const craftingModule = () => import('./crafting.js?v=32');
 const CAT_LABEL = { identity: 'Character identity', core_build: 'Core build', feats_choices: 'Feats and choices', spells: 'Spells', inventory: 'Inventory',
   runtime: 'Gameplay', content: 'Content', dm_control: 'DM control' };
 const MODES = {
@@ -107,7 +107,7 @@ async function crafting(panel, alive) {
 
 // ---- quest log (docs/QUEST_LOG.md): its module is loaded only when this section opens ---------------------------------------
 async function quests(panel, alive) {
-  const m = await import('./quests.js?v=31');
+  const m = await import('./quests.js?v=32');
   if (!alive()) return;
   await m.dmQuestPanel(panel, alive, { campaignId, reload: () => { if (alive()) show('quests'); } });
 }

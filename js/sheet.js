@@ -4,59 +4,59 @@ import {
   DAMAGE_TYPES, SPELL_EFFECT_TYPES, SPELL_SCHOOLS, ATTACK_ABILITIES, EQUIPMENT_PROFICIENCIES, WEAPONS,
   ACTIVATIONS, ACTIVATION_BY_KEY, CASTING_TIMES, CONDITIONS, CONDITION_BY_NAME,
   weaponToAttack, ordinal, castingGroup, skillLevel, skillValue, mod, profBonus, xpForNextLevel, levelForXp,
-} from './dnd.js?v=31';
+} from './dnd.js?v=32';
 import {
   saver, insertRow, deleteRow, deleteCharacter, applyCharacterHp, subscribeCharacter, subscribeCharacterFluent, state, isAdmin, canManageCharacter, myCampaigns, campaignMembers, uploadPortrait, removePortraitFile,
   isCampaignDM, getCharacterConditions, applyCharacterEffect, updateCharacterEffect, removeCharacterCondition,
-} from './store.js?v=31';
-import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=31';
-import { openCoinCalculator, wallet as coinWallet } from './coins.js?v=31';
-import { mountInventory } from './inventory-ui.js?v=31';
-import { exportCharacter, downloadJson } from './transfer.js?v=31';
-import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups, syncPartyKnowledge } from './inventory-api.js?v=31';
+} from './store.js?v=32';
+import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce, autoResize } from './utils.js?v=32';
+import { openCoinCalculator, wallet as coinWallet } from './coins.js?v=32';
+import { mountInventory } from './inventory-ui.js?v=32';
+import { exportCharacter, downloadJson } from './transfer.js?v=32';
+import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups, syncPartyKnowledge } from './inventory-api.js?v=32';
 import { backgroundCardHTML, openBackgroundPicker, openBackgroundEquipment, openReplaceDuplicate, saveCharacteristics, rollCharacteristic,
-  removeBackground } from './background-ui.js?v=31';
-import { getCharacterBackground } from './background-api.js?v=31';
-import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=31';
-import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=31';
+  removeBackground } from './background-ui.js?v=32';
+import { getCharacterBackground } from './background-api.js?v=32';
+import { wildShapePanelHTML, openFormPicker, openTransformReview, openAdjust, openCombatHeal, confirmRevert, confirmLethal } from './wild-shape-ui.js?v=32';
+import { proficiencyChipsHTML, proficiencyDetailsHTML, openProficiencySource, sourceText, derivedSources } from './proficiency-ui.js?v=32';
 import {
   acNote, openAcBreakdown, equippedWeaponsHTML, trackWeaponDetails, toolsHTML, specificProficienciesHTML,
   openProficiencyManager, equipmentNotes,
-} from './derived-ui.js?v=31';
-import { openLevelUp } from './levelup.js?v=31';
-import { mountGovernance } from './request-ui.js?v=31';
-import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=31';
-import { fluentEnabled, beginReadScope, endReadScope, seedReads, prefetchDomain, readNow, knownRevision, noteRevisions, awaitSeed } from './read-layer.js?v=31';
-import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=31';
-import { exportFeats } from './feat-api.js?v=31';
-import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=31';
-import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=31';
-import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=31';
+} from './derived-ui.js?v=32';
+import { openLevelUp } from './levelup.js?v=32';
+import { mountGovernance } from './request-ui.js?v=32';
+import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=32';
+import { fluentEnabled, beginReadScope, endReadScope, seedReads, prefetchDomain, readNow, knownRevision, noteRevisions, awaitSeed } from './read-layer.js?v=32';
+import { featsCardHTML, attachFeatHandlers, loadCharacterFeats } from './feat-ui.js?v=32';
+import { exportFeats } from './feat-api.js?v=32';
+import { getCharacterLineage, getLineageReference, getLineageCatalog } from './lineage-api.js?v=32';
+import { lineageCardHTML, lineageStatsHTML, lineageSpellsHTML, openLineagePicker, removeLineage, suggestLineage } from './lineage-ui.js?v=32';
+import { getSpellbook, getSpellReference, setSpellPrepared } from './spell-api.js?v=32';
 import {
   emptyFilters, filtersHTML, readFilter, sourcesHTML, spellbookListHTML, openSpellDetail, openAddSpell, openSourceEditor, rememberSpellSections,
-} from './spell-ui.js?v=31';
+} from './spell-ui.js?v=32';
 import {
   getClassSummary, getSpellSlots, getClassCatalog, expendStandardSlot, restoreStandardSlot, expendPactSlot, restorePactSlot,
   setSlotState, setCharacterClass, shortRest, longRest, getClassFeatures, getResources, exportClassFeatures, useTemporarySlot,
   restoreTemporarySlot, getStartingEquipmentState, getStartingEquipment, getStates,
-} from './class-api.js?v=31';
-import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=31';
-import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=31';
-import { openStartingEquipment } from './class-setup.js?v=31';
+} from './class-api.js?v=32';
+import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=32';
+import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=32';
+import { openStartingEquipment } from './class-setup.js?v=32';
 import {
   companionsHTML, openAddCompanion, changeCompanionHp, removeCompanionConfirm,
-} from './creature-ui.js?v=31';
-import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=31';
-import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=31';
+} from './creature-ui.js?v=32';
+import { getTransformation, getCompanions, endTransformation, damageForm, healForm, useFormAbility, setFormEquipment } from './creature-api.js?v=32';
+import { infusionsHTML, getInfusions, openInfuse, endInfusion, refreshInfusions } from './infusion-ui.js?v=32';
 import { selectedOptions, optionCardHTML, reminderListHTML, infusionsPlayHTML, optionSpellsHTML, infusedItemMap, loadPlayTiming, sourceFeatures,
-  sourceCardHTML, sourceReminderListHTML } from './active-features.js?v=31';
+  sourceCardHTML, sourceReminderListHTML } from './active-features.js?v=32';
 import {
   featuresPanelHTML, featureSummaryHTML, restoreDrafts, resourceListHTML, attachFeatureHandlers, hydrateSpellChoices, restResourceLines, restResultText, restSummaryHTML,
   riderDiceRange, statesHTML, glanceHTML,
-} from './feature-ui.js?v=31';
-import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=31';
-import { sectionHTML, sectionHead } from './section.js?v=31';
-import { distanceNumber, distanceUnit, onUnitsChange, unitsSwitchHTML, bindUnitsSwitch } from './units.js?v=31';
+} from './feature-ui.js?v=32';
+import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=32';
+import { sectionHTML, sectionHead } from './section.js?v=32';
+import { distanceNumber, distanceUnit, onUnitsChange, unitsSwitchHTML, bindUnitsSwitch } from './units.js?v=32';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -3581,7 +3581,7 @@ function openQuests() {
   if (!el) return;
   if (quests && quests.characterId === id && quests.el === el) { quests.refresh(); return; }
   const my = ++questsSeq;
-  import('./quests.js?v=31').then((m) => {
+  import('./quests.js?v=32').then((m) => {
     if (my !== questsSeq || !B || C().id !== id || !el.isConnected) return;
     quests?.destroy();
     quests = m.mountQuestTab(el, { characterId: id });

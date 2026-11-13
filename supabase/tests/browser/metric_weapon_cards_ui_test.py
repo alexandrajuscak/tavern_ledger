@@ -1,4 +1,4 @@
-"""Metric display and weapon cards (phase 2, frontend-only release ?v=31; Part 1 party identification is NOT in this build).
+"""Metric display and weapon cards (phase 2, frontend-only release ?v=32; Part 1 party identification is NOT in this build).
 LOCAL ONLY, synthetic users. Adapted from ra_release_ui_test.py (checks RA4-RA14 + the converter unit tests).
 
 1. Weapon cards (Play): an unidentified weapon in B's hand shows only its decoy; an ordinary weapon (dagger: properties, thrown
