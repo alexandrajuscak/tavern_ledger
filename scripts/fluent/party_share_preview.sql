@@ -11,9 +11,11 @@
 --   * the party level = union of those levels; the target's own row knowledge is part of its new level (a share never lowers);
 --   * a character that holds only undisguised copies of the item is skipped;
 --   * every other character of the campaign (with or without a copy) is raised when it knows less.
+--   * M1c: a source's level is capped by its CURRENT record (what the DM took back is never shared);
 -- "row" lines: campaign, character, item, current -> new level, copies renamed, pending examine attempts that would close as
 -- "Learned from the party" (m3), and "ROW-ABOVE" when a copy already knows more than the character's record (m4: the record is
--- raised to it; nothing is lowered). Totals at the end. With no knowledge data: only the totals (0).
+-- raised to it; nothing is lowered). Totals at the end, with two sizing counts (M1c exposure; characters without a
+-- cache counter row). With no knowledge data: only the totals (0).
 begin read only;
 with hold_dm as (
   select distinct on (e.character_id, e.after ->> 'item_id') e.character_id, e.after ->> 'item_id' as item_id, e.after ->> 'mode' as mode, e.created_at
@@ -42,11 +44,17 @@ rec as (
   from public.character_item_knowledge ck join public.characters c on c.id = ck.character_id
   join public.items it on it.id = ck.item_id
   where c.campaign_id is not null and (it.campaign_id is null or it.campaign_id = c.campaign_id)),
+-- M1c: the shareable level is capped by the source's CURRENT record (identified only while identified; otherwise only facts the
+-- record still reveals)
+capped as (
+  select r.*, (r.l_ident and r.state = 'identified') as c_ident,
+         case when r.state = 'identified' then r.l_rev else coalesce(array(select x from unnest(r.l_rev) x where x = any (r.revealed) order by x), '{}') end as c_rev
+  from rec r),
 party as (
-  select r.campaign_id, r.item_id, bool_or(r.l_ident) as ident,
-         coalesce((select array_agg(distinct x order by x) from rec r2 cross join unnest(r2.l_rev) x
+  select r.campaign_id, r.item_id, bool_or(r.c_ident) as ident,
+         coalesce((select array_agg(distinct x order by x) from capped r2 cross join unnest(r2.c_rev) x
                    where r2.campaign_id = r.campaign_id and r2.item_id = r.item_id and not r2.is_held), '{}') as rev
-  from rec r where not r.is_held and (r.l_ident or cardinality(r.l_rev) > 0)
+  from capped r where not r.is_held and (r.c_ident or cardinality(r.c_rev) > 0)
   group by 1, 2),
 target as (
   select p.campaign_id, c.id as character_id, p.item_id, ck.state as cur_state, ck.revealed as cur_rev, p.ident, p.rev,
@@ -90,5 +98,15 @@ select 'totals: records ' || (select count(*) from public.character_item_knowled
                           and e.campaign_id = c.campaign_id and (e.new_state <> 'unidentified' or cardinality(e.new_revealed) > 0)))
     || ', history events ' || (select count(*) from public.item_knowledge_events)
     || ', DM set audits ' || (select count(*) from public.campaign_audit_events where event_type = 'item_revealed' and visibility = 'dm' and after ->> 'mode' = 'set')
-    || ', pending examine attempts ' || (select count(*) from public.item_identify_attempts where status = 'pending');
+    || ', pending examine attempts ' || (select count(*) from public.item_identify_attempts where status = 'pending')
+    -- M1c exposure: records whose current-campaign events once reached more than the record knows now (capped by the fix)
+    || ', M1c exposure (records knowing less now than their campaign events once reached) '
+    || (select count(*) from public.character_item_knowledge ck join public.characters c on c.id = ck.character_id
+        where c.campaign_id is not null and exists (
+          select 1 from public.item_knowledge_events e where e.character_id = ck.character_id and e.item_id = ck.item_id
+            and e.campaign_id = c.campaign_id
+            and ((e.new_state = 'identified' and ck.state <> 'identified')
+                 or (ck.state <> 'identified' and not (coalesce(e.new_revealed, '{}') <@ ck.revealed)))))
+    || ', characters without a tl_cache.character_rev row '
+    || (select count(*) from public.characters c where not exists (select 1 from tl_cache.character_rev r where r.character_id = c.id));
 rollback;

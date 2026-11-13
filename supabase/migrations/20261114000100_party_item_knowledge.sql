@@ -82,27 +82,40 @@ as $$
      and coalesce((select r.share_identification from public.campaign_item_rules r where r.campaign_id = p_campaign), true);
 $$;
 
--- what a character learned about an item while in THIS campaign (M1b): the facts its events of this campaign added, and
--- "identified" only when such an event reached it. Knowledge from another campaign (or with no event) is never shared here.
+-- what a character can share about an item in THIS campaign (M1b + M1c): the facts its events of this campaign added, and
+-- "identified" only when such an event reached it -- CAPPED by what its record knows NOW (knowledge the DM took back is never
+-- shared: "identified" only while the record is identified; otherwise only the facts still in the record's revealed[]).
+-- Knowledge from another campaign (or with no event) is never shared here.
 create function public._ik_campaign_level(p_character uuid, p_item text, p_campaign uuid, out ident boolean, out rev text[])
 language sql stable security definer
 set search_path = public, pg_temp
 as $$
-  select coalesce(bool_or(e.new_state = 'identified' and e.old_state is distinct from 'identified'), false),
-         coalesce((select array_agg(distinct x order by x) from public.item_knowledge_events e2 cross join unnest(e2.new_revealed) x
-                   where e2.character_id = p_character and e2.item_id = p_item and e2.campaign_id = p_campaign
-                     and x <> 'all' and not (x = any (coalesce(e2.old_revealed, '{}')))), '{}')
-  from public.item_knowledge_events e
-  where e.character_id = p_character and e.item_id = p_item and e.campaign_id = p_campaign;
+  with ev as (
+    select coalesce(bool_or(e.new_state = 'identified' and e.old_state is distinct from 'identified'), false) as ident,
+           coalesce((select array_agg(distinct x order by x) from public.item_knowledge_events e2 cross join unnest(e2.new_revealed) x
+                     where e2.character_id = p_character and e2.item_id = p_item and e2.campaign_id = p_campaign
+                       and x <> 'all' and not (x = any (coalesce(e2.old_revealed, '{}')))), '{}') as rev
+    from public.item_knowledge_events e
+    where e.character_id = p_character and e.item_id = p_item and e.campaign_id = p_campaign),
+  ck as (select state, revealed from public.character_item_knowledge where character_id = p_character and item_id = p_item)
+  select coalesce(ev.ident and ck.state = 'identified', false),
+         case when ck.state is null then '{}'::text[]
+              when ck.state = 'identified' then ev.rev
+              else coalesce(array(select x from unnest(ev.rev) x where x = any (ck.revealed) order by x), '{}') end
+  from ev left join ck on true;
 $$;
 
--- every DM write of a character's knowledge of an item supersedes the party shares queued for that pair (no lock of the target)
+-- every DM write of a character's knowledge of an item supersedes the party shares queued for that pair. No lock of the target and
+-- no wait: a row another transaction is merging or applying at this moment is skipped (SKIP LOCKED); such a row can never undo a
+-- hide, because applying it re-checks the hold, the campaign, the rule and a newer DM write of the pair, and drops it.
 create function public._ik_drop_pending(p_character uuid, p_item text)
 returns void
 language sql security definer
 set search_path = public, pg_temp
 as $$
-  delete from public.party_share_pending where target_character_id = p_character and item_id = p_item;
+  delete from public.party_share_pending
+   where id in (select id from public.party_share_pending where target_character_id = p_character and item_id = p_item
+                for update skip locked);
 $$;
 
 -- does (state, revealed) contain at least what (old_state, old_revealed) did?
@@ -296,6 +309,10 @@ begin
   perform public._identify_apply_one(p_target, p_item, case when st = 'identified' then rev || '{all}'::text[] else rev end);
   update public.character_item_knowledge set updated_by = null where character_id = p_target and item_id = p_item and updated_by is not null;
   perform set_config('tl.ik_system', '', true);
+  -- a hold set meanwhile (cannot happen while we hold the record NOWAIT, kept as a guard): undo this share in the subtransaction
+  if exists (select 1 from public.character_item_knowledge where character_id = p_target and item_id = p_item and held_by_dm) then
+    raise exception 'held back meanwhile' using errcode = '55P03';
+  end if;
   if not p_quiet then
     -- the target player's own line (non-DM audit events reach only the character's owner): no actor, never who identified it, the
     -- true name only when the target now knows the name
@@ -586,6 +603,10 @@ begin
       end if;
     else
       update public.character_item_knowledge set held_by_dm = true where character_id = inv.character_id and item_id = r.item_id and not held_by_dm;
+      if found then   -- n8: the hold is derivable after a rollback -> reapply
+        perform public._audit(camp, inv.character_id, 'item_revealed', 'Knowledge of ' || it.name || ': held back (per-copy editor)',
+          null, jsonb_build_object('item_id', it.id, 'mode', 'set', 'state', ck1.state, 'revealed', to_jsonb(ck1.revealed)), null, null, 'dm');
+      end if;
     end if;
   end if;
   if camp is not null then
@@ -608,7 +629,7 @@ CREATE OR REPLACE FUNCTION public.dm_set_item_knowledge(p_item text, p_character
 AS $function$
 declare it public.items; camp uuid; is_full boolean; rev text[]; st text; cid uuid; ck public.character_item_knowledge;
   fp0 text; fp1 text; changed boolean; skip_plain boolean; d record; shown text; owner_uid uuid; out jsonb := '[]'; n int := 0;
-  lt text := current_setting('lock_timeout'); busy text[] := '{}'; first_raised uuid;
+  lt text := current_setting('lock_timeout'); busy text[] := '{}'; first_raised uuid; held0 boolean := true;
 begin
   if auth.uid() is null then raise exception 'Not authenticated' using errcode = '42501'; end if;
   select * into it from public.items where id = p_item;
@@ -669,6 +690,7 @@ begin
           first_raised := coalesce(first_raised, cid);
         end if;
       else
+        held0 := coalesce(ck.held_by_dm, false);
         perform public._ik_apply_set(cid, p_item, st, rev);   -- the DM's exact choice; holds the character back from sharing
       end if;
       fp1 := public._ik_fingerprint(cid, p_item);
@@ -687,6 +709,10 @@ begin
           'Knowledge of ' || it.name || ': ' || replace(ck.state, '_', ' ')
             || case when cardinality(ck.revealed) > 0 then ' (' || array_to_string(ck.revealed, ', ') || ')' else '' end,
           null, jsonb_build_object('item_id', it.id, 'mode', p_mode, 'state', ck.state, 'revealed', to_jsonb(ck.revealed)), null, null, 'dm');
+      elsif p_mode = 'set' and not held0 and coalesce(ck.held_by_dm, false) then
+        -- n8: only the hold changed; the DM line (mode set) is what makes the hold derivable again after a rollback -> reapply
+        perform public._audit(camp, cid, 'item_revealed', 'Knowledge of ' || it.name || ': held back (unchanged)',
+          null, jsonb_build_object('item_id', it.id, 'mode', 'set', 'state', ck.state, 'revealed', to_jsonb(ck.revealed)), null, null, 'dm');
       end if;
       select owner_id into owner_uid from public.characters where id = cid;
       out := out || jsonb_build_array(jsonb_build_object('character_id', cid, 'changed', changed,
@@ -734,7 +760,7 @@ begin
   if exists (select 1 from unnest(targets) t left join public.characters c on c.id = t where c.campaign_id is distinct from camp) then
     raise exception 'Every character must be in the campaign' using errcode = '22023';
   end if;
-  foreach cid in array targets loop
+  foreach cid in array array(select distinct x from unnest(targets) x order by 1) loop   -- n9: a stable lock order
     perform public._ik_drop_pending(cid, p_item);
     begin
       perform set_config('lock_timeout', '200ms', true);

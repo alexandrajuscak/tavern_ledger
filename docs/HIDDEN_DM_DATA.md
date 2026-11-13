@@ -239,20 +239,21 @@ switching it off never takes knowledge away.
   20 s; one indexed lookup when nothing waits) and **DM Space → Campaign rules → Sync party knowledge**. It is dropped, never
   applied, when the target is held back, left the campaign or was deleted (also removed by the join / leave / delete trigger),
   the rule is off, or a DM wrote that character's knowledge of the item after the row was made. Every DM write of a (character,
-  item) deletes that pair's pending shares. A pending share never lifts a hold and never lowers anything.
+  item) deletes that pair's pending shares (without waiting: a row another transaction holds is skipped and dropped at apply). A pending share never lifts a hold and never lowers anything.
 - **DM decisions are never queued.** In `dm_set_item_knowledge` (reveal, set, hide), `dm_reveal_item` and
   `dm_release_item_knowledge_hold`, a busy character is NOT changed: the call succeeds for the others and names it in
   `busy_names`; DM Space says "… were busy and were NOT changed. Try again." The DM's bulk calls share once at the end (O(N)
   guarded writes for N characters).
 - **Only what was learned in this campaign is shared.** A character's shareable level in a campaign is the union of the facts its
   `item_knowledge_events` of THIS campaign added (`new_revealed − old_revealed`), and "identified" only when such an event
-  reached it. A character moved to another campaign keeps what it knows, but only what it learns there spreads there, and
+  reached it, capped by what its record knows NOW (knowledge the DM took back is never shared: identified only while the record
+  is identified, otherwise only facts still in its revealed[]). A character moved to another campaign keeps what it knows, but only what it learns there spreads there, and
   coming back does not bring the other campaign's facts along (joiners, switch-on catch-up, sync, release, preview).
 - A share never lowers a copy (the target's row knowledge is part of the union) and closes the target's pending examine attempts
   as "Learned from the party" (no resolver). A joiner gets one summary audit line; the joiner trigger never aborts the insert or
   the join (an error is only a warning, busy items stay pending).
 - Rollback: `supabase/rollback/rollback_party_item_knowledge.sql` (keeps what characters learned; drops the rule, the holds and
-  the history source). Tests: `supabase/tests/classes/party_knowledge_tests.sql` (PK1–PK21). `herb_identification_tests` and
+  the history source). Tests: `supabase/tests/classes/party_knowledge_tests.sql` (PK1–PK24). `herb_identification_tests` and
   `item_reveal_tests` switch the rule off for their campaign: they cover the per-character model.
 
 ## Crafting (20261113000100)

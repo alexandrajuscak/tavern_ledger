@@ -414,3 +414,55 @@ select tl_test.rec('PK21 a second pending row for the same target and item is re
   :'dup' = '23505' and not exists (select 1 from public.item_knowledge_events where source = 'party_share' and actor is not null)
   and exists (select 1 from public.item_knowledge_events where source = 'party_share'),
   :'dup');
+
+-- ---- round 4 ------------------------------------------------------------------------------------------------------------------
+-- PK22 M1c: what the DM took back from a character is never shared from it (P4a release, P4b raise after a full hide, P4c partial)
+select tl_test.as_user(:'dm');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Star Moss', 'kind_id', 'herbs_plants', 'category_id', 'plant-flower',
+  'campaign_id', :'camp', 'stackable', true, 'description', 'Twinkles.')) ->> 'id' as smoss \gset
+select public.set_item_identify_options(:'smoss', '{"unidentified_name": "Grey star", "identify_dc": 10}');
+select public.dm_give_item(:'smoss', array[:'pa', :'pb', :'pc']::uuid[], 1, false);
+select public.dm_set_item_knowledge(:'smoss', array[:'pa']::uuid[], '{all}', 'set');
+select public.dm_set_item_knowledge(:'smoss', array[:'pa']::uuid[], '{}', 'set');
+select public.dm_release_item_knowledge_hold(:'smoss', array[:'pa']::uuid[], :'camp') as p4a \gset
+select tl_test.as_root();
+select tl_test.pk_ck(:'pb', :'smoss') as p4a_b \gset
+select tl_test.pk_ck(:'pc', :'smoss') as p4a_c \gset
+select tl_test.as_user(:'dm');
+select public.dm_set_item_knowledge(:'smoss', array[:'pa']::uuid[], '{magic}', 'raise') as p4b \gset
+select tl_test.as_root();
+select tl_test.rec('PK22 M1c P4a: Everything -> Nothing -> release shares nothing; P4b: then raise {magic} -> the others get only {magic}, decoy name kept',
+  :'p4a_b' = 'unidentified:' and :'p4a_c' = 'unidentified:' and (:'p4a'::jsonb ->> 'shared_with')::int = 0
+  and tl_test.pk_ck(:'pa', :'smoss') = 'partially_identified:magic'
+  and tl_test.pk_ck(:'pb', :'smoss') = 'partially_identified:magic' and tl_test.pk_rowk(:'pb', :'smoss') = 'Grey star/partially_identified'
+  and tl_test.pk_ck(:'pc', :'smoss') = 'partially_identified:magic',
+  concat_ws(' ', :'p4a_b', :'p4a_c', :'p4a', tl_test.pk_ck(:'pa', :'smoss'), tl_test.pk_ck(:'pb', :'smoss'), tl_test.pk_rowk(:'pb', :'smoss')));
+
+select tl_test.as_user(:'dm');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Moon Bell', 'kind_id', 'herbs_plants', 'category_id', 'plant-flower',
+  'campaign_id', :'camp', 'stackable', true, 'description', 'Rings softly.')) ->> 'id' as bell \gset
+select public.set_item_identify_options(:'bell', '{"unidentified_name": "Pale cup", "identify_dc": 10}');
+select public.dm_give_item(:'bell', array[:'pa', :'pb']::uuid[], 1, false);
+select public.dm_set_item_knowledge(:'bell', array[:'pa']::uuid[], '{name}', 'set');
+select public.dm_set_item_knowledge(:'bell', array[:'pa']::uuid[], '{}', 'set');
+select public.dm_set_item_knowledge(:'bell', array[:'pa']::uuid[], '{magic}', 'raise');
+select tl_test.as_root();
+select tl_test.rec('PK23 M1c P4c: {name} -> Nothing -> raise {magic}: the others get only {magic} (not the name), decoy name kept',
+  tl_test.pk_ck(:'pb', :'bell') = 'partially_identified:magic' and tl_test.pk_rowk(:'pb', :'bell') = 'Pale cup/partially_identified'
+  and (select ident from public._ik_campaign_level(:'pa', :'bell', :'camp')) = false
+  and (select rev from public._ik_campaign_level(:'pa', :'bell', :'camp')) = '{magic}',
+  concat_ws(' ', tl_test.pk_ck(:'pb', :'bell'), tl_test.pk_rowk(:'pb', :'bell')));
+
+-- PK24 n8: a DM "set" that only holds the character back (nothing else changes) still writes its DM line (mode set)
+select tl_test.as_user(:'dm');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Quiet Leaf', 'kind_id', 'herbs_plants', 'category_id', 'plant-flower',
+  'campaign_id', :'camp', 'stackable', true, 'description', 'Silent.')) ->> 'id' as qleaf \gset
+select public.set_item_identify_options(:'qleaf', '{"unidentified_name": "Thin leaf", "identify_dc": 10}');
+select public.dm_give_item(:'qleaf', array[:'pb']::uuid[], 1, false);
+select public.dm_set_item_knowledge(:'qleaf', array[:'pb']::uuid[], '{}', 'set') as n8 \gset
+select tl_test.as_root();
+select tl_test.rec('PK24 n8 a hold-only set writes a DM audit line with mode set (the hold is derivable after rollback -> reapply)',
+  (:'n8'::jsonb ->> 'changed')::int = 0 and tl_test.pk_ck(:'pb', :'qleaf') = 'unidentified::held'
+  and exists (select 1 from public.campaign_audit_events e where e.character_id = :'pb' and e.visibility = 'dm' and e.after ->> 'item_id' = :'qleaf'
+              and e.after ->> 'mode' = 'set'),
+  :'n8');
