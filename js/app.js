@@ -1,6 +1,6 @@
 import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment, authArrival } from './supabase.js?v=27';
 import {
-  PASSWORD_MIN, emailFlowsEnabled, pendingLink, stripLinkParams, takeHashError, linkErrorText, resendConfirmation,
+  PASSWORD_MIN, emailFlowsEnabled, pendingLink, takeHashError, isLinkErrorCode, linkErrorText, recoveryFor, resendConfirmation,
   renderForgot, renderLinkContinue, renderSetPassword,
 } from './auth-links.js?v=27';
 import {
@@ -48,7 +48,13 @@ async function init() {
   // (js/supabase.js records it). A code that could not be exchanged (other browser, expired) gets a plain explanation.
   if (authArrival.code) {
     await new Promise((r) => { setTimeout(r, 0); });
-    if (!session) {
+    authArrival.bootDone = true;   // this tab's own start-up event has landed (ordering note in js/supabase.js)
+    if (!session && !authArrival.verifier) {
+      // no PKCE verifier in this browser: supabase-js ignores the code silently. A Google return always has one (same browser;
+      // a cancelled / failed Google sign-in comes back with ?error=, not ?code=), so this is an email link from elsewhere.
+      authNotice = { text: 'This link was opened in a different browser from the one it was requested in, or it has expired, '
+        + 'so it cannot sign you in here. If you were confirming your email, that is done: sign in below or request a new link.' };
+    } else if (!session) {
       const { error } = await supabase.auth.initialize();
       if (error) {
         console.warn('[auth link]', error.code || error.name || '', error.message);
@@ -57,13 +63,17 @@ async function init() {
       }
     }
   }
+  // an email-link error in the fragment gets the friendly link text; any other fragment error (an OAuth failure, which also
+  // comes with ?error=… and its toast below) is only cleared from the address, or shown as is when there is no query error
   const hashError = takeHashError();
-  if (hashError) authNotice = { text: linkErrorText(hashError) };
+  if (hashError && isLinkErrorCode(hashError.code)) authNotice = { text: linkErrorText(hashError) };
+  else if (hashError?.description && !new URLSearchParams(window.location.search).has('error_description')) {
+    authNotice = { text: hashError.description };
+  }
   // a ?token_hash= email link (reset, confirm, magic link): verified only after Continue, so a mail scanner cannot use it up
   const link = pendingLink();
   if (link) {
     const verified = await renderLinkContinue(app, link);
-    stripLinkParams();
     if (verified?.access_token) {
       // the link may belong to another account than the one signed in before: nothing of the previous user stays
       if (session && session.user?.id !== verified.user?.id) {
@@ -76,7 +86,7 @@ async function init() {
       session = (await supabase.auth.getSession()).data.session;
       if (verified?.wantsReset) authNotice = { forgot: true };
     }
-  } else stripLinkParams();
+  }
   cleanAuthParams();
   await handleSession(session);
 
@@ -87,10 +97,14 @@ async function init() {
       else if (newSession && !state.session) handleSession(newSession);
       else if (newSession) state.session = newSession;
       // a reset link that was announced only now (js/supabase.js recorded it): show "Choose a new password"
-      if (event === 'PASSWORD_RECOVERY' && authArrival.recovery && state.session && !$('#newpw-form')) route();
+      if (event === 'PASSWORD_RECOVERY' && state.session && recoveryFor(state.session) && !$('#newpw-form')) route();
     }, 0);
   });
-  if (authArrival.recovery && state.session && !$('#newpw-form')) route();
+  if (state.session && recoveryFor(state.session) && !$('#newpw-form')) route();
+  // End of boot: the arrival link no longer counts; another tab's broadcast recovery never turns this tab into "Choose a new password".
+  authArrival.bootDone = true;
+  authArrival.code = false;
+  authArrival.tokenHash = null;
 
   window.addEventListener('hashchange', route);
 }
@@ -99,7 +113,9 @@ function cleanAuthParams() {
   const url = new URL(window.location.href);
   if (url.searchParams.has('code') || url.searchParams.has('error')) {
     const err = url.searchParams.get('error_description');
-    if (err) toast(linkErrorText({ code: url.searchParams.get('error_code') || '', description: err, message: err }), 'bad', 6000);
+    const code = url.searchParams.get('error_code') || '';
+    // an email link (otp_* / flow_state_*) gets the friendly link text; anything else (e.g. a Google failure) the text as before
+    if (err) toast(isLinkErrorCode(code) ? linkErrorText({ code, description: err, message: err }) : err, 'bad', 6000);
     url.searchParams.delete('code');
     url.searchParams.delete('error');
     url.searchParams.delete('error_code');
@@ -110,6 +126,7 @@ function cleanAuthParams() {
 
 async function handleSession(session) {
   state.session = session;
+  recoveryFor(session);       // a reset link belongs to one user: signed out or another user -> no "Choose a new password"
   if (!session) {
     state.profile = null;
     routeToken += 1;          // a character still being opened must not appear after sign-out
@@ -171,7 +188,7 @@ function route() {
   unmountDmSpace();
   unmountCombat();
   // signed in through a password reset link: choose the new password first; the #/… route opens afterwards
-  if (authArrival.recovery) {
+  if (recoveryFor(state.session)) {
     unmountSheet();
     return renderSetPassword(app, { onDone: route, onNewLink: () => renderForgot(app, { email: state.session?.user?.email || '', onBack: route }) });
   }

@@ -102,17 +102,44 @@ if (supabase) globalThis.__tavernLedgerClients = (globalThis.__tavernLedgerClien
 // Email links (docs/AUTH_EMAIL_FLOWS.md). What the page arrived with is read before the client touches the URL, and a password
 // reset is recorded by a listener registered right here, before the client finishes initializing: supabase-js announces a PKCE
 // recovery (?code=) only once, from a timer, before app.js registers its own listener. This listener only records; it never
-// calls Supabase (that could deadlock the auth lock). Another tab's broadcast is ignored unless this tab arrived with a link.
+// calls Supabase (that could deadlock the auth lock).
 const arrival = new URLSearchParams(window.location.search);
 export const authArrival = {
   code: arrival.has('code'),
+  // a PKCE verifier of this browser existed when the page arrived (read synchronously, before supabase-js can exchange and
+  // remove it): without one, supabase-js ignores ?code= silently (link opened in another browser)
+  verifier: false,
   tokenHash: arrival.get('token_hash') || null,
   type: arrival.get('type') || null,
-  recovery: false,   // set by PASSWORD_RECOVERY (PKCE exchange at start-up, or verifyOtp of a recovery link)
+  // the user id whose password reset link was opened (PASSWORD_RECOVERY at start-up, or verifyOtp of a recovery link); false
+  // otherwise. Bound to that user: app.js clears it on sign-out and whenever another user is signed in.
+  recovery: false,
+  // set by app.js at the end of boot: from then on a PASSWORD_RECOVERY is never this tab's own start-up event
+  bootDone: false,
 };
+if (supabase && authArrival.code) {
+  try {
+    const sk = supabase.auth.storageKey;
+    authArrival.verifier = Object.keys(localStorage).some((k) => k.startsWith(`${sk}-`) && k.endsWith('code-verifier'));
+  } catch { authArrival.verifier = false; }
+}
+// The token hash is in memory now; take it out of the address at once (history, screenshots, shared URLs). supabase-js never
+// reads token_hash / type. ?fluent, ?env and the #/… route stay; a reload simply shows the normal app / sign-in card.
+if (authArrival.tokenHash) {
+  const u = new URL(window.location.href);
+  u.searchParams.delete('token_hash');
+  u.searchParams.delete('type');
+  history.replaceState(null, '', u.pathname + u.search + u.hash);
+}
 if (supabase) {
-  supabase.auth.onAuthStateChange((event) => {
-    if (event === 'PASSWORD_RECOVERY' && (authArrival.code || authArrival.tokenHash)) authArrival.recovery = true;
+  // Ordering: supabase-js announces a PKCE recovery from a setTimeout(0) queued at the end of its initialize(). app.js init()
+  // awaits getSession() (= that initialize) and then one more setTimeout(0), which is queued after it, so the event has landed
+  // before app.js sets bootDone. After that, PASSWORD_RECOVERY can only be another tab's broadcast and is ignored. A
+  // ?token_hash recovery does not rely on this listener: js/auth-links.js records it from verifyOtp's own result.
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY' && authArrival.code && authArrival.verifier && !authArrival.bootDone && session?.user?.id) {
+      authArrival.recovery = session.user.id;
+    }
   });
 }
 

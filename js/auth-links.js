@@ -25,14 +25,18 @@ export function pendingLink() {
   return authArrival.tokenHash && LINK_TYPES.has(authArrival.type) ? { tokenHash: authArrival.tokenHash, type: authArrival.type } : null;
 }
 
-/** Remove token_hash / type from the address; everything else (?fluent, ?env, the #/… route) stays. */
-export function stripLinkParams() {
-  if (!authArrival.tokenHash) return;
-  const url = new URL(window.location.href);
-  url.searchParams.delete('token_hash');
-  url.searchParams.delete('type');
-  history.replaceState(null, '', url.pathname + url.search + url.hash);
+// (token_hash / type are removed from the address by js/supabase.js as soon as they are read)
+
+/** A password reset link is open for exactly this signed-in user. Any other user (or none) ends the recovery state, so whoever
+ *  signs in next in this tab is never asked to change their password. */
+export function recoveryFor(session) {
+  if (authArrival.recovery && authArrival.recovery !== session?.user?.id) authArrival.recovery = false;
+  return !!authArrival.recovery;
 }
+
+/** An error_code that comes from an email link (GoTrue /verify: otp_expired, flow_state_not_found / _expired). An OAuth
+ *  (Google) failure carries other codes or none, and keeps its own description. */
+export const isLinkErrorCode = (code) => /^(otp_|flow_state_)/i.test(code || '');
 
 /** An error Supabase Auth put into the fragment (#error=…&error_code=otp_expired…): read it and give the router its hash back. */
 export function takeHashError() {
@@ -40,17 +44,24 @@ export function takeHashError() {
   if (!/^#(error|error_code|error_description)=/.test(h)) return null;
   const p = new URLSearchParams(h.slice(1));
   history.replaceState(null, '', window.location.pathname + window.location.search);
-  return { code: p.get('error_code') || p.get('error') || '', description: p.get('error_description') || '' };
+  return { code: p.get('error_code') || '', error: p.get('error') || '', description: p.get('error_description') || '' };
 }
 
 const isExpired = (e) => /otp_expired|flow_state_expired|flow_state_not_found|bad_code_verifier/i.test(`${e?.code || ''} ${e?.error_code || ''}`)
   || /expired|invalid|already (been )?used|not found/i.test(`${e?.message || ''} ${e?.description || ''}`);
 
-/** The text shown for a failed email link (expired, used, other device). */
+/** The text shown for a failed email link (expired, used, other device). The message test is for verifyOtp errors only (the
+ *  caller knows it is an email link); errors in the address are routed here only with an isLinkErrorCode code. */
 export function linkErrorText(e) {
   if (isExpired(e)) return EXPIRED_LINK + (emailFlowsEnabled() ? NEW_LINK_HINT : '');
   return friendlyError(e?.message ? e : { message: e?.description || '' }, 'This link could not be used.');
 }
+
+/** GoTrue refuses a second reset / confirmation mail to an EXISTING address (60 s per address, also the hourly mail limit)
+ *  with 429 over_email_send_rate_limit, but answers 200 for an unknown address (checked on the local stack). Treated as the
+ *  neutral success, so the answer never tells existing and unknown addresses apart. (over_request_rate_limit is per IP and the
+ *  same for every address: it keeps the "Too many" text.) */
+export const isPerAddressLimit = (e) => e?.code === 'over_email_send_rate_limit';
 
 /** Mail-sending errors (reset, resend) in plain words; never says whether an account exists. */
 export function mailErrorText(e) {
@@ -78,7 +89,8 @@ export async function resendConfirmation(email, btn) {
   if (!email) { toast('Enter your email first', 'bad'); return; }
   btn.disabled = true;
   const { error } = await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo: redirectUrl() } });
-  if (error) { btn.disabled = false; toast(mailErrorText(error), 'bad', 6000); return; }
+  if (error && isPerAddressLimit(error)) console.warn('[auth mail]', error.code);
+  else if (error) { btn.disabled = false; toast(mailErrorText(error), 'bad', 6000); return; }
   toast('If this email is waiting for confirmation, a new link is on its way.', 'good', 6000);
   cooldown(btn, btn.dataset.label || btn.textContent);
 }
@@ -106,7 +118,8 @@ export function renderForgot(app, { email = '', onBack }) {
     const btn = $('#btn-send-reset');
     btn.disabled = true;
     const { error } = await supabase.auth.resetPasswordForEmail(addr, { redirectTo: redirectUrl() });
-    if (error) { btn.disabled = false; toast(mailErrorText(error), 'bad', 6000); return; }
+    if (error && isPerAddressLimit(error)) console.warn('[auth mail]', error.code);
+    else if (error) { btn.disabled = false; toast(mailErrorText(error), 'bad', 6000); return; }
     const sent = $('#forgot-sent');
     sent.textContent = 'If an account exists for this email, a reset link is on its way. Open it on any device; it works once.';
     sent.hidden = false;
@@ -135,7 +148,7 @@ export function renderLinkContinue(app, link) {
       ev.currentTarget.disabled = true;
       const { data, error } = await supabase.auth.verifyOtp({ token_hash: link.tokenHash, type: link.type });
       if (!error && data?.session) {
-        if (link.type === 'recovery') authArrival.recovery = true;
+        if (link.type === 'recovery') authArrival.recovery = data.session.user?.id || false;
         resolve(data.session);
         return;
       }
