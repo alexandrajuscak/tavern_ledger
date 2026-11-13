@@ -56,6 +56,7 @@ import {
 } from './feature-ui.js?v=28';
 import { icon, classIcon, SECTION_ICONS, TIMING_ICONS } from './icons.js?v=28';
 import { sectionHTML, sectionHead } from './section.js?v=28';
+import { distanceNumber, distanceUnit, onUnitsChange, unitsSwitchHTML, bindUnitsSwitch } from './units.js?v=28';
 
 // -----------------------------------------------------------------------------
 // Module state — one sheet is mounted at a time.
@@ -87,6 +88,7 @@ let profPending = {};
 let derivedSeq = 0;
 let derivedDirty = false;  // a local edit of a field that affects derived stats is waiting to be saved
 let unsubSaver = null;
+let unsubUnits = null;   // js/units.js onUnitsChange
 // Resolved lineage (get_character_lineage): traits, choices and their status; never stored on the character.
 let lineage = null;
 // Background (get_character_background): version, ability increases, grants, feat, equipment state; never stored here.
@@ -265,7 +267,8 @@ function deriveValue(key) {
     case 'pb': return fmt(pb());
     case 'init': return fmt(initiative());
     case 'level': return String(c.level);
-    case 'speed': return String(derived?.speed?.value ?? c.speed);
+    case 'speed': return distanceNumber(derived?.speed?.value ?? c.speed);   // the viewer's units (js/units.js)
+    case 'dist-unit': return distanceUnit();
     case 'spelldc': return c.spellcasting_ability ? String(8 + pb() + abilityMod(c.spellcasting_ability)) : '—';
     case 'spellatk': return c.spellcasting_ability ? fmt(pb() + abilityMod(c.spellcasting_ability)) : '—';
     case 'xpnext': {
@@ -1499,7 +1502,7 @@ function combatHTML() {
         <span class="tile-note" id="ac-note"><span class="lbl-long" data-derived="ac-note"></span><span class="lbl-short" data-derived="ac-note-short"></span></span></div>
       <div class="tile tile-init"><span class="stat-label">${icon('actions/initiative', { size: 16 })}Initiative</span><span class="big-num" data-derive="init"></span></div>
       <div class="tile tile-speed"><span class="stat-label" id="speed-label">${icon('actions/speed', { size: 16 })}Speed</span>
-        <span class="big-num" aria-describedby="speed-label speed-note"><span data-derive="speed"></span><span class="unit"> ft</span></span>
+        <span class="big-num" aria-describedby="speed-label speed-note"><span data-derive="speed"></span><span class="unit"> <span data-derive="dist-unit">ft</span></span></span>
         <span class="tile-note" id="speed-note" data-derived="speed-note"></span></div>
       <div class="tile tile-pb"><span class="stat-label">${icon('actions/proficiency', { size: 16 })}<span class="lbl-long">Proficiency</span><span class="lbl-short">Prof.</span></span><span class="big-num" data-derive="pb"></span></div>
     </div>
@@ -1536,7 +1539,7 @@ function sensesHTML() {
   const MOVE = { walk: 'Walking', climb: 'Climbing', swim: 'Swimming', fly: 'Flying', burrow: 'Burrowing' };
   const rows = [];
   const kv = (label, value, ic = '') => rows.push(`<div class="kv">${ic ? icon(ic, { size: 18 }) : ''}<span>${label}</span><strong>${value}</strong></div>`);
-  kv('Walking speed', `<span data-derive="speed">${esc(deriveValue('speed'))}</span> ft`, 'movement.walk');
+  kv('Walking speed', `<span data-derive="speed">${esc(deriveValue('speed'))}</span> <span data-derive="dist-unit">${esc(deriveValue('dist-unit'))}</span>`, 'movement.walk');
   Object.entries(sp?.movement || {}).filter(([k]) => k !== 'walk').forEach(([k, m]) =>
     kv(`${MOVE[k] || esc(k)} speed`, `${esc(m.value)} ft${m.active ? '' : ' <span class="muted small">(not in this armor)</span>'}`, `movement.${k}`));
   const senses = Object.entries(derived?.senses || {});
@@ -1620,7 +1623,7 @@ function statsHTML() {
           <details class="quiet-details tl-detail">
             <summary>Adjust by hand</summary>
             <div class="kv-list">
-              <div class="kv"><span>Base walking speed <small class="muted">(before lineage, armor and features)</small></span>${numInput('characters', c, 'speed', 'small-num', 'min="0" aria-label="Base walking speed in feet"')}</div>
+              <div class="kv"><span>Base walking speed <small class="muted">(before lineage, armor and features)</small></span>${numInput('characters', c, 'speed', 'small-num', 'min="0" aria-label="Base walking speed in feet"')}<small class="us-unit-note muted">in feet (US units)</small></div>
               <div class="kv"><span>Initiative misc. bonus</span>${numInput('characters', c, 'initiative_bonus', 'small-num', 'aria-label="Initiative bonus"')}</div>
             </div>
           </details>` })}
@@ -1973,7 +1976,7 @@ function combatTabHTML() {
   <details class="quiet-details turn-guide">
     <summary>New to combat? How your turn works</summary>
     <ul>
-      <li><strong>Move</strong> up to your speed (<span data-derive="speed"></span> ft). You can split it before and after your action.</li>
+      <li><strong>Move</strong> up to your speed (<span data-derive="speed"></span> <span data-derive="dist-unit">ft</span>). You can split it before and after your action.</li>
       <li><strong>Action</strong>: one per turn, e.g. attack with a weapon or cast a spell.</li>
       <li><strong>Bonus action</strong>: only when a feature or spell says you can use one.</li>
       <li><strong>Reaction</strong>: one per round, even on other creatures’ turns.</li>
@@ -2414,6 +2417,12 @@ function bioHTML() {
     <datalist id="alignment-list">${ALIGNMENTS.map((x) => `<option value="${x}">`).join('')}</datalist>
   </section>
   ${notesHTML()}
+  <section class="tl-section" aria-labelledby="bio-display-title" data-units-section>
+    ${sectionHead({ id: 'bio-display-title', icon: 'ui.senses', title: 'Display', variant: 'interface' })}
+    <p class="muted small">Measurements on your screen. Metric converts distances and weights for display only (5 ft = 1.5 m, 1 mile = 1.5 km,
+      1 lb = 0.5 kg); what is saved, what the DM enters and the number fields stay in US units. Only for you, on this device.</p>
+    ${unitsSwitchHTML()}
+  </section>
   <section class="tl-section" aria-labelledby="bio-backup-title">
     ${sectionHead({ id: 'bio-backup-title', icon: 'item.book', title: 'Backup and sharing', variant: 'interface' })}
     <p class="muted small">Download this character as a file. You can import it again from the character list, for example to copy a character or move it to another campaign.</p>
@@ -3516,6 +3525,11 @@ export function mountSheet(container, bundle, options = {}) {
   watchVitals();
   trackWeaponDetails(root);
   unsubSaver = saver.onStatus((st) => { if (st === 'saved' && derivedDirty) { derivedDirty = false; scheduleDerived(); } });
+  // the viewer's measurement units (js/units.js): the numbers printed apart from their unit follow at once (free text is
+  // converted by the display layer)
+  bindUnitsSwitch(root);
+  unsubUnits?.();
+  unsubUnits = onUnitsChange(() => { if (root) refreshDerived(); });
   loadDerived();
   loadConditions();
   loadLineage();
@@ -3647,6 +3661,8 @@ export function unmountSheet({ keepRealtimeFor = null } = {}) {
   govState = null;
   unsubSaver?.();
   unsubSaver = null;
+  unsubUnits?.();
+  unsubUnits = null;
   derived = null;
   condRows = null;
   profState = null;

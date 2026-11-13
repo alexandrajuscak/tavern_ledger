@@ -20,6 +20,7 @@ import { openLineagePicker } from './lineage-ui.js?v=28';
 import { getCharacterLineage } from './lineage-api.js?v=28';
 import { openAddClass } from './class-setup.js?v=28';
 import { getClassSummary } from './class-api.js?v=28';
+import { startUnitsDisplay } from './units.js?v=28';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders
@@ -30,6 +31,7 @@ let authNotice = null; // a message for the next sign-in card (failed email link
 // -----------------------------------------------------------------------------
 
 async function init() {
+  startUnitsDisplay();   // the viewer's measurement units (js/units.js): with US (default) nothing is observed
   // a staging page says so on every screen, so it is never mistaken for the real table (docs/DEPLOYMENT_FRONTEND_CONFIGURATION.md)
   if (environment === 'staging') {
     document.title = `STAGING · ${document.title}`;

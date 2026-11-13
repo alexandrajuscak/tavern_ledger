@@ -2783,3 +2783,9 @@ details.combat-group.passive-group > summary { cursor: pointer; }
 .wpn-notes { margin: 0; overflow-wrap: anywhere; }
 @media (min-width: 701px) { .wpn-title { font-family: var(--font-display-medieval); letter-spacing: 0.03em; color: var(--color-title); } }
 @media (max-width: 420px) { .wpn-card .roll { min-width: 0; flex: 1 1 40%; } }
+
+/* ---- R-A measurement units (js/units.js): the viewer's US / Metric switch; "US units" notes on number fields under Metric ---- */
+.units-switch { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.units-switch .btn.is-on { border-color: var(--gold); background: var(--gold-soft); color: var(--heading); }
+.us-unit-note { display: none; font-weight: 500; color: var(--text-3); }
+html.units-metric .us-unit-note { display: inline; }

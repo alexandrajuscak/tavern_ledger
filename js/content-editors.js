@@ -215,7 +215,8 @@ function fieldHTML([path, label, kind, x = {}], model, prefix = '') {
   const name = prefix + path;
   switch (kind) {
     case 'area': return `<label class="field ${x.dm ? 'dm-only-field' : ''}" for="${id}"><span>${esc(label)}</span><textarea id="${id}" name="${esc(name)}" rows="3" maxlength="${x.max || 4000}">${esc(v ?? '')}</textarea></label>`;
-    case 'num': return `<label class="field field-num" for="${id}"><span>${esc(label)}</span><input id="${id}" type="number" step="any" name="${esc(name)}" value="${esc(v ?? '')}" data-num></label>`;
+    // measurements are entered in US units (js/units.js converts for display only): say so while the viewer uses Metric
+    case 'num': return `<label class="field field-num" for="${id}"><span>${esc(label)}${/weight_lb|\.speed\.|range\.distance|range_normal|range_max|reach/.test(name) ? ' <small class="us-unit-note">US units</small>' : ''}</span><input id="${id}" type="number" step="any" name="${esc(name)}" value="${esc(v ?? '')}" data-num></label>`;
     case 'icon': return iconPickerHTML(name, v, { legend: label });
     case 'check': return `<label class="check-field"><input type="checkbox" name="${esc(name)}" ${v ? 'checked' : ''} data-bool><span>${esc(label)}</span></label>`;
     case 'sel': return `<label class="field" for="${id}"><span>${esc(label)}</span><select id="${id}" name="${esc(name)}" ${x.number ? 'data-num' : ''}>${x.options.map(([ov, ol]) =>

@@ -63,7 +63,7 @@ export function openHomebrewForm(o) {
           </div>
           ${field('description', 'Description', `<textarea id="${fid('description')}" name="description" rows="3" maxlength="4000" aria-describedby="${fid('description')}-err">${esc(it.description || '')}</textarea>`)}
           <div class="hb-row">
-            ${field('weight_lb', 'Weight (lb)', input('weight_lb', 'number', it.weight_lb, 'min="0" step="0.01" inputmode="decimal"'))}
+            ${field('weight_lb', 'Weight (lb) <small class="us-unit-note">US units</small>', input('weight_lb', 'number', it.weight_lb, 'min="0" step="0.01" inputmode="decimal"'))}
             ${field('cost_value', 'Cost', input('cost_value', 'number', it.cost_value, 'min="0" step="0.01" inputmode="decimal"'))}
             ${field('cost_unit', 'Coin', `<select id="${fid('cost_unit')}" name="cost_unit"><option value="">—</option>${opt(L.currencies, it.cost_unit || 'gp', (c) => c.id)}</select>`)}
           </div>
@@ -158,7 +158,7 @@ export function openHomebrewForm(o) {
         </fieldset>
         <fieldset class="hb-section" data-for="container"><legend>Container</legend>
           <div class="hb-row">
-            ${field('capacity_weight_lb', 'Capacity (lb)', input('capacity_weight_lb', 'number', cont?.capacity_weight_lb, 'min="0" step="0.1"'))}
+            ${field('capacity_weight_lb', 'Capacity (lb) <small class="us-unit-note">US units</small>', input('capacity_weight_lb', 'number', cont?.capacity_weight_lb, 'min="0" step="0.1"'))}
             ${field('capacity_volume_cuft', 'Capacity (cubic feet)', input('capacity_volume_cuft', 'number', cont?.capacity_volume_cuft, 'min="0" step="0.1"'))}
           </div>
           <div class="hb-checks">

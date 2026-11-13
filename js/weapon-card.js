@@ -21,9 +21,8 @@ const PROPERTY_HINT = { finesse: 'Use Strength or Dexterity, whichever is better
   loading: 'One shot per action, bonus action or reaction', reach: 'Adds 5 feet to your reach', thrown: 'Can be thrown for a ranged attack',
   'two-handed': 'Needs two hands', versatile: 'One or two hands', ammunition: 'Needs ammunition', special: 'See the description' };
 
-/** A distance in feet as text. The display unit is swapped in by the measurement module (js/units.js) when it is present. */
-let distance = (ft) => `${ft} ft`;
-export function setDistanceFormatter(fn) { if (typeof fn === 'function') distance = fn; }
+/** A distance in feet as text (stored units). The viewer's Metric choice converts it on screen (js/units.js display layer). */
+const distance = (ft) => `${ft} ft`;
 
 // ---- future blocks (release R-D: item effects, BG3 style). They render nothing until the data exists. ------------------------
 // Each gets the derived weapon and the viewer's item info; it must return '' when there is nothing to show, and must never show
