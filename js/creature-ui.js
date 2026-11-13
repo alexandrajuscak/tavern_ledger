@@ -1,7 +1,7 @@
 // Wild Shape (transformation) panel and Companions card. Data from get_character_transformation and character_companions;
 // the forms a character may take, their cost and the hit point carry-over are decided by the server. No class names here.
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=26';
-import * as api from './creature-api.js?v=26';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=27';
+import * as api from './creature-api.js?v=27';
 
 const ABIL = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const mod = (s) => Math.floor((Number(s) - 10) / 2);

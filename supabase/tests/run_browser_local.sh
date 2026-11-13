@@ -97,4 +97,6 @@ echo "== Active features and content management: lineage / feat Play cards, feat
 (cd supabase/tests/browser && "$PY" active_features_ui_test.py) || RC=1
 echo "== Performance release 2026-11: resource-only refresh, Home cards through the read cache, catalog caches on a user switch"
 (cd supabase/tests/browser && "$PY" performance_release_ui_test.py) || RC=1
+echo "== Forgot password + email links: flag off / on, PKCE and token_hash reset links, expired links, magic link user switch"
+(cd supabase/tests/browser && "$PY" auth_reset_ui_test.py) || RC=1
 exit $RC

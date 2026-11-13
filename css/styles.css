@@ -2209,6 +2209,10 @@ p.warn, .inv-note.warn, .sp-warn { border-left: 3px solid var(--warning); paddin
 .home-archived, .home-empty-camps { margin-top: 18px; }
 .auth-logo { display: block; margin: 0 auto; filter: drop-shadow(0 4px 14px rgba(217, 174, 85, 0.35)); }
 .auth-card .title { color: var(--heading); }
+/* email links (js/auth-links.js): a failed link, "check your inbox", the neutral reset answer */
+.auth-notice { margin: 0; padding: 10px 12px; border: 1px solid var(--warning); border-radius: 10px; background: var(--warning-soft); color: var(--text); font-size: 0.88rem; display: flex; flex-direction: column; gap: 8px; }
+.auth-notice[hidden] { display: none; }
+.auth-notice p { margin: 0; }
 .char-card[hidden], .campaign-group[hidden], .owner-group[hidden] { display: none !important; }
 .ab-left .ability-name { text-transform: none; letter-spacing: 0; font-size: var(--fs-label); color: var(--accent-strong); font-weight: 650; }
 .ability-mod { color: var(--heading); }

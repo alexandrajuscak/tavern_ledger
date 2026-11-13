@@ -1,8 +1,8 @@
 // supabase-js 2.117.2 is self-hosted (vendor/supabase-js, loaded by index.html as a classic script): no CDN request at runtime.
 const { createClient } = globalThis.supabase;
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PRODUCTION_HOSTS } from './config.js?v=26';
-import { readSignalFor } from './read-control.js?v=26';
-import { interceptRpc, setRawRpc } from './read-layer.js?v=26';
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PRODUCTION_HOSTS } from './config.js?v=27';
+import { readSignalFor } from './read-control.js?v=27';
+import { interceptRpc, setRawRpc } from './read-layer.js?v=27';
 
 // Local development only. When the app is served from localhost / 127.0.0.1 it talks ONLY to the local Supabase
 // stack, never to the hosted project in js/config.js. The local URL and anon key come from js/config.local.js,
@@ -98,6 +98,23 @@ export const supabase = isConfigured
   : null;
 // one client (one Auth session, one Realtime socket) per page: counted so the tests can assert it (no credential involved)
 if (supabase) globalThis.__tavernLedgerClients = (globalThis.__tavernLedgerClients || 0) + 1;
+
+// Email links (docs/AUTH_EMAIL_FLOWS.md). What the page arrived with is read before the client touches the URL, and a password
+// reset is recorded by a listener registered right here, before the client finishes initializing: supabase-js announces a PKCE
+// recovery (?code=) only once, from a timer, before app.js registers its own listener. This listener only records; it never
+// calls Supabase (that could deadlock the auth lock). Another tab's broadcast is ignored unless this tab arrived with a link.
+const arrival = new URLSearchParams(window.location.search);
+export const authArrival = {
+  code: arrival.has('code'),
+  tokenHash: arrival.get('token_hash') || null,
+  type: arrival.get('type') || null,
+  recovery: false,   // set by PASSWORD_RECOVERY (PKCE exchange at start-up, or verifyOtp of a recovery link)
+};
+if (supabase) {
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY' && (authArrival.code || authArrival.tokenHash)) authArrival.recovery = true;
+  });
+}
 
 // Campaign governance (docs/DM_GOVERNANCE.md): a governed call the campaign refuses (approval required, DM only, disabled,
 // locked) is announced once as a 'tavern:governance' event with the exact call, so the sheet can offer an approval request.

@@ -28,3 +28,8 @@ export const COMBAT_BUILDER = 'dm';
 // item); 'on' adds the usage report, permanent delete of any unused custom content and "Duplicate official as homebrew". It never
 // grants anything: every content RPC checks the campaign DM / admin role itself. Rollback of the frontend = 'off'.
 export const CONTENT_MANAGEMENT = 'on';
+// Email account flows (docs/AUTH_EMAIL_FLOWS.md): 'off' keeps the sign-in card exactly as before; 'on' adds "Forgot password?"
+// (reset mail) and "Resend confirmation". Both send mail, so turn it on only after custom SMTP is set up in the Supabase dashboard
+// (the built-in mailer delivers only to project team addresses). A link the user arrives with (reset, confirm, magic link) is
+// handled with either value. Rollback of the frontend = 'off'.
+export const AUTH_EMAIL_FLOWS = 'off';

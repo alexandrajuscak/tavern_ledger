@@ -1,24 +1,29 @@
-import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment } from './supabase.js?v=26';
+import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment, authArrival } from './supabase.js?v=27';
+import {
+  PASSWORD_MIN, emailFlowsEnabled, pendingLink, stripLinkParams, takeHashError, linkErrorText, resendConfirmation,
+  renderForgot, renderLinkContinue, renderSetPassword,
+} from './auth-links.js?v=27';
 import {
   state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
   loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
   updateProfile, listCharacters, listCharacterBadges, createCharacter, loadBundle, loadCharacterView, saver,
-} from './store.js?v=26';
-import { getDerivedStats, getProficiencies } from './inventory-api.js?v=26';
-import { icon, classIcon, iconSrc } from './icons.js?v=26';
-import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=26';
-import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=26';
-import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=26';
-import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=26';
-import { mountCombat, unmountCombat, combatEnabled } from './combat.js?v=26';
-import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=26';
-import { openLineagePicker } from './lineage-ui.js?v=26';
-import { getCharacterLineage } from './lineage-api.js?v=26';
-import { openAddClass } from './class-setup.js?v=26';
-import { getClassSummary } from './class-api.js?v=26';
+} from './store.js?v=27';
+import { getDerivedStats, getProficiencies } from './inventory-api.js?v=27';
+import { icon, classIcon, iconSrc } from './icons.js?v=27';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=27';
+import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=27';
+import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=27';
+import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=27';
+import { mountCombat, unmountCombat, combatEnabled } from './combat.js?v=27';
+import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=27';
+import { openLineagePicker } from './lineage-ui.js?v=27';
+import { getCharacterLineage } from './lineage-api.js?v=27';
+import { openAddClass } from './class-setup.js?v=27';
+import { getClassSummary } from './class-api.js?v=27';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders
+let authNotice = null; // a message for the next sign-in card (failed email link), shown once
 
 // -----------------------------------------------------------------------------
 // Boot
@@ -38,7 +43,40 @@ async function init() {
   saver.onStatus(renderSaveStatus);
   $('#btn-signout').addEventListener('click', signOut);
 
-  const { data: { session } } = await supabase.auth.getSession();
+  let { data: { session } } = await supabase.auth.getSession();
+  // a PKCE return (?code=): supabase-js announces PASSWORD_RECOVERY from a timer queued during start-up; one turn lets it land
+  // (js/supabase.js records it). A code that could not be exchanged (other browser, expired) gets a plain explanation.
+  if (authArrival.code) {
+    await new Promise((r) => { setTimeout(r, 0); });
+    if (!session) {
+      const { error } = await supabase.auth.initialize();
+      if (error) {
+        console.warn('[auth link]', error.code || error.name || '', error.message);
+        authNotice = { text: 'This link could not finish here. If you were confirming your email, it is confirmed: sign in below. '
+          + 'A sign-in or reset link must be opened in the browser where it was requested, and only once.' };
+      }
+    }
+  }
+  const hashError = takeHashError();
+  if (hashError) authNotice = { text: linkErrorText(hashError) };
+  // a ?token_hash= email link (reset, confirm, magic link): verified only after Continue, so a mail scanner cannot use it up
+  const link = pendingLink();
+  if (link) {
+    const verified = await renderLinkContinue(app, link);
+    stripLinkParams();
+    if (verified?.access_token) {
+      // the link may belong to another account than the one signed in before: nothing of the previous user stays
+      if (session && session.user?.id !== verified.user?.id) {
+        clearReadCaches();
+        cacheClearPrefix('list', 'bundle:', 'cardstats:');
+      }
+      session = verified;
+      if (link.type !== 'recovery') toast(link.type === 'magiclink' ? 'Signed in.' : 'Email confirmed. You are signed in.', 'good', 5000);
+    } else {
+      session = (await supabase.auth.getSession()).data.session;
+      if (verified?.wantsReset) authNotice = { forgot: true };
+    }
+  } else stripLinkParams();
   cleanAuthParams();
   await handleSession(session);
 
@@ -48,8 +86,11 @@ async function init() {
       if (event === 'SIGNED_OUT') handleSession(null);
       else if (newSession && !state.session) handleSession(newSession);
       else if (newSession) state.session = newSession;
+      // a reset link that was announced only now (js/supabase.js recorded it): show "Choose a new password"
+      if (event === 'PASSWORD_RECOVERY' && authArrival.recovery && state.session && !$('#newpw-form')) route();
     }, 0);
   });
+  if (authArrival.recovery && state.session && !$('#newpw-form')) route();
 
   window.addEventListener('hashchange', route);
 }
@@ -58,7 +99,7 @@ function cleanAuthParams() {
   const url = new URL(window.location.href);
   if (url.searchParams.has('code') || url.searchParams.has('error')) {
     const err = url.searchParams.get('error_description');
-    if (err) toast(err, 'bad', 6000);
+    if (err) toast(linkErrorText({ code: url.searchParams.get('error_code') || '', description: err, message: err }), 'bad', 6000);
     url.searchParams.delete('code');
     url.searchParams.delete('error');
     url.searchParams.delete('error_code');
@@ -129,6 +170,11 @@ function route() {
   const charMatch = hash.match(/^#\/c\/([0-9a-f-]{36})$/i);
   unmountDmSpace();
   unmountCombat();
+  // signed in through a password reset link: choose the new password first; the #/… route opens afterwards
+  if (authArrival.recovery) {
+    unmountSheet();
+    return renderSetPassword(app, { onDone: route, onNewLink: () => renderForgot(app, { email: state.session?.user?.email || '', onBack: route }) });
+  }
   if (charMatch) return openCharacter(charMatch[1], token);
 
   unmountSheet();
@@ -209,7 +255,11 @@ function renderError(message, err, { expected = false } = {}) {
   </div>`;
 }
 
-function renderAuth() {
+function renderAuth({ email: prefill = '' } = {}) {
+  const notice = authNotice;
+  authNotice = null;
+  if (notice?.forgot && emailFlowsEnabled()) return renderForgot(app, { email: prefill, onBack: (email) => renderAuth({ email }) });
+  const flows = emailFlowsEnabled();
   app.innerHTML = `
   <div class="center-wrap">
     <div class="card auth-card">
@@ -224,16 +274,22 @@ function renderAuth() {
 
       <div class="divider"><span>or use email</span></div>
 
-      <form id="auth-form" class="stack" novalidate>
+      <form id="auth-form" class="stack" novalidate>${notice?.text ? `
+        <p class="auth-notice" id="auth-notice" role="alert">${esc(notice.text)}</p>` : ''}
         <label class="field"><span>Email</span>
-          <input type="email" name="email" autocomplete="email" required></label>
+          <input type="email" name="email" autocomplete="email" required${prefill ? ` value="${esc(prefill)}"` : ''}></label>
         <label class="field"><span>Password</span>
           <input type="password" name="password" autocomplete="current-password" minlength="6"></label>
         <div class="row gap">
           <button class="btn btn-gold grow" type="submit" value="signin">Sign in</button>
           <button class="btn grow" type="submit" value="signup">Create account</button>
         </div>
-        <button type="button" class="btn-link" id="btn-magic">Email me a sign-in link instead</button>
+        <button type="button" class="btn-link" id="btn-magic">Email me a sign-in link instead</button>${flows ? `
+        <button type="button" class="btn-link" id="btn-forgot">Forgot password?</button>
+        <div class="auth-notice" id="auth-confirm" role="status" hidden>
+          <p id="auth-confirm-text"></p>
+          <button type="button" class="btn btn-block" id="btn-resend" data-label="Resend confirmation email">Resend confirmation email</button>
+        </div>` : ''}
       </form>
     </div>
   </div>`;
@@ -247,7 +303,15 @@ function renderAuth() {
   });
 
   const form = $('#auth-form');
-  const busy = (on) => $$('button', form).forEach((b) => { b.disabled = on; });
+  const busy = (on) => $$('button', form).forEach((b) => { if (b.id !== 'btn-resend') b.disabled = on; });
+  const showConfirm = (text) => {
+    $('#auth-confirm-text').textContent = text;
+    $('#auth-confirm').hidden = false;
+  };
+  if (flows) {
+    $('#btn-forgot').addEventListener('click', () => renderForgot(app, { email: form.email.value.trim(), onBack: (email) => renderAuth({ email }) }));
+    $('#btn-resend').addEventListener('click', (e) => resendConfirmation(form.email.value.trim(), e.currentTarget));
+  }
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -255,7 +319,7 @@ function renderAuth() {
     const email = form.email.value.trim();
     const password = form.password.value;
     if (!email) return toast('Enter your email', 'bad');
-    if (password.length < 6) return toast('Password must be at least 6 characters', 'bad');
+    if (password.length < PASSWORD_MIN) return toast(`Password must be at least ${PASSWORD_MIN} characters`, 'bad');
     busy(true);
     try {
       if (mode === 'signup') {
@@ -263,12 +327,21 @@ function renderAuth() {
           email, password, options: { emailRedirectTo: redirectUrl() },
         });
         if (error) throw error;
-        if (!data.session) toast('Check your inbox to confirm your account.', 'good', 6000);
+        // "Confirm email" on: no session until the link is opened. The same words whether or not the address already had an
+        // account (Supabase answers both alike), so the form never reveals who has an account.
+        if (!data.session && flows) showConfirm('Check your inbox to confirm your account. If this email already has an account, sign in or use "Forgot password?".');
+        else if (!data.session) toast('Check your inbox to confirm your account.', 'good', 6000);
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       }
     } catch (err) {
+      if (err?.code === 'email_not_confirmed') {
+        const text = 'Confirm your email first: open the link in the email we sent when you created the account.';
+        if (flows) showConfirm(text);
+        else toast(text, 'bad', 6000);
+        return;
+      }
       toast(friendlyError(err, 'Sign-in failed. Please try again.'), 'bad', 5000);
     } finally {
       busy(false);
