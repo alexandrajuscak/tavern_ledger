@@ -75,6 +75,8 @@ let sheetFluent = false;
 let inventoryDeferred = false;
 let serverChar = null;       // the character row as last stored on the server (bundle, Realtime): what a remote UPDATE changed
 let inventory = null; // inventory-ui controller
+let quests = null;    // js/quests.js tab controller (loaded on the Quests tab's first open)
+let questsSeq = 0;
 let lastInfusedSig = '[]';
 let governance = null; // request-ui controller: lock banner, pending changes, approval requests
 let featState = null;   // get_character_feats: every feat grant with its source, choices, effects, spells and resources
@@ -150,6 +152,7 @@ const TABS = [
   { key: 'spells', label: 'Spells', short: 'Spells', hint: 'Spell slots and the spells you can cast' },
   { key: 'inventory', label: 'Inventory', short: 'Items', hint: 'Equipment, items and coins' },
   { key: 'features', label: 'Build', short: 'Build', hint: 'Classes, lineage, background, feats and level-ups' },
+  { key: 'quests', label: 'Quests', short: 'Quests', hint: 'Party and personal quests from your DM' },
   { key: 'bio', label: 'Bio', short: 'Bio', hint: 'Identity, portrait, notes and backup' },
 ];
 // sections that were merged into others (older stored tab, links in older builds)
@@ -2456,6 +2459,7 @@ function render() {
       <section class="panel" id="panel-spells" role="tabpanel" aria-labelledby="tab-spells" data-panel="spells">${spellsHTML()}</section>
       <section class="panel" id="panel-inventory" role="tabpanel" aria-labelledby="tab-inventory" data-panel="inventory">${inventoryHTML()}</section>
       <section class="panel" id="panel-features" role="tabpanel" aria-labelledby="tab-features" data-panel="features">${featuresHTML()}</section>
+      <section class="panel" id="panel-quests" role="tabpanel" aria-labelledby="tab-quests" data-panel="quests"><div class="tl-section quest-tab" id="quests-app"></div></section>
       <section class="panel" id="panel-bio" role="tabpanel" aria-labelledby="tab-bio" data-panel="bio">${bioHTML()}</section>
     </div>
   </div>`;
@@ -2477,6 +2481,7 @@ function showTab(key, scroll = true) {
   $$(`.panel[data-panel="${key}"] textarea.autosize`, root).forEach(autoResize);
   if (key === 'spells' && spellbookStale) loadSpellbook();
   if (key === 'inventory' && inventoryDeferred) mountInventoryPanel();
+  if (key === 'quests') openQuests();
   if (scroll) {
     // land at the top of the section (below the vitals), never further down than where the player already is
     const panel = $(`.panel[data-panel="${key}"]`, root);
@@ -3416,6 +3421,7 @@ function onRemote(table, event, nw, old) {
   }
 
   const list = B[LIST_KEY[table]];
+  if (!list) return;   // a source this build does not know (a newer server): nothing to patch
   if (event === 'INSERT') {
     if (nw.character_id !== C().id || list.some((r) => r.id === nw.id)) return;
     list.push(nw);
@@ -3563,6 +3569,23 @@ function partySyncSoon(characterId, force = false) {
   if (ctx?.readOnly || (!force && Date.now() - partySyncAt < 20000)) return;
   partySyncAt = Date.now();
   syncPartyKnowledge(characterId).then((r) => { if (r?.applied && C()?.id === characterId) inventory?.scheduleRefresh?.(); }).catch(() => {});
+}
+
+// Quest log (docs/QUEST_LOG.md): read lazily, ONE request each time the tab is shown (also on ?fluent=0). There is no live
+// push for quests: switching back to the tab or its Refresh button shows the DM's latest changes. The data stays in the
+// quests module (never in B, which the legacy path caches in localStorage).
+function openQuests() {
+  if (!B || !root || ctx?.readOnly) return;
+  const id = C().id;
+  const el = $('#quests-app', root);
+  if (!el) return;
+  if (quests && quests.characterId === id && quests.el === el) { quests.refresh(); return; }
+  const my = ++questsSeq;
+  import('./quests.js?v=31').then((m) => {
+    if (my !== questsSeq || !B || C().id !== id || !el.isConnected) return;
+    quests?.destroy();
+    quests = m.mountQuestTab(el, { characterId: id });
+  }).catch((err) => { if (my === questsSeq && el.isConnected) el.innerHTML = `<p class="gov-error" role="alert">${esc(err?.message || 'The quest log could not be loaded.')}</p>`; });
 }
 
 function mountInventoryPanel() {
@@ -3738,6 +3761,9 @@ export function unmountSheet({ keepRealtimeFor = null } = {}) {
   featSeq += 1;
   inventory?.destroy();
   inventory = null;
+  quests?.destroy();
+  quests = null;
+  questsSeq += 1;
   governance?.destroy();
   governance = null;
   if (!keepRealtimeFor || keepRealtimeFor !== liveCharacterId) {

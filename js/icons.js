@@ -82,7 +82,7 @@ export function classIcon(name, opts) {
 
 /** Icon names of the sheet sections (also used by the bottom navigation). */
 export const SECTION_ICONS = {
-  combat: 'section.play', stats: 'section.abilities', spells: 'section.spells', inventory: 'section.inventory', features: 'section.build', bio: 'section.bio',
+  combat: 'section.play', stats: 'section.abilities', spells: 'section.spells', inventory: 'section.inventory', features: 'section.build', quests: 'item.map', bio: 'section.bio',
 };
 
 /** Timing icons for actions, bonus actions and reactions. */

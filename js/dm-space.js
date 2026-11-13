@@ -15,7 +15,7 @@ import { openItemIconsDialog } from './custom-icons.js?v=31';
 // Crafting (docs/CRAFTING_V1.md) only when js/config.js CRAFTING is not 'off'; its module is loaded on demand (never with 'off')
 const craftingOn = () => (CRAFTING || 'off') !== 'off';
 const SECTIONS = [['overview', 'Overview'], ['approvals', 'Approvals'], ['party', 'Party'], ['content', 'Content'], ['assign', 'Assign'],
-  ['hidden', 'Hidden'], ...(craftingOn() ? [['crafting', 'Crafting']] : []), ['rules', 'Campaign rules'], ['audit', 'Audit log']];
+  ['hidden', 'Hidden'], ['quests', 'Quests'], ...(craftingOn() ? [['crafting', 'Crafting']] : []), ['rules', 'Campaign rules'], ['audit', 'Audit log']];
 const craftingModule = () => import('./crafting.js?v=31');
 const CAT_LABEL = { identity: 'Character identity', core_build: 'Core build', feats_choices: 'Feats and choices', spells: 'Spells', inventory: 'Inventory',
   runtime: 'Gameplay', content: 'Content', dm_control: 'DM control' };
@@ -105,6 +105,13 @@ async function crafting(panel, alive) {
   await m.dmCraftingPanel(panel, alive, { campaignId, onCount: setCraftBadge, reload: () => { if (alive()) show('crafting'); } });
 }
 
+// ---- quest log (docs/QUEST_LOG.md): its module is loaded only when this section opens ---------------------------------------
+async function quests(panel, alive) {
+  const m = await import('./quests.js?v=31');
+  if (!alive()) return;
+  await m.dmQuestPanel(panel, alive, { campaignId, reload: () => { if (alive()) show('quests'); } });
+}
+
 function frame() {
   root.innerHTML = `
   <header class="dm-head">
@@ -139,7 +146,7 @@ function show(sec) {
   old.replaceWith(panel);
   panel.innerHTML = '<div class="center-wrap"><div class="spinner"></div></div>';
   const my = ++seq;
-  const render = { overview, approvals, party, content, assign, hidden, crafting, rules, audit }[sec];
+  const render = { overview, approvals, party, content, assign, hidden, quests, crafting, rules, audit }[sec];
   render(panel, () => my === seq && root).catch((err) => { if (my === seq && root) panel.innerHTML = `<p class="gov-error" role="alert">${esc(err.message)}</p>`; });
 }
 

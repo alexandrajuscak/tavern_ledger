@@ -2023,14 +2023,14 @@ button.chip:hover { border-color: var(--border-strong); }
   :root { --bottomnav-h: 64px; }
   body:has(.tabs) main { padding-bottom: calc(var(--bottomnav-h) + 28px + env(safe-area-inset-bottom)); }
   .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; margin: 0; overflow: visible;
-    display: grid; grid-template-columns: repeat(6, 1fr); gap: 0;
+    display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0;
     padding: 4px 4px max(4px, env(safe-area-inset-bottom)); background: rgba(22, 22, 27, 0.97);
     border-top: 1px solid var(--border-strong); border-bottom: none; box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.35); }
   .tabs .tab { flex-direction: column; gap: 2px; padding: 6px 2px; min-height: 54px; justify-content: center; border: none; border-radius: 10px;
     font-size: 0.7rem; margin: 0; }
   .tabs .tab .tl-icon { width: 24px; height: 24px; }
   .tab-label { display: none; }
-  .tab-short { display: block; white-space: nowrap; }
+  .tab-short { display: block; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .tabs .tab[aria-selected='true'] { background: var(--accent-soft); color: var(--accent-strong); }
   .toasts { bottom: calc(var(--bottomnav-h) + 12px + env(safe-area-inset-bottom)); }
 }
@@ -2801,3 +2801,35 @@ html.units-metric .us-unit-note { display: inline; }
 .ii-acts { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
 .tl-icon-custom { object-fit: contain; border-radius: 4px; }
 @media (max-width: 560px) { .ii-row { grid-template-columns: 36px 36px minmax(0, 1fr); } .ii-acts { grid-column: 1 / -1; justify-content: flex-start; } }
+
+/* ---- Quest log (js/quests.js, docs/QUEST_LOG.md) ------------------------------------------------------------------------ */
+.quest-tab { margin: 4px 0 22px; }
+.quest-group { display: flex; align-items: center; gap: 8px; font: var(--type-card-title); color: var(--heading, var(--text)); margin: 18px 0 8px; }
+.quest-list { display: grid; gap: 8px; }
+.quest-card { padding: 0; border-left: 3px solid var(--quest-tone, var(--border)); }
+.quest-card > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 12px 14px; cursor: pointer; list-style: none; min-height: 44px; }
+.quest-card > summary::-webkit-details-marker { display: none; }
+.quest-card > summary::after { content: '▸'; margin-left: auto; color: var(--muted); transition: transform 0.15s; }
+.quest-card[open] > summary::after { transform: rotate(90deg); }
+.quest-title { font: var(--type-card-title); color: var(--text); overflow-wrap: anywhere; }
+.quest-badges { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.quest-body { padding: 0 14px 14px; }
+.quest-desc { white-space: pre-wrap; margin: 0 0 10px; color: var(--text-2, var(--text)); }
+.quest-objectives { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.quest-objectives li { display: flex; align-items: flex-start; gap: 8px; }
+.quest-objectives li.is-done > span:not(.quest-check):not(.sr-only) { color: var(--muted); text-decoration: line-through; }
+.quest-check { flex: none; width: 18px; height: 18px; border: 1px solid var(--border-strong, var(--border)); border-radius: 4px; display: inline-grid;
+  place-items: center; font-size: 0.75rem; line-height: 1; color: var(--rarity-uncommon); }
+.quest-objectives li.is-done .quest-check { border-color: var(--rarity-uncommon); }
+/* status badges in the rarity palette (the badge always carries the word, never colour alone) */
+.quest-status { border: 1px solid color-mix(in srgb, var(--quest-tone, var(--muted)) 50%, transparent); color: var(--quest-tone, var(--muted)); background: var(--panel-3); }
+.quest-active { --quest-tone: var(--rarity-legendary); }
+.quest-completed { --quest-tone: var(--rarity-uncommon); }
+.quest-failed { --quest-tone: var(--rarity-artifact); }
+.quest-vis { font-family: var(--font-ui); letter-spacing: 0; }
+.quest-vis-private { color: var(--rarity-very-rare); }
+.quest-dm-list { list-style: none; margin: 0; padding: 0; }
+.quest-dm-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.quest-dm-notes { border-left: 2px solid var(--border); padding-left: 8px; white-space: pre-wrap; }
+.quest-status-select { width: auto; }
+.quest-obj-list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 6px; }
