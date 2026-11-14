@@ -994,6 +994,7 @@ drop function if exists public._character_item_effect_rows(uuid);
 drop function if exists public._character_permanent_effect_rows(uuid);
 drop function if exists public._permanent_effect_label(public.character_permanent_effects, boolean);
 drop function if exists public._character_knows_all(uuid);
+drop function if exists public._internal_caller();
 
 -- item_effects: copy the rows the old code cannot read, then restore the old kinds and activations
 do $$

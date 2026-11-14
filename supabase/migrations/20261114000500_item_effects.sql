@@ -214,9 +214,16 @@ returns text language sql stable security definer set search_path = public, pg_t
     else p.source_label end;
 $$;
 
+-- an internal call (no JWT, not the anon / authenticated API roles: psql, service role, migrations) reads like RLS-bypassing
+-- table access did before this release
+create or replace function public._internal_caller()
+returns boolean language sql stable set search_path = public, pg_temp as $$
+  select auth.uid() is null and coalesce(nullif(current_setting('role', true), ''), 'none') not in ('anon', 'authenticated');
+$$;
+
 create or replace function public._character_knows_all(p_character uuid)
 returns boolean language sql stable security definer set search_path = public, pg_temp as $$
-  select auth.uid() is null or public.is_admin()
+  select public._internal_caller() or public.is_admin()
          or exists (select 1 from public.characters c where c.id = p_character and c.campaign_id is not null and public.is_campaign_dm(c.campaign_id));
 $$;
 
@@ -224,7 +231,7 @@ $$;
 -- _character_effects); nothing for a caller who cannot read the character
 create or replace function public._character_permanent_effect_rows(p_character uuid)
 returns jsonb language sql stable security definer set search_path = public, pg_temp as $$
-  with v as (select public.can_access_character(p_character) as ok, public._character_knows_all(p_character) as dm)
+  with v as (select public.can_access_character(p_character) or public._internal_caller() as ok, public._character_knows_all(p_character) as dm)
   select coalesce(jsonb_agg(jsonb_build_object(
            'id', p.id, 'kind', p.kind, 'effect_type', p.effect_type, 'target', p.target, 'value', p.value, 'max_score', p.max_score,
            'spell_version_id', p.spell_version_id, 'spell_name', sv.name, 'casting', p.casting, 'uses', p.uses, 'recharge', p.recharge,
@@ -243,7 +250,7 @@ create or replace function public._character_item_effect_rows(p_character uuid)
 returns table (source_type text, source_id uuid, item_id text, source_name text, seq int, effect_type text, value numeric, target text,
                activation text, stacking text, stack_group text, priority int, kind_id text, inactive_reason text)
 language sql stable security definer set search_path = public, pg_temp as $$
-  with v as (select public.can_access_character(p_character) as ok),
+  with v as (select public.can_access_character(p_character) or public._internal_caller() as ok),
   owned as (
     select ii.id, ii.item_id, ii.is_attuned and public._item_active_in_form(p_character, ii.id) as is_attuned,
            coalesce(ii.custom_name, it.name) as plain_name, it.name as true_name,
