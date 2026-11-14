@@ -1,11 +1,11 @@
 // Spells tab: spellcasting sources (per-source Save DC / attack), the resolved spellbook, spell details, Add Spell and the
 // source editor. Data-driven: sources, grants, lists and stats come from get_character_spellbook; class levels, spell access
 // and limits of class sources come from get_character_class_summary. Nothing here calculates class rules.
-import { $, $$, esc, toast, openModal, confirmDialog, filtersOpenAttr } from './utils.js?v=36';
-import * as api from './spell-api.js?v=36';
-import { catalogOrExplain } from './catalog-load.js?v=36';
-import { icon } from './icons.js?v=36';
-import { spellIconHTML, spellDamage } from './spell-icons.js?v=36';
+import { $, $$, esc, toast, openModal, confirmDialog, filtersOpenAttr } from './utils.js?v=37';
+import * as api from './spell-api.js?v=37';
+import { catalogOrExplain } from './catalog-load.js?v=37';
+import { icon } from './icons.js?v=37';
+import { spellIconHTML, spellDamage } from './spell-icons.js?v=37';
 
 const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const SOURCE_TYPE = { class: 'Class', subclass: 'Subclass', feat: 'Feat', item: 'Magic item', manual: 'Manual',

@@ -1,8 +1,8 @@
 // Derived character stats on the sheet: AC breakdown, warnings, equipped weapon attacks, proficiency manager.
 // The rules live in the database (get_character_derived_stats); this module only turns the structured result into text.
-import { $, esc, toast, openModal } from './utils.js?v=36';
-import * as api from './inventory-api.js?v=36';
-import { weaponCardHTML, unknownWeaponCardHTML } from './weapon-card.js?v=36';
+import { $, esc, toast, openModal } from './utils.js?v=37';
+import * as api from './inventory-api.js?v=37';
+import { weaponCardHTML, unknownWeaponCardHTML } from './weapon-card.js?v=37';
 
 const fmt = (n) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`);
 const FORMULA = { unarmored: 'Unarmored', light_armor: 'Light armor', medium_armor: 'Medium armor', heavy_armor: 'Heavy armor' };

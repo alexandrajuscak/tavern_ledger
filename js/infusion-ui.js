@@ -1,9 +1,9 @@
 // Infused items card: the infusions a character knows (a class feature choice), the items that hold them, and the dialog that
 // infuses an item, replicates a magic item or creates a companion. The rules (known infusions, item limit, which items
 // qualify, the bonus of each level) live in the database (migration 20261017000900); this module only moves data.
-import { $, esc, toast, openModal, confirmDialog } from './utils.js?v=36';
-import { supabase } from './supabase.js?v=36';
-import { normalizeError } from './inventory-api.js?v=36';
+import { $, esc, toast, openModal, confirmDialog } from './utils.js?v=37';
+import { supabase } from './supabase.js?v=37';
+import { normalizeError } from './inventory-api.js?v=37';
 
 async function rpc(fn, args) {
   const { data, error } = await supabase.rpc(fn, args);

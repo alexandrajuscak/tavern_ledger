@@ -2,9 +2,9 @@
 // stores the registry key (items.icon_key, checked by items_icon_key_check), never a URL, SVG or HTML. No uploads here: the
 // DM's own uploaded icons are a separate per-campaign override (js/custom-icons.js, docs/CUSTOM_ICONS.md).
 // Resolution when shown: the item's own key -> its category default -> the generic icon (icons.js fallback chain).
-import { esc } from './utils.js?v=36';
-import { icon } from './icons.js?v=36';
-import { ICON_REGISTRY } from './icon-registry.js?v=36';
+import { esc } from './utils.js?v=37';
+import { icon } from './icons.js?v=37';
+import { ICON_REGISTRY } from './icon-registry.js?v=37';
 
 export const ITEM_ICON_GALLERY = [
   ['potion.generic', 'Potion'], ['potion.healing', 'Healing potion'], ['potion.mana', 'Blue potion'], ['potion.poison', 'Poison'],
