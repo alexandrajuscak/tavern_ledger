@@ -3,11 +3,11 @@
 // get_character_class_features, get_character_resources, get_character_derived_stats and preview_character_class_change;
 // nothing here decides which feature is active, what a maximum is or whether a choice is valid.
 // No class-specific code: controls are derived from the choice definitions, groups from the feature categories.
-import { $, $$, esc, toast, openModal } from './utils.js?v=34';
-import { SKILLS } from './dnd.js?v=34';
-import * as api from './class-api.js?v=34';
-import { getSpellCatalog } from './spell-api.js?v=34';
-import { riderSlotButton } from './slot-actions.js?v=34';
+import { $, $$, esc, toast, openModal } from './utils.js?v=35';
+import { SKILLS } from './dnd.js?v=35';
+import * as api from './class-api.js?v=35';
+import { getSpellCatalog } from './spell-api.js?v=35';
+import { riderSlotButton } from './slot-actions.js?v=35';
 
 const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const AUTOMATION = {

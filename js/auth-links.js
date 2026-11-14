@@ -4,10 +4,10 @@
 // Always active (they only react to a link that is already in the URL): ?token_hash=…&type=… links behind a Continue button
 // (a mail scanner that prefetches the link does not use it up), PASSWORD_RECOVERY -> "Set new password", friendly texts for
 // expired / used links. Behind js/config.js AUTH_EMAIL_FLOWS = 'on' (they send mail): Forgot password, Resend confirmation.
-import { supabase, redirectUrl, authArrival } from './supabase.js?v=34';
-import { AUTH_EMAIL_FLOWS } from './config.js?v=34';
-import { $, esc, toast, friendlyError } from './utils.js?v=34';
-import { iconSrc } from './icons.js?v=34';
+import { supabase, redirectUrl, authArrival } from './supabase.js?v=35';
+import { AUTH_EMAIL_FLOWS } from './config.js?v=35';
+import { $, esc, toast, friendlyError } from './utils.js?v=35';
+import { iconSrc } from './icons.js?v=35';
 
 /** The one password minimum of the app: sign-up and reset use the same rule (the server may require more). */
 export const PASSWORD_MIN = 6;

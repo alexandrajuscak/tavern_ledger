@@ -1,11 +1,11 @@
 // Classes card (Build tab) and Slot Tracker (Spells tab). Everything shown comes from get_character_class_summary and
 // get_character_spell_slots; nothing here calculates levels, slots or multiclass rules.
-import { $, esc, toast, openModal, confirmDialog } from './utils.js?v=34';
-import * as api from './class-api.js?v=34';
-import { catalogOrExplain } from './catalog-load.js?v=34';
-import { icon } from './icons.js?v=34';
-import { reviewClassChange } from './feature-ui.js?v=34';
-import { openAddClass, startingEquipmentButtonHTML } from './class-setup.js?v=34';
+import { $, esc, toast, openModal, confirmDialog } from './utils.js?v=35';
+import * as api from './class-api.js?v=35';
+import { catalogOrExplain } from './catalog-load.js?v=35';
+import { icon } from './icons.js?v=35';
+import { reviewClassChange } from './feature-ui.js?v=35';
+import { openAddClass, startingEquipmentButtonHTML } from './class-setup.js?v=35';
 
 const ABILITY = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const ord = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`;
