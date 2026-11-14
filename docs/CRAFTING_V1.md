@@ -251,8 +251,10 @@ items and the recipe's normal / critical / failure results), in one fixed order 
 - `learn_recipe_from_item`: the item's lock, then the row `FOR UPDATE`, then the writes.
 
 `supabase/tests/item_knowledge_transfer_concurrency_test.sh` modes `craft` (auto) and `craft_dm` (pending + approval): the
-player crafts a recipe whose result is the item whose sibling copy the DM moves between characters. Without v2 both modes fail
-(deadlocks); with v2 they pass (see the release notes for the numbers).
+player crafts a recipe whose result is the item whose sibling copy the DM moves between characters. Without v2 both modes fail:
+no deadlock (v1's `NOWAIT` in `_craft_produce` prevents one), but 19 of 20 crafts end with "The player is busy with this item right
+now" (`TLCRF`; `apply_failed` on the DM path, a refused start on the auto path). With v2 the crafts wait for the transfer's 4242
+lock instead: 20 runs × 20 crafts per mode, 0 errors, 0 new deadlocks.
 
 ### Read cost
 
