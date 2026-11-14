@@ -156,7 +156,8 @@ end $$;
 insert into fr values ('character_revisions in the Realtime publication',
   exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'character_revisions'), null);
 -- 21 + character_feats_revision and character_feat_choices_revision (20261107000100_feat_removal.sql)
-insert into fr values ('23 revision triggers', (select count(*) from pg_trigger where tgname like '%\_revision' and not tgisinternal) = 23, null);
+-- 24 since 20261114000500 (character_permanent_effects_revision: a DM revert refreshes the player's open sheet)
+insert into fr values ('24 revision triggers', (select count(*) from pg_trigger where tgname like '%\_revision' and not tgisinternal) = 24, null);
 insert into fr values ('character_revisions: no write grant for authenticated',
   not has_table_privilege('authenticated', 'public.character_revisions', 'insert') and not has_table_privilege('authenticated', 'public.character_revisions', 'update'), null);
 insert into fr values ('new functions: pinned search_path', not exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace

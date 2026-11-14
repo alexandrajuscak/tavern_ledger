@@ -24,6 +24,8 @@ includes hidden data; `export_campaign_dm_backup` (DM only) does.
 | `dm_content.dm_notes`, `dm_content_versions` hidden parts | nothing (players read published content through the catalog and `get_content_public_info`) | everything |
 | `change_request_private_notes` | nothing | notes on a request |
 | `quest_dm_notes`, private `quests` (20261114000400) | nothing / a private quest only on its target character ([QUEST_LOG.md](QUEST_LOG.md)) | everything |
+| `character_permanent_effects` (20261114000500) | nothing directly; his own bonuses through the derived stats, the source under the disguise it had when used ([ITEM_EFFECTS.md](ITEM_EFFECTS.md)) | everything, incl. the true item and Revert |
+| item effects / granted spells of an unidentified item | the bonus and the spell, labelled only with the disguise (derived stats, spell source, counter) | the true name "(unidentified)" |
 
 An unidentified item instance carries only the disguise the DM chose (its custom name and description); the real item
 row is invisible to the player until identified (`set_item_knowledge(inventory item, 'identified')` restores the true
