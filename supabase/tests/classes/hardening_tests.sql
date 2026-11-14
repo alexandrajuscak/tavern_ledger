@@ -107,13 +107,13 @@ select tl_test.rec('H6 M4 identified: the player sees the true name and item id'
 
 -- ---- n1 + m1 ----------------------------------------------------------------------------------------------------------------
 -- identified, in hand, not attuned: the Special's effect is inactive; attuned: active (and the action counter exists)
-select (w -> 'weapon_blocks' -> 'special' -> 0 -> 'effect' ->> 'active')::boolean as sp_before
-from jsonb_array_elements(public.get_character_derived_stats(:'h1') -> 'equipped_weapon_attacks') w where w ->> 'inventory_item_id' = :'uw' \gset
+select coalesce((select w -> 'weapon_blocks' -> 'special' -> 0 -> 'effect' ->> 'active'
+  from jsonb_array_elements(public.get_character_derived_stats(:'h1') -> 'equipped_weapon_attacks') w where w ->> 'inventory_item_id' = :'uw'), 'missing') as sp_before \gset
 select public.attune_item(:'uw');
-select (w -> 'weapon_blocks' -> 'special' -> 0 -> 'effect' ->> 'active')::boolean as sp_after
-from jsonb_array_elements(public.get_character_derived_stats(:'h1') -> 'equipped_weapon_attacks') w where w ->> 'inventory_item_id' = :'uw' \gset
+select coalesce((select w -> 'weapon_blocks' -> 'special' -> 0 -> 'effect' ->> 'active'
+  from jsonb_array_elements(public.get_character_derived_stats(:'h1') -> 'equipped_weapon_attacks') w where w ->> 'inventory_item_id' = :'uw'), 'missing') as sp_after \gset
 select tl_test.rec('H7 n1 a Special''s linked effect: inactive while not attuned, active once attuned',
-  not :'sp_before'::boolean and :'sp_after'::boolean);
+  :'sp_before' = 'false' and :'sp_after' = 'true', :'sp_before' || ' / ' || :'sp_after');
 select (tl_test.res_of(:'h1', 'itemw-' || replace(:'uw', '-', '') || '-%')).id as wres \gset
 select tl_test.as_user(:'dm');
 select public.set_item_knowledge(:'uw', 'unidentified');
