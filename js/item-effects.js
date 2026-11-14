@@ -16,6 +16,7 @@ export const EFFECT_KINDS = [
   ['save_bonus', 'Saving throw + (no target: all saves)'], ['ac_bonus', 'Armor Class +'], ['initiative_bonus', 'Initiative +'],
   ['speed_bonus', 'Speed + (ft)'], ['speed_penalty', 'Speed − (ft)'], ['resistance', 'Resistance (damage type)'],
   ['skill_advantage', 'Advantage on a skill'], ['skill_disadvantage', 'Disadvantage on a skill'],
+  ['attack_bonus', 'Attack rolls + (weapons: this weapon)'], ['damage_bonus', 'Damage + (weapons: this weapon)'],
 ];
 export const ACTIVATIONS = [
   ['equipped', 'While equipped'], ['attuned', 'While attuned'], ['equipped_and_attuned', 'While equipped and attuned'],
@@ -23,6 +24,15 @@ export const ACTIVATIONS = [
 ];
 export const CASTING = [['per_rest', 'Uses per rest (own counter)'], ['at_will', 'At will'], ['spell_slots', 'Uses the character’s spell slots']];
 export const RECHARGE = [['long_rest', 'Long rest'], ['short_rest', 'Short rest']];
+// weapon blocks (R-D2)
+export const ACTION_COSTS = [['action', 'Action'], ['bonus_action', 'Bonus action'], ['reaction', 'Reaction']];
+export const ACTION_ROLLS = [['none', 'No roll'], ['attack', 'Attack roll (the weapon’s to hit)'], ['save', 'Saving throw']];
+export const DC_ABILITIES = [['', 'DC: 8 + proficiency + the weapon’s ability'], ['str', '8 + prof. + Strength'], ['dex', '8 + prof. + Dexterity'],
+  ['con', '8 + prof. + Constitution'], ['int', '8 + prof. + Intelligence'], ['wis', '8 + prof. + Wisdom'], ['cha', '8 + prof. + Charisma']];
+export const CONDITION_APPLIES = [['hit', 'On a hit'], ['action', 'By a weapon action']];
+/** SRD conditions for the editor's list (the server maps a name of the conditions catalog to its key; other text is custom). */
+export const CONDITION_NAMES = ['Blinded', 'Charmed', 'Deafened', 'Exhaustion', 'Frightened', 'Grappled', 'Incapacitated', 'Invisible',
+  'Paralyzed', 'Petrified', 'Poisoned', 'Prone', 'Restrained', 'Stunned', 'Unconscious', 'Bleeding'];
 
 /** Targets of an effect for one select: abilities, then skills (the server checks that the target fits the kind). */
 export function effectTargetOptions(damageTypes = []) {
@@ -50,6 +60,8 @@ export function effectText(e) {
     case 'resistance': return `Resistance to ${e.target} damage`;
     case 'skill_advantage': return `Advantage on ${targetName(e.target)}`;
     case 'skill_disadvantage': return `Disadvantage on ${targetName(e.target)}`;
+    case 'attack_bonus': return `${signed(v)} to attack rolls`;
+    case 'damage_bonus': return `${signed(v)} damage`;
     default: return String(e.effect_type || e.type || 'Effect');
   }
 }

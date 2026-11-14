@@ -175,7 +175,7 @@ export function equippedWeaponsHTML(d, opts = {}) {
   const natural = naturalWeaponsHTML(d);
   const hidden = (d?.warnings || []).filter((w) => w.code === 'hidden_item' && SLOT[w.slot_id] && w.source_id);
   if (!list.length && !hidden.length) return natural || '<p class="empty">No weapon equipped. Equip one in the Inventory tab.</p>';
-  return list.map((w) => weaponCardHTML(w, opts.info?.(w.inventory_item_id) || null, { open: openDetails, infused: opts.infused }))
+  return list.map((w) => weaponCardHTML(w, opts.info?.(w.inventory_item_id) || null, { open: openDetails, infused: opts.infused, resource: opts.resource, editable: opts.editable }))
     .concat(hidden.map((h) => unknownWeaponCardHTML(h.source_id, h.slot_id, opts.info?.(h.source_id) || null))).join('') + natural;
 }
 

@@ -959,6 +959,7 @@ function renderClasses() {
   put('#option-spells', optionSpellsHTML(selectedOptions(classFeatures, classResources).spell));
   const infSig = JSON.stringify([...infusedItemMap(infusionState)]);
   if (infSig !== lastInfusedSig) { lastInfusedSig = infSig; inventory?.render?.(); renderWeapons(); }   // infused-item badges follow the infusion read (only on change)
+  else renderWeapons();   // weapon action counters (R-D2) follow the resource read; re-renders only when the markup changed
   put('#sheet-avatar', avatarHTML());
   hydrateSpellChoices(root);
   renderStrip();
@@ -1944,7 +1945,9 @@ function weaponInfo(inventoryItemId) {
   const r = (B?.inventory || []).find((x) => x.id === inventoryItemId);
   return r ? { known: null, name: r.custom_name || r.name, attunement: false, attuned: !!r.is_attuned } : null;
 }
-const weaponOpts = () => ({ info: weaponInfo, infused: infusedItemMap(infusionState) });
+// weapon action counters (R-D2): the live rows of get_character_resources (already loaded), matched by key 'r:<id>'
+const weaponResource = (key) => (classResources?.resources || []).find((r) => r.key === key) || null;
+const weaponOpts = () => ({ info: weaponInfo, infused: infusedItemMap(infusionState), resource: weaponResource, editable: !ctx?.readOnly });
 /** Re-render the weapon cards only when their markup changed (keeps the focus on an open "How this is calculated"). */
 function renderWeapons() {
   const el = root && $('#equipped-weapons', root);

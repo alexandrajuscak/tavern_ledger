@@ -2783,6 +2783,14 @@ details.combat-group.passive-group > summary { cursor: pointer; }
 .wpn-notes { margin: 0; overflow-wrap: anywhere; }
 @media (min-width: 701px) { .wpn-title { font-family: var(--font-display-medieval); letter-spacing: 0.03em; color: var(--color-title); } }
 @media (max-width: 420px) { .wpn-card .roll { min-width: 0; flex: 1 1 40%; } }
+/* R-D2 weapon blocks (Weapon actions, Special, Condition): spell-card sub-blocks inside the weapon card */
+.wpn-block { display: grid; gap: 6px; margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--border); min-width: 0; }
+.wpn-block-title { margin: 0; font-size: var(--fs-small, 0.85rem); text-transform: uppercase; letter-spacing: 0.06em; color: var(--gold); }
+.wpn-act { display: grid; gap: 4px; min-width: 0; }
+.wpn-act-head { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
+.wpn-act-name { margin-right: 4px; overflow-wrap: anywhere; }
+.wpn-counter { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wpn-chip.wpn-auto { color: var(--good); border-color: var(--good); }
 
 /* ---- R-A measurement units (js/units.js): the viewer's US / Metric switch; "US units" notes on number fields under Metric ---- */
 .units-switch { display: inline-flex; flex-wrap: wrap; gap: 4px; }

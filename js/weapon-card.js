@@ -5,10 +5,11 @@
 // * What the card says about the ITEM (name, icon, rarity, magic, attunement, description, modifiers) comes only from the masked
 //   inventory data the sheet already has (the Inventory panel's rows + the character's knowledge read, or the raw inventory row):
 //   an unidentified or partly identified weapon shows its decoy and the revealed facts only. Nothing is fetched for the card.
-// * Three empty slots for release R-D ("Weapon actions", "Special", "Condition") return '' today.
+// * The blocks "Weapon actions", "Special", "Condition" (R-D2) come from derived weapon_blocks (absent for an unknown copy).
 // The hooks of the earlier cards stay: .entry.derived-weapon[data-weapon], [data-attack-bonus], details[data-details] (one <summary>).
 import { esc } from './utils.js?v=33';
 import { icon, ITEM_ICONS } from './icons.js?v=33';
+import { effectText } from './item-effects.js?v=33';
 
 const fmt = (n) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`);
 const cap = (s) => String(s || '').replace(/^\w/, (c) => c.toUpperCase());
@@ -24,15 +25,71 @@ const PROPERTY_HINT = { finesse: 'Use Strength or Dexterity, whichever is better
 /** A distance in feet as text (stored units). The viewer's Metric choice converts it on screen (js/units.js display layer). */
 const distance = (ft) => `${ft} ft`;
 
-// ---- future blocks (release R-D: item effects, BG3 style). They render nothing until the data exists. ------------------------
-// Each gets the derived weapon and the viewer's item info; it must return '' when there is nothing to show, and must never show
-// anything for an item the viewer does not know (info.known === false).
-/** "Weapon actions": special attacks the weapon grants (R-D). */
-export function weaponActionsHTML(/* w, info */) { return ''; }
-/** "Special": passive weapon effects (R-D). */
-export function weaponSpecialHTML(/* w, info */) { return ''; }
-/** "Condition": conditions a hit can apply (R-D). */
-export function weaponConditionHTML(/* w, info */) { return ''; }
+// ---- weapon blocks (R-D2, docs/ITEM_EFFECTS.md "Weapon blocks"): "Weapon actions", "Special", "Condition" -------------------------
+// The data comes only from the derived read (w.weapon_blocks): the server leaves it out for a copy the viewer does not know, so
+// these never show anything for an unidentified / hidden weapon. info.known === false is checked again as a second layer.
+// ctx: { resource(key) -> the live counter of get_character_resources (remaining / max) or null, editable }.
+const COST = { action: 'Action', bonus_action: 'Bonus action', reaction: 'Reaction' };
+const PER = { short_rest: 'short rest', long_rest: 'long rest' };
+const ABBR = { str: 'STR', dex: 'DEX', con: 'CON', int: 'INT', wis: 'WIS', cha: 'CHA' };
+const blocksOf = (w, info) => (info?.known === false ? null : w?.weapon_blocks || null);
+const saveText = (b) => (b.save_dc != null ? `DC ${b.save_dc} ${ABBR[b.save_ability] || ''} save` : '');
+const dmgText = (b) => (b.damage ? `${b.damage}${b.damage_type ? ` ${b.damage_type}` : ''}` : '');
+
+function usesHTML(a, ctx) {
+  if (!a.uses) return chip('Unlimited', { cls: 'wpn-uses' });
+  const per = PER[a.recharge] || 'rest';
+  const r = a.resource_key ? ctx?.resource?.(a.resource_key) : null;
+  if (!r) return chip(`${a.uses}× per ${per}`, { cls: 'wpn-uses', title: a.available === false ? 'Not available now (needs attunement)' : '' });
+  const left = r.remaining ?? a.uses;
+  const max = r.max ?? a.uses;
+  const buttons = ctx?.editable ? `
+      <button type="button" class="btn btn-sm" data-cf-action="res-use" data-key="${esc(r.key)}" data-focus-key="wpn-use:${esc(r.key)}"
+        aria-label="Use ${esc(a.name)}" ${!r.active || left <= 0 ? 'disabled' : ''}>Use</button>
+      <button type="button" class="btn btn-sm" data-cf-action="res-restore" data-key="${esc(r.key)}" data-focus-key="wpn-restore:${esc(r.key)}"
+        aria-label="Restore one use of ${esc(a.name)}" ${!r.expended ? 'disabled' : ''}>Restore</button>` : '';
+  return `<span class="wpn-counter cf-res-actions" data-wpn-uses="${esc(r.key)}"><span class="cf-res-count" data-wpn-left>${esc(`${left} / ${max}`)}</span>
+      <span class="muted small">per ${esc(per)}</span>${buttons}</span>`;
+}
+
+/** "Weapon actions": named actions the wielder can take (cost, roll, damage, uses with Use / Restore for limited ones). */
+export function weaponActionsHTML(w, info, ctx = {}) {
+  const list = blocksOf(w, info)?.actions || [];
+  if (!list.length) return '';
+  return `<section class="wpn-block wpn-actions" data-wpn-block="actions"><h4 class="wpn-block-title">Weapon actions</h4>
+    ${list.map((a) => {
+      const roll = a.roll === 'attack' && a.attack_bonus != null ? `To hit ${fmt(a.attack_bonus)}` : a.roll === 'save' ? saveText(a) : '';
+      return `<article class="wpn-act" data-wpn-action="${esc(a.seq)}">
+        <div class="wpn-act-head"><strong class="wpn-act-name">${esc(a.name)}</strong>
+          ${chip(COST[a.cost] || 'Action', { cls: 'wpn-cost' })}${roll ? chip(roll, { cls: 'wpn-roll' }) : ''}${dmgText(a) ? chip(dmgText(a), { cls: 'wpn-dmg' }) : ''}
+          ${a.available === false ? chip('Needs attunement', { cls: 'wpn-attune' }) : ''}</div>
+        ${a.description ? `<p class="wpn-desc small">${esc(a.description)}</p>` : ''}
+        <div class="wpn-act-uses">${usesHTML(a, ctx)}</div>
+      </article>`;
+    }).join('')}</section>`;
+}
+
+/** "Special": passive effects; a linked item effect is applied automatically by the derived stats (shown, not recomputed). */
+export function weaponSpecialHTML(w, info) {
+  const list = blocksOf(w, info)?.special || [];
+  if (!list.length) return '';
+  return `<section class="wpn-block wpn-special" data-wpn-block="special"><h4 class="wpn-block-title">Special</h4>
+    ${list.map((x) => `<article class="wpn-act" data-wpn-special="${esc(x.seq)}"><div class="wpn-act-head"><strong class="wpn-act-name">${esc(x.name)}</strong>
+      ${x.effect ? chip(`${effectText(x.effect)} (applied automatically)`, { cls: 'wpn-auto' }) : ''}</div>
+      ${x.text ? `<p class="wpn-desc small">${esc(x.text)}</p>` : ''}</article>`).join('')}</section>`;
+}
+
+/** "Condition": what a hit or a weapon action applies (a reminder: nothing is applied to targets automatically). */
+export function weaponConditionHTML(w, info) {
+  const list = blocksOf(w, info)?.conditions || [];
+  if (!list.length) return '';
+  return `<section class="wpn-block wpn-conditions" data-wpn-block="conditions"><h4 class="wpn-block-title">Condition</h4>
+    ${list.map((c) => `<article class="wpn-act" data-wpn-condition="${esc(c.seq)}"><div class="wpn-act-head"><strong class="wpn-act-name">${esc(c.name)}</strong>
+      ${chip(c.applies_on === 'action' ? 'By a weapon action' : 'On a hit', { cls: 'wpn-on' })}
+      ${saveText(c) ? chip(saveText(c), { cls: 'wpn-roll' }) : ''}
+      ${c.duration ? chip(c.duration, { cls: 'wpn-dur' }) : ''}</div>
+      ${c.text ? `<p class="wpn-desc small">${esc(c.text)}</p>` : ''}</article>`).join('')}</section>`;
+}
 
 const chip = (text, { cls = '', title = '' } = {}) => `<span class="sp-badge wpn-chip ${cls}"${title ? ` title="${esc(title)}"` : ''}>${esc(text)}</span>`;
 const dmgChip = (t) => `<span class="dmg-chip" data-dmg="${DAMAGE_IDS.includes(t) ? t : 'none'}"><span class="sp-swatch" aria-hidden="true"></span>${esc(cap(t))}</span>`;
@@ -75,9 +132,10 @@ function abilityRule(w) {
 
 /**
  * One card for an equipped weapon. w: an element of derived.equipped_weapon_attacks. info: what the viewer knows about the item
- * (see js/sheet.js weaponInfo) or null. opts: { open: Set of open detail keys, infused: Map inventory item id -> infusion }.
+ * (see js/sheet.js weaponInfo) or null. opts: { open: Set of open detail keys, infused: Map inventory item id -> infusion,
+ *   resource(key): live counter of a limited weapon action, editable: show Use / Restore }.
  */
-export function weaponCardHTML(w, info, { open = new Set(), infused = null } = {}) {
+export function weaponCardHTML(w, info, { open = new Set(), infused = null, resource = null, editable = false } = {}) {
   const prof = w.proficiency || {};
   const group = prof.group_name || prof.missing_group_name || '';
   const magic = (w.attack_breakdown || []).filter((p) => p.effect === 'attack_bonus');
@@ -115,7 +173,7 @@ export function weaponCardHTML(w, info, { open = new Set(), infused = null } = {
       ${notes.map((n) => `<p class="derived-note"><strong>Note:</strong> ${esc(n)}</p>`).join('')}
       ${desc ? `<p class="wpn-desc small" data-wpn-desc>${esc(desc)}</p>` : ''}
       ${info?.notes ? `<p class="wpn-notes small muted"><strong>Your notes:</strong> ${esc(info.notes)}</p>` : ''}
-      ${weaponActionsHTML(w, info)}${weaponSpecialHTML(w, info)}${weaponConditionHTML(w, info)}
+      ${weaponActionsHTML(w, info, { resource, editable })}${weaponSpecialHTML(w, info)}${weaponConditionHTML(w, info)}
       <details data-details="${esc(key)}" ${open.has(key) ? 'open' : ''}>
         <summary data-focus-key="${esc(key)}:details">How this is calculated</summary>
         <table class="ac-table">

@@ -10,7 +10,8 @@ import { iconPickerHTML } from './item-icon-gallery.js?v=33';
 import { supabase } from './supabase.js?v=33';
 import { CONTENT_MANAGEMENT } from './config.js?v=33';
 import { openItemIconsDialog } from './custom-icons.js?v=33';
-import { EFFECT_KINDS, ACTIVATIONS, CASTING, RECHARGE, effectTargetOptions } from './item-effects.js?v=33';
+import { EFFECT_KINDS, ACTIVATIONS, CASTING, RECHARGE, effectTargetOptions, ACTION_COSTS, ACTION_ROLLS, DC_ABILITIES, CONDITION_APPLIES,
+  CONDITION_NAMES } from './item-effects.js?v=33';
 
 /** The content management actions (usage report, delete any unused content, duplicate official) are behind js/config.js
  *  CONTENT_MANAGEMENT; 'off' keeps the earlier buttons. The database authorizes every action itself. */
@@ -131,6 +132,23 @@ function schemaFor(type, ref) {
         ['uses', 'Uses (per rest)', 'num'], ['recharge', 'Uses come back after', 'sel', { options: RECHARGE }],
         ['activation', 'When', 'sel', { options: [['', 'Default: while attuned (attunement items), else while equipped'], ...ACTIVATIONS] }],
         ['ability', 'Spellcasting ability', 'sel', { options: [['', 'The character’s'], ...ABIL] }]] }]] },
+      // 20261114000600 (docs/ITEM_EFFECTS.md "Weapon blocks"): BG3-style blocks of a weapon, shown on its card in Play (identified copies only)
+      { title: 'Weapon actions', for: 'weapon', key: 'weapon_actions', fields: [['definition.item.weapon_actions', 'Weapon actions', 'rows', { row: [
+        ['name', 'Name', 'text', { max: 60 }], ['description', 'What it does', 'area', { max: 1000 }],
+        ['cost', 'Costs', 'sel', { options: ACTION_COSTS }], ['roll', 'Roll', 'sel', { options: ACTION_ROLLS }],
+        ['save_ability', 'Saving throw (target)', 'sel', { options: [['', '—'], ...ABIL] }], ['dc', 'Fixed DC (empty: formula)', 'num'],
+        ['dc_ability', 'DC formula', 'sel', { options: DC_ABILITIES }],
+        ['damage', 'Damage (e.g. 1d6)', 'text', { max: 12 }], ['damage_type', 'Damage type', 'sel', { options: [['', '—'], ...dmg] }],
+        ['uses', 'Uses (empty: unlimited)', 'num'], ['recharge', 'Uses come back after', 'sel', { options: RECHARGE }]] }]] },
+      { title: 'Special', for: 'weapon', key: 'weapon_special', fields: [['definition.item.weapon_special', 'Special', 'rows', { row: [
+        ['name', 'Name', 'text', { max: 60 }], ['text', 'What it does', 'area', { max: 1000 }],
+        ['effect', 'Bonus applied automatically: number of an effect in “Effects” (optional)', 'num']] }]] },
+      { title: 'Condition', for: 'weapon', key: 'weapon_conditions', fields: [['definition.item.weapon_conditions', 'Conditions', 'rows', { row: [
+        ['condition', 'Condition (from the list or your own)', 'text', { listId: 'ce-cond-dl', max: 60 }],
+        ['applies_on', 'Applied', 'sel', { options: CONDITION_APPLIES }],
+        ['save_ability', 'Saving throw', 'sel', { options: [['', 'None'], ...ABIL] }], ['dc', 'Fixed DC (empty: formula)', 'num'],
+        ['dc_ability', 'DC formula', 'sel', { options: DC_ABILITIES }], ['duration', 'Duration (e.g. 2 turns)', 'text', { max: 100 }],
+        ['text', 'Note (a reminder; nothing is applied automatically)', 'area', { max: 1000 }]] }]] },
       { title: 'Hidden from players (DM only)', dm: true, fields: [['definition.hidden.unidentified_name', 'Name while unidentified', 'text'],
         ['definition.hidden.unidentified_description', 'Description while unidentified', 'area'], ['definition.hidden.curse', 'Curse (stays secret until you reveal it)', 'area'],
         ['definition.hidden.properties', 'Secret properties (reveal them one by one)', 'rows', { row: [['key', 'Key', 'text'], ['label', 'Name', 'text'], ['text', 'What it does', 'text']] }]] },
@@ -297,6 +315,21 @@ function readForm(form, type, base) {
     });
     if (fx.length) d.item.effects = fx; else delete d.item.effects;
     if (sp.length) d.item.spells = sp; else delete d.item.spells;
+    // weapon blocks (R-D2): weapons only; rows without a name are empty form rows; save fields only with the roll "Saving throw"
+    const isWeapon = d.item.kind_id === 'weapon';
+    const wa = isWeapon ? (d.item.weapon_actions || []).filter((x) => x && x.name).map((x) => {
+      const o = { ...x };
+      if (o.roll !== 'save') { delete o.save_ability; delete o.dc; delete o.dc_ability; }
+      if (o.uses == null) delete o.recharge;
+      return o;
+    }) : [];
+    const ws = isWeapon ? (d.item.weapon_special || []).filter((x) => x && (x.name || x.text)) : [];
+    const wc = isWeapon ? (d.item.weapon_conditions || []).filter((x) => x && x.condition).map((x) => {
+      const o = { ...x };
+      if (!o.save_ability) { delete o.dc; delete o.dc_ability; }
+      return o;
+    }) : [];
+    for (const [k, v] of [['weapon_actions', wa], ['weapon_special', ws], ['weapon_conditions', wc]]) { if (v.length) d.item[k] = v; else delete d.item[k]; }
   }
   // the coin select always has a value: without a cost it must not be sent ("Cost needs both an amount and a coin")
   if (type === 'item' && d.item && d.item.cost_value == null) delete d.item.cost_unit;
@@ -363,6 +396,7 @@ export function previewHTML(type, p, player, ref = null) {
     case 'item': return `<article class="preview-card">${head}<p class="small">${esc(p.kind_name || p.kind_id || '')}
       ${p.rarity_id ? rarityChip(p.rarity_id, p.is_magic, ref) : ''}${p.is_magic ? ' · magical' : ''}${p.requires_attunement ? ' · attunement' : ''}</p>${p.description ? `<p>${esc(p.description)}</p>` : ''}
       ${p.damage_dice ? `<p class="small">Damage ${esc(p.damage_dice)} ${esc(p.damage_type_id || '')}</p>` : ''}${p.base_ac ? `<p class="small">AC ${esc(p.base_ac)}</p>` : ''}
+      ${p.weapon_blocks ? `<p class="small" data-preview-weapon-blocks>${esc(`${p.weapon_blocks} weapon block${p.weapon_blocks === 1 ? '' : 's'} (actions, special, condition)`)}</p>` : ''}
       ${(p.effects || []).length || (p.spells || []).length ? `<p class="small" data-preview-effects>${esc([(p.effects || []).length ? `${p.effects.length} automatic effect${p.effects.length === 1 ? '' : 's'}` : '', (p.spells || []).length ? `${p.spells.length} granted spell${p.spells.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · '))}</p>` : ''}
       <p class="muted small">Unidentified copies show only the disguise you set; secrets stay with you.</p></article>`;
     case 'feat': return `<article class="preview-card">${head}<p class="small">${esc(p.category || '')} · ${esc(p.ruleset || '')}</p>
@@ -601,6 +635,7 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
         ${schemaFor(type, ref).map((sec) => `<fieldset class="ce-section ${sec.dm ? 'dm-only-field' : ''}" ${sec.for ? `data-ce-for="${esc(sec.for)}"` : ''} ${sec.key ? `data-ce-section="${esc(sec.key)}"` : ''}><legend>${esc(sec.title)}</legend>
           <div class="ce-grid">${sec.fields.map((f) => fieldHTML(f, model)).join('')}</div></fieldset>`).join('')}
       </form>
+      ${type === 'item' ? `<datalist id="ce-cond-dl">${CONDITION_NAMES.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>` : ''}
       ${type === 'item' ? `<datalist id="ce-spell-dl">${(ref.spells || []).map((sp) => `<option value="${esc(sp.id)}">${esc(sp.name)} (${sp.level ? `level ${sp.level}` : 'cantrip'})</option>`).join('')}</datalist>` : ''}
       <section class="ce-preview" data-ce-preview hidden aria-live="polite"></section>`;
     const st = c?.status;
@@ -674,7 +709,8 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
           const p = await dm.previewContent(c.id);
           const box = $('[data-ce-preview]', m.el);
           box.hidden = false;
-          box.innerHTML = `<h3 class="small-h">Players will see</h3>${p.ok ? previewHTML(type, type === 'item' ? { ...p.preview, effects: current().definition?.item?.effects, spells: current().definition?.item?.spells } : p.preview, p.player_view, ref) : `<div class="gov-error">${esc((p.errors || []).join(' '))}</div>`}`;
+          box.innerHTML = `<h3 class="small-h">Players will see</h3>${p.ok ? previewHTML(type, type === 'item' ? { ...p.preview, effects: current().definition?.item?.effects, spells: current().definition?.item?.spells,
+            weapon_blocks: ['weapon_actions', 'weapon_special', 'weapon_conditions'].reduce((n, k) => n + (current().definition?.item?.[k] || []).length, 0) } : p.preview, p.player_view, ref) : `<div class="gov-error">${esc((p.errors || []).join(' '))}</div>`}`;
           box.scrollIntoView({ block: 'nearest' });
           btn.disabled = false;
           return;
