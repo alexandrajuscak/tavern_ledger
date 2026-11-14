@@ -2,7 +2,8 @@
 -- Never deletes DM-authored data:
 --   * item_weapon_blocks is RENAMED to item_weapon_blocks_rd2_backup (kept with its rows; re-applying the migration renames it
 --     back, section 0);
---   * weapon action counters (character_resources 'itemw-...') are only deactivated (expended and resource events kept);
+--   * weapon action counters (character_resources 'itemw-...') are only deactivated (expended and resource events kept) and get a
+--     neutral label 'Weapon action' (review v34 m5: the restored sync no longer renames them when a copy is unidentified later);
 --   * item_effects rows attack_bonus / damage_bonus of weapons stay: the R-D1 engine reads them (only authoring them returns).
 -- The functions get their exact bodies before 20261114000600 (dumped from a database at 20261114000500). Safe to run twice.
 set lock_timeout = '5s';
@@ -564,6 +565,10 @@ do $$
 begin
   perform set_config('tavern.resource_engine', 'on', true);
   update public.character_resources set active = false where source_type = 'item' and active and resource_key ~ '^itemw-[0-9a-f]{32}-';
+  -- review v34 m5: the restored R-D1 sync never renames 'itemw-' rows, so a label must not name the action or the weapon (the
+  -- copy may be unidentified later). Neutral label; expended and events kept; re-applying 20261114000600 names an active one again.
+  update public.character_resources set name = 'Weapon action', notes = 'Weapon action (inactive)'
+  where source_type = 'item' and resource_key ~ '^itemw-[0-9a-f]{32}-' and (name, coalesce(notes, '')) is distinct from ('Weapon action', 'Weapon action (inactive)');
   perform set_config('tavern.resource_engine', '', true);
 end $$;
 
