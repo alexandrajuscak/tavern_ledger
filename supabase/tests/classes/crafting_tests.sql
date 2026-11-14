@@ -35,9 +35,10 @@ create function tl_test.cr_sel(p_seq int, p_row uuid, p_qty int) returns jsonb l
 -- one recipe of the player read
 create function tl_test.cr_rec(p_read jsonb, p_recipe uuid) returns jsonb language sql as $$
   select r from jsonb_array_elements(p_read -> 'recipes') r where r ->> 'recipe_id' = p_recipe::text $$;
--- player-safe text: none of the DM-only key names or sentinels
+-- player-safe text: none of the DM-only key names or sentinels. Since 20261114000900 (crafting v2, owner decision 2026-11-13) the
+-- player read shows the recipe's DC as check.dc, so "dc" is no longer a DM-only key here; the DM view's "check_dc" still is.
 create function tl_test.cr_clean(p_text text) returns boolean language sql as $$
-  select position('"check_dc"' in p_text) = 0 and position('"dc"' in p_text) = 0 and position('dm_notes' in p_text) = 0
+  select position('"check_dc"' in p_text) = 0 and position('dm_notes' in p_text) = 0
      and position('dm_private_note' in p_text) = 0 and position('SENTINEL-DMNOTE' in p_text) = 0 and position('SENTINEL-PRIVATE' in p_text) = 0
      and position('Starmoss' in p_text) = 0 and position('crit_output' in p_text) = 0 and position('failure_output' in p_text) = 0 $$;
 grant all on all functions in schema tl_test to public;
@@ -314,7 +315,7 @@ select tl_test.cr_code('select 1 from public.crafting_attempts') as t3 \gset
 select tl_test.cr_code('select 1 from public.character_known_recipes') as t4 \gset
 select public.get_character_recipes(:'ca')::text as a_all \gset
 select tl_test.as_root();
-select tl_test.rec('CR10 the four tables are closed to players (42501, no grants); the player read carries no DC, DM notes, private notes, crit / failure results; the DM reply does reach the player',
+select tl_test.rec('CR10 the four tables are closed to players (42501, no grants); the player read carries no DM key check_dc (the DC is shown as check.dc since v2), DM notes, private notes, crit / failure results; the DM reply does reach the player',
   :'t1' = '42501' and :'t2' = '42501' and :'t3' = '42501' and :'t4' = '42501' and tl_test.cr_clean(:'a_all') and tl_test.cr_clean(:'a3')
   and position('Well done' in :'a_all') > 0
   and not has_table_privilege('authenticated', 'public.crafting_attempts', 'select') and not has_table_privilege('anon', 'public.crafting_recipes', 'select'),
