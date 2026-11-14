@@ -10,6 +10,7 @@ import { iconPickerHTML } from './item-icon-gallery.js?v=32';
 import { supabase } from './supabase.js?v=32';
 import { CONTENT_MANAGEMENT } from './config.js?v=32';
 import { openItemIconsDialog } from './custom-icons.js?v=32';
+import { EFFECT_KINDS, ACTIVATIONS, CASTING, RECHARGE, effectTargetOptions } from './item-effects.js?v=32';
 
 /** The content management actions (usage report, delete any unused content, duplicate official) are behind js/config.js
  *  CONTENT_MANAGEMENT; 'off' keeps the earlier buttons. The database authorizes every action itself. */
@@ -117,6 +118,19 @@ function schemaFor(type, ref) {
       { title: 'Crafting notes and icon', fields: [['definition.item.details.ingredient_tags', 'Ingredient tags (comma separated)', 'text', { list: true, max: 500 }],
         ['definition.item.details.recipe_refs', 'Recipe references (comma separated)', 'text', { list: true, max: 1000 }],
         ['definition.item.details.preparation', 'Preparation notes', 'area', { max: 1000 }], ['definition.item.icon_key', 'Icon', 'icon']] },
+      // 20261114000500 (docs/ITEM_EFFECTS.md): automatic bonuses and granted spells; validated and applied by the database
+      { title: 'Effects (applied automatically)', key: 'effects', fields: [['definition.item.effects', 'Effects', 'rows', { row: [
+        ['type', 'What it changes', 'sel', { options: [['', 'Choose…'], ...EFFECT_KINDS] }],
+        ['target', 'Target (ability, skill, damage type)', 'sel', { options: effectTargetOptions(ref.damageTypes) }],
+        ['value', 'Value (+1, 19 for “set to”, feet for speed)', 'num'],
+        ['activation', 'When', 'sel', { options: [['', 'Default: while attuned (attunement items), else while equipped'], ...ACTIVATIONS] }],
+        ['max', 'Maximum score (permanent ability increase; empty = 20)', 'num']] }]] },
+      { title: 'Granted spells', key: 'spells', fields: [['definition.item.spells', 'Granted spells', 'rows', { row: [
+        ['spell', 'Spell (type to search, pick from the list)', 'text', { listId: 'ce-spell-dl', max: 120 }],
+        ['casting', 'How it is cast', 'sel', { options: CASTING }],
+        ['uses', 'Uses (per rest)', 'num'], ['recharge', 'Uses come back after', 'sel', { options: RECHARGE }],
+        ['activation', 'When', 'sel', { options: [['', 'Default: while attuned (attunement items), else while equipped'], ...ACTIVATIONS] }],
+        ['ability', 'Spellcasting ability', 'sel', { options: [['', 'The character’s'], ...ABIL] }]] }]] },
       { title: 'Hidden from players (DM only)', dm: true, fields: [['definition.hidden.unidentified_name', 'Name while unidentified', 'text'],
         ['definition.hidden.unidentified_description', 'Description while unidentified', 'area'], ['definition.hidden.curse', 'Curse (stays secret until you reveal it)', 'area'],
         ['definition.hidden.properties', 'Secret properties (reveal them one by one)', 'rows', { row: [['key', 'Key', 'text'], ['label', 'Name', 'text'], ['text', 'What it does', 'text']] }]] },
@@ -233,7 +247,7 @@ function fieldHTML([path, label, kind, x = {}], model, prefix = '') {
     default: {
       const val = x.map && v && typeof v === 'object' ? Object.entries(v).map(([k, n]) => `${k}:${n}`).join(', ') : x.list && Array.isArray(v) ? v.join(', ') : v ?? '';
       return `<label class="field" for="${id}"><span>${esc(label)}</span><input id="${id}" name="${esc(name)}" value="${esc(val)}" ${x.map ? 'data-map' : ''} ${x.list ? 'data-list' : ''}
-        maxlength="${x.max || 300}" ${x.datalist ? `list="${id}-dl"` : ''}>${x.datalist ? `<datalist id="${id}-dl">${x.datalist.map((d) => `<option value="${esc(d)}">`).join('')}</datalist>` : ''}</label>`;
+        maxlength="${x.max || 300}" ${x.datalist ? `list="${id}-dl"` : x.listId ? `list="${esc(x.listId)}"` : ''}>${x.datalist ? `<datalist id="${id}-dl">${x.datalist.map((d) => `<option value="${esc(d)}">`).join('')}</datalist>` : ''}</label>`;
     }
   }
 }
@@ -273,6 +287,16 @@ function readForm(form, type, base) {
     const det = Object.fromEntries(Object.entries(d.item.details || {}).filter(([k, v]) => keep.includes(k) && v != null && v !== '' && !(Array.isArray(v) && !v.length)));
     if (Object.keys(det).length) d.item.details = det; else delete d.item.details;
     if (!d.item.icon_key) d.item.icon_key = null;
+  }
+  if (type === 'item' && d.item) {
+    const fx = (d.item.effects || []).filter((e) => e && e.type);
+    const sp = (d.item.spells || []).filter((g) => g && g.spell).map((g) => {
+      const out = { ...g, spell: String(g.spell).trim(), casting: g.casting || 'per_rest' };
+      if (out.casting !== 'per_rest') { delete out.uses; delete out.recharge; }
+      return out;
+    });
+    if (fx.length) d.item.effects = fx; else delete d.item.effects;
+    if (sp.length) d.item.spells = sp; else delete d.item.spells;
   }
   // the coin select always has a value: without a cost it must not be sent ("Cost needs both an amount and a coin")
   if (type === 'item' && d.item && d.item.cost_value == null) delete d.item.cost_unit;
@@ -339,6 +363,7 @@ export function previewHTML(type, p, player, ref = null) {
     case 'item': return `<article class="preview-card">${head}<p class="small">${esc(p.kind_name || p.kind_id || '')}
       ${p.rarity_id ? rarityChip(p.rarity_id, p.is_magic, ref) : ''}${p.is_magic ? ' · magical' : ''}${p.requires_attunement ? ' · attunement' : ''}</p>${p.description ? `<p>${esc(p.description)}</p>` : ''}
       ${p.damage_dice ? `<p class="small">Damage ${esc(p.damage_dice)} ${esc(p.damage_type_id || '')}</p>` : ''}${p.base_ac ? `<p class="small">AC ${esc(p.base_ac)}</p>` : ''}
+      ${(p.effects || []).length || (p.spells || []).length ? `<p class="small" data-preview-effects>${esc([(p.effects || []).length ? `${p.effects.length} automatic effect${p.effects.length === 1 ? '' : 's'}` : '', (p.spells || []).length ? `${p.spells.length} granted spell${p.spells.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · '))}</p>` : ''}
       <p class="muted small">Unidentified copies show only the disguise you set; secrets stay with you.</p></article>`;
     case 'feat': return `<article class="preview-card">${head}<p class="small">${esc(p.category || '')} · ${esc(p.ruleset || '')}</p>
       ${p.prerequisite_text ? `<p class="small">Prerequisite: ${esc(p.prerequisite_text)}</p>` : ''}
@@ -576,6 +601,7 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
         ${schemaFor(type, ref).map((sec) => `<fieldset class="ce-section ${sec.dm ? 'dm-only-field' : ''}" ${sec.for ? `data-ce-for="${esc(sec.for)}"` : ''} ${sec.key ? `data-ce-section="${esc(sec.key)}"` : ''}><legend>${esc(sec.title)}</legend>
           <div class="ce-grid">${sec.fields.map((f) => fieldHTML(f, model)).join('')}</div></fieldset>`).join('')}
       </form>
+      ${type === 'item' ? `<datalist id="ce-spell-dl">${(ref.spells || []).map((sp) => `<option value="${esc(sp.id)}">${esc(sp.name)} (${sp.level ? `level ${sp.level}` : 'cantrip'})</option>`).join('')}</datalist>` : ''}
       <section class="ce-preview" data-ce-preview hidden aria-live="polite"></section>`;
     const st = c?.status;
     $('[data-ce-actions]', m.el).innerHTML = `
@@ -648,7 +674,7 @@ export async function openContentEditor({ content, campaignId, onChanged, onAssi
           const p = await dm.previewContent(c.id);
           const box = $('[data-ce-preview]', m.el);
           box.hidden = false;
-          box.innerHTML = `<h3 class="small-h">Players will see</h3>${p.ok ? previewHTML(type, p.preview, p.player_view, ref) : `<div class="gov-error">${esc((p.errors || []).join(' '))}</div>`}`;
+          box.innerHTML = `<h3 class="small-h">Players will see</h3>${p.ok ? previewHTML(type, type === 'item' ? { ...p.preview, effects: current().definition?.item?.effects, spells: current().definition?.item?.spells } : p.preview, p.player_view, ref) : `<div class="gov-error">${esc((p.errors || []).join(' '))}</div>`}`;
           box.scrollIntoView({ block: 'nearest' });
           btn.disabled = false;
           return;

@@ -13,7 +13,7 @@ import { $, $$, esc, clamp, toast, confirmDialog, openModal, cacheSet, debounce,
 import { openCoinCalculator, wallet as coinWallet } from './coins.js?v=32';
 import { mountInventory } from './inventory-ui.js?v=32';
 import { exportCharacter, downloadJson } from './transfer.js?v=32';
-import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups, syncPartyKnowledge } from './inventory-api.js?v=32';
+import { getDerivedStats, getProficiencies, setCharacterProficiency, getLookups, syncPartyKnowledge, revertPermanentEffect } from './inventory-api.js?v=32';
 import { backgroundCardHTML, openBackgroundPicker, openBackgroundEquipment, openReplaceDuplicate, saveCharacteristics, rollCharacteristic,
   removeBackground } from './background-ui.js?v=32';
 import { getCharacterBackground } from './background-api.js?v=32';
@@ -38,7 +38,7 @@ import {
 import {
   getClassSummary, getSpellSlots, getClassCatalog, expendStandardSlot, restoreStandardSlot, expendPactSlot, restorePactSlot,
   setSlotState, setCharacterClass, shortRest, longRest, getClassFeatures, getResources, exportClassFeatures, useTemporarySlot,
-  restoreTemporarySlot, getStartingEquipmentState, getStartingEquipment, getStates,
+  restoreTemporarySlot, getStartingEquipmentState, getStartingEquipment, getStates, expendResource,
 } from './class-api.js?v=32';
 import { slotActionsHTML, openRecoverSlots, openFlexibleCasting, riderSlotButton, openSlotRider } from './slot-actions.js?v=32';
 import { classCardHTML, openClassEditor, changeClassLevel, removeClass, slotTrackerHTML, slotChangeMessage, restDescription } from './class-ui.js?v=32';
@@ -220,8 +220,10 @@ const saveBonus = (key) => (derived?.saving_throws?.[key]?.form_total != null ? 
   : abilityMod(key) + (saveProf(key) ? pb() : 0) + itemSaveBonus(key) + classSaveBonus(key));
 // half proficiency (Jack of All Trades, Remarkable Athlete …): the server says which skills qualify; only without proficiency
 const skillHalf = (key) => (skillTotal(key) ? 0 : Number(derived?.skills?.[key]?.half_proficiency?.value) || 0);
+// a numeric skill bonus from items (20261114000500: skill_bonus, e.g. +3 Religion while attuned)
+const itemSkillBonus = (key) => Number(derived?.skills?.[key]?.item_bonus) || 0;
 const skillBonus = (key) => (derived?.skills?.[key]?.form_total != null ? Number(derived.skills[key].form_total)
-  : abilityMod(SKILL_BY_KEY[key].ability) + skillTotal(key) * pb() + skillHalf(key));
+  : abilityMod(SKILL_BY_KEY[key].ability) + skillTotal(key) * pb() + skillHalf(key) + itemSkillBonus(key));
 const initiative = () => abilityMod('dex') + (C().initiative_bonus || 0) + (Number(derived?.initiative?.bonus) || 0);
 const castingMod = () => (C().spellcasting_ability ? abilityMod(C().spellcasting_ability) : null);
 const spellAttackBonus = () => (castingMod() == null ? null : pb() + castingMod());
@@ -1052,6 +1054,13 @@ export function abilitySourceRows(x, { backgroundName = '' } = {}) {
     if (e.effect_type === 'ability_override') rows.push({ set: Number(e.value), kind: 'override', name: e.source_name || 'Effect' });
     else rows.push({ n: Number(e.value) || 0, kind: /^Feat: /.test(e.source_name || '') ? 'feat' : 'effect', name: e.source_name || 'Effect' });
   }
+  // permanent increases from used items (20261114000500), each capped at its maximum (default 20)
+  for (const e of x.permanent_sources || []) {
+    const v = Number(e.value) || 0;
+    const applied = Number(e.applied) || 0;
+    rows.push({ n: v, kind: 'permanent', name: `${e.source_name || 'Item'} (permanent)`, id: e.id, canRevert: !!e.can_revert,
+      note: applied < v ? ` (${applied ? `${signedN(applied)} applied` : 'none applied'}: max ${e.max_score || 20})` : '' });
+  }
   return rows;
 }
 
@@ -1061,7 +1070,8 @@ function abilitySourcesHTML(a, x) {
   const li = rows.map((r) => {
     const amount = r.set != null ? `Sets to ${r.set}` : signedN(r.n);
     const sr = r.set != null ? `${a.name} set to ${r.set} by ${r.name}` : `${signedN(r.n)} ${a.name} from ${r.name}`;
-    return `<li data-ab-source="${esc(r.kind)}" title="${esc(sr + (r.note || ''))}"><span aria-hidden="true"><span class="ab-src-n">${esc(amount)}</span> ${esc(shortSource(r.name))}${esc(r.note || '')}</span><span class="sr-only">${esc(sr + (r.note || ''))}</span></li>`;
+    const revert = r.canRevert ? ` <button type="button" class="btn-link small" data-action="revert-permanent" data-effect="${esc(r.id)}" aria-label="Revert ${esc(sr)}">Revert</button>` : '';
+    return `<li data-ab-source="${esc(r.kind)}" title="${esc(sr + (r.note || ''))}"><span aria-hidden="true"><span class="ab-src-n">${esc(amount)}</span> ${esc(shortSource(r.name))}${esc(r.note || '')}</span><span class="sr-only">${esc(sr + (r.note || ''))}</span>${revert}</li>`;
   });
   const additive = rows.filter((r) => r.set == null);
   const total = additive.length > 1 ? additive.reduce((t, r) => t + r.n, 0) : null;
@@ -1093,6 +1103,18 @@ function renderAbilitySources() {
     const html = inForm ? '' : abilitySourcesHTML(a, x);
     if (srcEl && srcEl.__html !== html) { srcEl.__html = html; srcEl.innerHTML = html; }
   }
+}
+
+// "where a bonus comes from" (20261114000500): item / permanent sources of a save, skill or initiative, and the item effects that
+// are not counted now (not equipped / not attuned). Names are the server's: an unidentified item appears under its disguise.
+const INACTIVE_WHY = { not_equipped: 'not equipped', not_attuned: 'not attuned', wearing_armor: 'wearing armor', using_shield: 'using a shield' };
+function bonusSourceParts(x) {
+  return (x?.item_sources || []).map((s) => `${signedN(Number(s.value) || 0)} from ${s.source_name}`);
+}
+function setSourceTitle(el, parts, x) {
+  const off = (x?.inactive_effects || []).map((e) => `${e.source_name} (${INACTIVE_WHY[e.inactive_reason] || e.inactive_reason})`);
+  const text = [parts.length ? `Includes ${parts.join('; ')}` : '', off.length ? `Not counted: ${off.join(', ')}` : ''].filter(Boolean).join('. ');
+  if (text) el.title = text; else el.removeAttribute('title');
 }
 
 /** Update only the derived bits in place; a re-rendered block keeps keyboard focus (stable data-focus-key). */
@@ -1148,9 +1170,14 @@ function renderDerived(startedAt = 0) {
   $$('[data-lineage-spells-card]', root).forEach((el) => { el.hidden = !derived.lineage_actions?.length; });
   $$('[data-derive^="save:"]', root).forEach((el) => {
     const st = derived.saving_throws?.[el.dataset.derive.slice(5)];
-    if (st?.class_bonus) el.title = `Includes +${st.class_bonus} from ${(st.class_bonus_sources || []).join(', ')}`;
-    else el.removeAttribute('title');
+    const parts = [st?.class_bonus ? `+${st.class_bonus} from ${(st.class_bonus_sources || []).join(', ')}` : '', ...bonusSourceParts(st)].filter(Boolean);
+    setSourceTitle(el, parts, st);
   });
+  $$('[data-derive^="skill:"]', root).forEach((el) => {
+    const k = el.dataset.derive.slice(6);
+    setSourceTitle(el, bonusSourceParts(derived.skills?.[k]), derived.skills?.[k]);
+  });
+  $$('[data-derive="init"]', root).forEach((el) => setSourceTitle(el, bonusSourceParts(derived.initiative), derived.initiative));
   $$('[data-dis]', root).forEach((el) => {
     const [kind, k] = el.dataset.dis.split(':');
     el.hidden = !(kind === 'save' ? derived.saving_throws?.[k]?.disadvantage : derived.skills?.[k]?.disadvantage);
@@ -2963,6 +2990,16 @@ const actions = {
     $('.ct-text', el).textContent = on ? 'More' : 'Less';
   },
   'open-requests': () => governance?.openRequests?.(),
+  // the DM undoes a permanent effect of a used item (character_permanent_effects keeps the row with reverted_at)
+  'revert-permanent': async (el) => {
+    if (!(await confirmDialog('Revert this permanent effect? The bonus is removed from the character; the record of the use stays.', { okLabel: 'Revert', danger: true }))) return;
+    try {
+      await revertPermanentEffect(el.dataset.effect);
+      toast('Permanent effect reverted.', 'good');
+      scheduleDerived();
+      scheduleSpellbook();
+    } catch (err) { toast(err.message, 'bad'); }
+  },
   'build-goto': (el) => {
     showTab('features', false);
     const target = $(el.dataset.target, root);
@@ -3119,6 +3156,13 @@ const actions = {
   'spell-detail': (el) => {
     const sp = spellbook?.spells.find((x) => x.id === el.dataset.spell);
     if (sp) openSpellDetail(sp, { editable: !ctx?.readOnly, onChanged: async () => { await loadSpellbook(); loadClasses(); } });
+  },
+  // a free cast of a spell granted by an item (its own counter, recharged by the rests)
+  'item-spell-use': async (el) => {
+    await expendResource(C().id, el.dataset.key, 1);
+    toast('Free cast used.', 'good');
+    await loadSpellbook();
+    scheduleResources();
   },
   'spell-prepare': async (el) => {
     try { await setSpellPrepared(el.dataset.cs, el.checked); await loadSpellbook(); loadClasses(); } catch (err) { el.checked = !el.checked; throw err; }
@@ -3369,6 +3413,12 @@ function onRemote(table, event, nw, old) {
   if (table === 'character_spells' || table === 'character_spellcasting_sources') {
     const rec = event === 'DELETE' ? old : nw;
     if (!rec?.character_id || rec.character_id === C().id) scheduleSpellbook();
+    return;
+  }
+  // permanent effects of used items (20261114000500; no row data reaches the client, only the revision): bonuses and spells
+  if (table === 'character_permanent_effects') {
+    const rec = event === 'DELETE' ? old : nw;
+    if (!rec?.character_id || rec.character_id === C().id) { scheduleDerived(); scheduleSpellbook(); }
     return;
   }
   if (['character_classes', 'character_spell_slot_state', 'character_temporary_spell_slots', 'character_resources',

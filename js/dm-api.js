@@ -130,8 +130,9 @@ export function getEditorReference() {
     rows(supabase.from('item_kinds').select('id, name').order('sort_order')),
     rows(supabase.from('rarities').select('id, name').order('sort_order')),
     rows(supabase.from('ammo_types').select('id, name').order('name')),
-  ]).then(([schools, damageTypes, spellLists, skills, tools, languages, originFeats, itemKinds, rarities, ammoTypes]) =>
-    ({ schools, damageTypes, spellLists, skills, tools, languages, originFeats, itemKinds, rarities, ammoTypes }))
+    rows(supabase.from('spell_versions').select('id, name, level').order('name').order('id')),   // item editor: granted spells
+  ]).then(([schools, damageTypes, spellLists, skills, tools, languages, originFeats, itemKinds, rarities, ammoTypes, spells]) =>
+    ({ schools, damageTypes, spellLists, skills, tools, languages, originFeats, itemKinds, rarities, ammoTypes, spells }))
     .catch((e) => { refPromise = null; throw e; });
   return refPromise;
 }

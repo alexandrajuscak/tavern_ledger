@@ -10,6 +10,7 @@ import { icon, ITEM_ICONS } from './icons.js?v=32';
 import { sectionHead } from './section.js?v=32';
 import { CRAFTING } from './config.js?v=32';
 import { customIconUrl } from './custom-icons.js?v=32';
+import { effectText, castingText } from './item-effects.js?v=32';
 
 const CATEGORIES = [
   ['all', 'All', () => true],
@@ -642,6 +643,9 @@ export function mountInventory(el, opts) {
   async function doUse(r) {
     const res = await act(r.id, () => api.useInventoryItem(r.id));
     if (!res) return;
+    if (res.replayed) { toast('That use was already recorded.'); return; }
+    // permanent effects of the item (applied once to this character; the sheet shows them with their source)
+    const perm = (res.permanent || []).map((p) => `<li><b>${esc(p.kind === 'spell' ? `Spell: ${p.spell} (${castingText(p)})` : effectText(p))}</b> · permanent</li>`).join('');
     const lines = (res.effects || []).map((fx) => {
       const amount = [fx.dice_expression, fx.flat_value ? `${fx.flat_value}` : ''].filter(Boolean).join(' + ');
       const label = fx.effect_type.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
@@ -654,7 +658,7 @@ export function mountInventory(el, opts) {
     openModal({
       title: res.consumed ? `Used: ${res.name}` : res.name,
       body: `${res.unidentified ? '<p>You do not know what this does yet. Your DM tells you what happens.</p>'
-        : lines ? `<ul class="inv-effects">${lines}</ul>` : (res.consumed && !spell ? '<p>No automatic effect.</p>' : '')}${spell}
+        : lines || perm ? `<ul class="inv-effects">${lines}${perm}</ul>` : (res.consumed && !spell ? '<p>No automatic effect.</p>' : '')}${spell}
         ${lines.includes('Healing') ? '<p class="muted small">Hit points are not changed automatically. Roll the dice and apply the healing on the combat bar.</p>' : ''}${left}`,
       footer: '<button type="button" class="btn btn-gold" data-close>OK</button>',
     });
@@ -682,7 +686,7 @@ export function mountInventory(el, opts) {
   async function attune(r) {
     const a = s.attunement;
     if (a && a.attuned_count >= a.attunement_limit) {
-      toast('This character is already attuned to 3 items. End an attunement first.', 'bad', 4500);
+      toast(`This character is already attuned to ${a.attunement_limit} item${a.attunement_limit === 1 ? '' : 's'}, the most it can be. End an attunement first.`, 'bad', 4500);
       openAttunedList();
       return;
     }

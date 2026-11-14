@@ -23,7 +23,9 @@ const ERROR_RULES = [
   ['authorization', /not a member of that campaign/i, 'You are not a member of that campaign.'],
   ['validation', /is archived|restore the item/i, 'This homebrew item is archived. Restore it first.'],
   ['conflict', /request id was already used/i, 'This request was already used. Reload and try again.'],
-  ['attunement_limit', /attunement limit/i, 'This character is already attuned to 3 items. End an attunement first.'],
+  // the server names the character's real limit (_character_attunement_limit: 3, more for an Artificer): 'Attunement limit reached (4)'
+  ['attunement_limit', /attunement limit/i, (t) => { const n = /attunement limit reached \((\d+)\)/i.exec(t)?.[1];
+    return `This character is already attuned to ${n ? `${n} item${n === '1' ? '' : 's'}, the most it can be` : 'as many items as it can be'}. End an attunement first.`; }],
   ['validation', /does not require attunement/i, 'This item does not require attunement.'],
   ['incompatible_slot', /two-handed weapon needs the off hand/i, 'A two-handed weapon needs both hands: empty the off hand and the shield slot first.'],
   ['incompatible_slot', /main hand holds a two-handed weapon/i, 'The main hand holds a two-handed weapon, so the off hand and the shield slot must stay empty.'],
@@ -63,7 +65,7 @@ export function normalizeError(err) {
   if (!hit && err?.code === '22023' && err.message) return new InventoryError('validation', err.message, err);
   // Technical details for developers only (no tokens are part of these errors).
   console.warn('[inventory]', err?.code || '', err?.message || err);
-  return hit ? new InventoryError(hit[0], hit[2], err) : new InventoryError('unknown', 'The server could not complete this action.', err);
+  return hit ? new InventoryError(hit[0], typeof hit[2] === 'function' ? hit[2](text) : hit[2], err) : new InventoryError('unknown', 'The server could not complete this action.', err);
 }
 
 const retryable = (e) => ['network', 'concurrent'].includes(e.kind);
@@ -300,8 +302,13 @@ export async function unequipInventorySlot(characterId, slotId) {
   return unequipInventoryItem(hit.inventory_item_id);
 }
 
-/** use_inventory_item: consumes one piece (if consumable) and returns the effect; never changes HP. */
-export const useInventoryItem = (inventoryItemId) => rpc('use_inventory_item', { p_item: inventoryItemId, p_quantity: 1 });
+/** The DM reverts a permanent effect of a used item (20261114000500); the row is kept with reverted_at. */
+export const revertPermanentEffect = (effectId, reason = null) => rpc('revert_permanent_effect', { p_effect: effectId, p_reason: reason });
+
+/** use_inventory_item: consumes one piece (if consumable) and returns the effect; never changes HP. The request id makes a
+ *  repeated call (network retry) harmless: permanent effects of the item (Hag's Hair: +1 Wisdom) are applied once. */
+export const useInventoryItem = (inventoryItemId, requestId = crypto.randomUUID()) =>
+  rpc('use_inventory_item', { p_item: inventoryItemId, p_quantity: 1, p_request: requestId });
 
 export const attuneInventoryItem = (inventoryItemId) => rpc('attune_item', { p_item: inventoryItemId });
 export const unattuneInventoryItem = (inventoryItemId) => rpc('unattune_item', { p_item: inventoryItemId });

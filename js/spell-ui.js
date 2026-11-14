@@ -296,6 +296,7 @@ function spellCardHTML(s, { editable }) {
          ${stored[0].prepared ? 'checked' : ''} aria-label="Prepared: ${esc(s.name)}"><span>Prepared</span></label>` : '';
   const free = s.grants.find((g) => g.unlocked && g.uses_spell_slot === false && s.level > 0);
   const r = readiness(s);
+  const itemUses = itemUsesHTML(s, editable);
   const extra = [s.known && r.text !== 'Known' ? 'Known' : '', s.innate && r.text !== 'Innate' ? 'Innate' : '']
     .filter(Boolean).map((t) => `<span class="sp-state">${t}</span>`).join(' ');
   const slot = s.level === 0 ? ''
@@ -314,7 +315,20 @@ function spellCardHTML(s, { editable }) {
     <p class="sp-meta small">${[castShort(s), s.range, s.duration].filter(Boolean).map(esc).join(' · ')}</p>
     <div class="sp-card-foot">${mainStat(s)} ${prepToggle}</div>
     <p class="sp-sources-line">${s.grants.map(grantBadge).join(' ')} ${extra}</p>
+    ${itemUses}
   </article>`;
+}
+
+/** Spells granted by an item (20261114000500): its own counter ("1 of 1 left per long rest") with Use, or "at will". */
+function itemUsesHTML(s, editable) {
+  return s.grants.filter((g) => g.item_grant && g.uses != null).map((g) => {
+    if (g.uses === 'at_will') return '<p class="sp-item-uses small" data-item-uses="at_will">At will</p>';
+    const per = RECHARGE[g.recharge] || 'rest';
+    const left = Number(g.remaining) || 0;
+    return `<p class="sp-item-uses small" data-item-uses="${esc(g.resource_key || '')}"><span><strong>${left}</strong> of ${esc(g.uses)} left per ${esc(per)}</span>
+      ${editable && left > 0 && g.resource_key ? `<button type="button" class="btn btn-xs" data-action="item-spell-use" data-key="${esc(g.resource_key)}"
+        aria-label="Use one free cast of ${esc(s.name)} from ${esc(g.source_label)} (${left} left)">Use</button>` : ''}</p>`;
+  }).join('');
 }
 
 // open / closed state of the spell groups survives re-renders; only the player's own clicks are remembered
@@ -374,11 +388,11 @@ function grantRow(g, s, editable) {
     <th scope="row">${esc(SOURCE_TYPE[g.source_type] || g.source_type)}<br><span class="muted small">${esc(g.source_label)}</span></th>
     <td>${[g.always_prepared ? 'Always prepared' : g.prepared ? 'Prepared' : '', g.known ? 'Known' : '', g.innate ? 'Innate' : '',
       g.unlocked ? '' : `from level ${g.min_level}`].filter(Boolean).join(', ') || '—'}
-      ${uses ? `<br><span class="muted small">${esc(uses)}${g.cast_level ? ` · as level ${esc(g.cast_level)}` : ''}${g.uses_spell_slot ? '' : ' · no slot needed'}</span>` : ''}
+      ${uses ? `<br><span class="muted small">${esc(uses)}${g.remaining != null ? ` · ${esc(g.remaining)} left` : ''}${g.cast_level ? ` · as level ${esc(g.cast_level)}` : ''}${g.uses_spell_slot ? '' : ' · no slot needed'}</span>` : ''}
       ${g.on_source_list === false ? '<br><span class="sp-warn small">Not on this source’s spell list</span>' : ''}</td>
     <td>${g.casting_ability ? esc(ABILITY[g.casting_ability]) : g.ability_needed ? 'choose on Build tab' : st.fixed_dc != null ? 'fixed' : '—'}</td>
     <td>${st.save_dc ?? '—'}</td><td>${fmt(st.attack_bonus)}</td>
-    <td>${editable && g.character_spell_id ? `
+    <td>${editable && g.character_spell_id && !g.item_grant ? `
       ${['prepared', 'spellbook'].includes(g.preparation_mode) && !g.always_prepared && s.level > 0 ? `<button type="button" class="btn btn-sm" data-grant-prepare="${esc(g.character_spell_id)}" data-on="${g.prepared ? '0' : '1'}">${g.prepared ? 'Unprepare' : 'Prepare'}</button>` : ''}
       <button type="button" class="btn btn-sm btn-bad" data-grant-remove="${esc(g.character_spell_id)}">Remove</button>` : ''}</td>
   </tr>`;
