@@ -111,6 +111,13 @@ def run():
         title = pp.locator('[data-derive="skill:religion"]').first.get_attribute("title") or ""
         check("IU3 attuned: +3 Religion and +2 Initiative on the sheet, the Religion tooltip names the amulet",
               ok_b and init1 == init0 + 2 and AMULET in title, (rel0, init0, init1, title))
+        # the legacy read path (?fluent=0) computes the same stats
+        pp.goto(f"{APP}?fluent=0#/c/{hero}")
+        P.wait(lambda: pp.locator(".tab").count() > 0)
+        P.tab("stats")
+        ok_leg = P.wait(lambda: num(pp.locator('[data-derive="skill:religion"]').first.inner_text()) == rel0 + 3, 15000)
+        check("IU3b ?fluent=0 shows the same item bonus (+3 Religion)", ok_leg)
+        P.open(hero)                                    # back to the default (fluent) path
         P.tab("spells")
         card = pp.locator('.sp-card[data-spell="speak-with-dead-phb"]')
         ok_sp = P.wait(lambda: card.count() == 1 and "1 of 1 left" in card.first.inner_text(), 15000)

@@ -121,6 +121,9 @@ select tl_test.rec('IE7 the attuned amulet grants Speak with Dead once per long 
   and tl_test.grant_of(:'e1', 'speak-with-dead-phb') ->> 'source_label' = 'Amulet of the Grave'
   and not (tl_test.grant_of(:'e1', 'speak-with-dead-phb') ->> 'uses_spell_slot')::boolean
   and (tl_test.ires(:'e1')).active and (tl_test.ires(:'e1')).recharge = 'long_rest');
+select tl_test.rec('IE7b the counter is also a resource of the character (Play tab): "Free cast: Speak with Dead"',
+  exists (select 1 from jsonb_array_elements(public.get_character_resources(:'e1') -> 'resources') r where r ->> 'name' = 'Free cast: Speak with Dead'),
+  public.get_character_resources(:'e1')::text);
 select tl_test.rec('IE8 a spell with the character''s slots (Shield from the boots, owned) uses a slot and has no counter',
   (tl_test.grant_of(:'e1', 'shield-phb') ->> 'uses_spell_slot')::boolean and tl_test.grant_of(:'e1', 'shield-phb') ->> 'remaining' is null);
 select public.expend_character_resource(:'e1', 'r:' || (tl_test.ires(:'e1')).id, 1);
@@ -266,6 +269,20 @@ select tl_test.rec('IE28 used unidentified: the effect applies (+1 Perception), 
   and position('Clarity' in tl_test.d(:'e3')::text) = 0);
 select tl_test.as_user(:'dm');
 select tl_test.rec('IE29 the DM sees which item it was', (tl_test.d(:'e3') -> 'skills' -> 'perception' -> 'item_sources' -> 0 ->> 'source_name') = 'Draught of Clarity (permanent)');
+
+-- an unidentified attunement item that is not attuned: nothing about its effects reaches the player (they apply nothing)
+select tl_test.pub('{"name": "Circlet of Insight", "definition": {"item": {"kind_id": "magic_item", "is_magic": true, "rarity_id": "rare",
+  "requires_attunement": true, "effects": [{"type": "skill_bonus", "target": "insight", "value": 4, "activation": "attuned"}]},
+  "hidden": {"unidentified_name": "Tarnished band"}}}') as circ \gset
+select public.dm_give_item(tl_test.ref(:'circ'), array[:'e3']::uuid[], 1, false);
+select tl_test.d(:'e3')::text as dm_c \gset
+select tl_test.as_user(:'alice');
+select tl_test.d(:'e3')::text as pl_c \gset
+select tl_test.rec('IE31 unidentified and not attuned: the player''s derived stats name neither the disguise nor the effect; the DM sees it as not counted',
+  position('Tarnished band' in :'pl_c') = 0 and position('Circlet' in :'pl_c') = 0
+  and coalesce((:'pl_c'::jsonb -> 'skills' -> 'insight' -> 'inactive_effects'), '[]'::jsonb) = '[]'::jsonb
+  and (:'dm_c'::jsonb -> 'skills' -> 'insight' -> 'inactive_effects' -> 0 ->> 'source_name') = 'Circlet of Insight (unidentified)');
+select tl_test.as_user(:'dm');
 
 -- ---- 7. versions -----------------------------------------------------------------------------------------------------------------
 select public.new_dm_content_version(:'boots');

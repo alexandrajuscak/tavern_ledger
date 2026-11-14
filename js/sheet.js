@@ -1108,6 +1108,11 @@ function renderAbilitySources() {
 // "where a bonus comes from" (20261114000500): item / permanent sources of a save, skill or initiative, and the item effects that
 // are not counted now (not equipped / not attuned). Names are the server's: an unidentified item appears under its disguise.
 const INACTIVE_WHY = { not_equipped: 'not equipped', not_attuned: 'not attuned', wearing_armor: 'wearing armor', using_shield: 'using a shield' };
+const ITEM_SOURCE = new Set(['item_effect', 'permanent', 'modifier']);
+/** Names of the items that change the speed now ("Lucky Boots"), for the speed note. */
+function itemSpeedNames(sp) {
+  return [...new Set((sp?.breakdown || []).filter((x) => ITEM_SOURCE.has(x.source_type)).map((x) => x.source_name))].join(', ');
+}
 function bonusSourceParts(x) {
   return (x?.item_sources || []).map((s) => `${signedN(Number(s.value) || 0)} from ${s.source_name}`);
 }
@@ -1132,7 +1137,8 @@ function renderDerived(startedAt = 0) {
   const fromClass = (sp.breakdown || []).some((x) => x.source_type === 'class_feature' && !/^Feat: /.test(x.source_name || ''));
   const speedFrom = sp.base_source === 'lineage' ? 'lineage'
     : fromFeat.length && !fromClass ? fromFeat.map((x) => x.source_name.replace(/^Feat: /, '')).join(', ')
-      : fromClass && fromFeat.length ? 'class features and feats' : fromClass ? 'class features' : 'equipment';
+      : fromClass && fromFeat.length ? 'class features and feats' : fromClass ? 'class features'
+        : itemSpeedNames(sp) || 'equipment';
   set('speed-note', derived.wild_shape ? `Form: walk ${sp.value} ft${modes.length ? ` · ${modes.join(' · ')}` : ''}`
     : [sp.value !== sp.base ? `Base ${sp.base} ft, now ${sp.value} ft (${speedFrom})` : '', ...modes].filter(Boolean).join(' · '));
   const inForm = ABILITIES.some((a) => derived.abilities?.[a.key]?.form_score != null);
@@ -1178,6 +1184,13 @@ function renderDerived(startedAt = 0) {
     setSourceTitle(el, bonusSourceParts(derived.skills?.[k]), derived.skills?.[k]);
   });
   $$('[data-derive="init"]', root).forEach((el) => setSourceTitle(el, bonusSourceParts(derived.initiative), derived.initiative));
+  // speed and ability scores: the item effects that are not counted now (the counted ones are in the note / the source list)
+  const speedParts = (derived.speed?.breakdown || []).filter((x) => ITEM_SOURCE.has(x.source_type))
+    .map((x) => `${signedN(Number(x.value) || 0)} ft from ${x.source_name}`);
+  $$('[data-derive="speed"]', root).forEach((el) => setSourceTitle(el, speedParts, derived.speed));
+  for (const a of ABILITIES) {
+    $$(`#ability-cards [data-ability="${a.key}"]`, root).forEach((el) => setSourceTitle(el, [], derived.abilities?.[a.key]));
+  }
   $$('[data-dis]', root).forEach((el) => {
     const [kind, k] = el.dataset.dis.split(':');
     el.hidden = !(kind === 'save' ? derived.saving_throws?.[k]?.disadvantage : derived.skills?.[k]?.disadvantage);

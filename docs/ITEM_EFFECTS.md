@@ -16,8 +16,8 @@ authored effect in backup tables).
 | Permanent, when used | applied **once** when the consumable is used up, and it stays after the item is gone |
 
 Effects of an item that is not equipped / attuned are listed as **Not counted** (with the reason) next to the value they
-would change: the AC breakdown and the tooltips of saving throws, skills and Initiative (the derived stats also carry them
-for abilities and speed: `inactive_effects`).
+would change: the AC breakdown and the tooltips of saving throws, skills, Initiative, speed and the ability cards. The
+speed note names the items that change the speed.
 
 ## Effects
 
@@ -66,7 +66,9 @@ through the sheet. Used from a party stash (no character), nothing permanent is 
 An unidentified item works mechanically (the character wears it), but the player only ever sees its **disguise**: the
 bonus source reads "Dull pendant", not the true name, on the sheet, in the spell source, the spell counter and in every
 read channel (bundle, derived stats, `tl_cache`, Realtime rows of the spell tables). The DM sees "Periapt of the Lich
-(unidentified)". After identification the true name appears. Using an unidentified consumable applies its permanent
+(unidentified)". An effect of an unidentified item that does not work now (e.g. not attuned) is not shown to the player
+at all (it would reveal that the item is magic and needs attunement); the DM sees it as not counted. After identification
+the true name appears. Using an unidentified consumable applies its permanent
 effects, but the answer names none of them ("your DM tells you what happens").
 
 ## Authoring (DM Space)

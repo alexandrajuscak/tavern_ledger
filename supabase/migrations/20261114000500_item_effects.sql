@@ -270,21 +270,28 @@ language sql stable security definer set search_path = public, pg_temp as $$
     select coalesce(bool_or(slot_id = 'armor'), false) as has_armor, coalesce(bool_or(slot_id = 'shield'), false) as has_shield
     from public.character_equipment where character_id = p_character
   )
-  select 'item_effect'::text, o.id, case when o.masked then null else o.item_id end,
-         case when o.masked then o.display_name when o.unidentified then o.true_name || ' (unidentified)' else o.plain_name end,
-         ie.seq, ie.effect_type, ie.value, ie.target, ie.activation, ie.stacking,
-         case when o.masked then 'masked:' || md5(p_character::text || ':' || ie.stack_group) else ie.stack_group end, ie.priority, o.kind_id,
-         coalesce(
-           case ie.activation
-             when 'equipped' then case when o.slot_id is null then 'not_equipped' end
-             when 'attuned' then case when not o.is_attuned then 'not_attuned' end
-             when 'equipped_and_attuned' then case when o.slot_id is null then 'not_equipped' when not o.is_attuned then 'not_attuned' end
-           end,
-           case when ie.conditions ->> 'no_armor' = 'true' and w.has_armor then 'wearing_armor'
-                when ie.conditions ->> 'no_shield' = 'true' and w.has_shield then 'using_shield' end)
-  from owned o
-  join public.item_effects ie on ie.item_id = o.item_id and ie.activation <> 'permanent'
-  cross join worn w
+  -- a masked item shows the player only effects that work now: an inactive one ("not attuned") would tell him that the
+  -- disguised item is magic, needs attunement and what it does (identification facts); inactive rows apply nothing anyway
+  select z.source_type, z.source_id, z.item_id, z.source_name, z.seq, z.effect_type, z.value, z.target, z.activation, z.stacking,
+         z.stack_group, z.priority, z.kind_id, z.inactive_reason
+  from (
+    select 'item_effect'::text as source_type, o.id as source_id, case when o.masked then null else o.item_id end as item_id,
+           case when o.masked then o.display_name when o.unidentified then o.true_name || ' (unidentified)' else o.plain_name end as source_name,
+           ie.seq, ie.effect_type, ie.value, ie.target, ie.activation, ie.stacking, o.masked,
+           case when o.masked then 'masked:' || md5(p_character::text || ':' || ie.stack_group) else ie.stack_group end as stack_group, ie.priority, o.kind_id,
+           coalesce(
+             case ie.activation
+               when 'equipped' then case when o.slot_id is null then 'not_equipped' end
+               when 'attuned' then case when not o.is_attuned then 'not_attuned' end
+               when 'equipped_and_attuned' then case when o.slot_id is null then 'not_equipped' when not o.is_attuned then 'not_attuned' end
+             end,
+             case when ie.conditions ->> 'no_armor' = 'true' and w.has_armor then 'wearing_armor'
+                  when ie.conditions ->> 'no_shield' = 'true' and w.has_shield then 'using_shield' end) as inactive_reason
+    from owned o
+    join public.item_effects ie on ie.item_id = o.item_id and ie.activation <> 'permanent'
+    cross join worn w
+  ) z
+  where not (z.masked and z.inactive_reason is not null)
   union all
   -- permanent effects of used consumables (abilities are capped in _derived_stats_core and not repeated here)
   select 'permanent', (x ->> 'id')::uuid, x ->> 'item_id', (x ->> 'source_name') || ' (permanent)', 1, x ->> 'effect_type',
