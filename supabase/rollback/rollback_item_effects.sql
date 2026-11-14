@@ -5,15 +5,27 @@
 --   * item_spell_grants and character_permanent_effects are RENAMED to *_rd1_backup (kept with their rows);
 --   * the item spellcasting sources materialized by the sync (and their character_spells) are removed: they are derived rows,
 --     re-created by the sync after a reapply. Item spell counters are only deactivated (expended and resource events kept).
---   * the columns item_effects.max_score and character_spellcasting_sources.item_grant_key stay (unused by the old code).
--- Re-applying the migration restores the backups (section 0 of the migration).
+--   * the columns item_effects.max_score and character_spellcasting_sources.item_grant_key (+ its partial index) stay on
+--     purpose (unused by the old code; the migration re-adds them with "if not exists"). The transient queue
+--     item_grant_sync_queue (rows never outlive their transaction) is dropped.
+-- Re-applying the migration restores the backups (section 0 of the migration). Safe to run twice (every step is guarded).
 set lock_timeout = '5s';
 
 -- triggers and functions of this release
 drop trigger if exists inventory_items_item_grants on public.inventory_items;
 drop trigger if exists character_equipment_item_grants on public.character_equipment;
 drop trigger if exists inventory_item_knowledge_item_grants on public.inventory_item_knowledge;
-drop trigger if exists character_permanent_effects_item_grants on public.character_permanent_effects;
+drop trigger if exists character_transformations_item_grants on public.character_transformations;
+do $$
+begin
+  if to_regclass('public.character_permanent_effects') is not null then
+    execute 'drop trigger if exists character_permanent_effects_item_grants on public.character_permanent_effects';
+  end if;
+end $$;
+drop table if exists public.item_grant_sync_queue;                  -- transient: rows never outlive their transaction
+drop function if exists public._item_grants_flush();
+drop function if exists public._item_grants_mark(uuid);
+drop function if exists public._item_grants_on_transformation();
 drop function if exists public._item_grants_on_inventory();
 drop function if exists public._item_grants_on_equipment();
 drop function if exists public._item_grants_on_knowledge();
@@ -1013,11 +1025,11 @@ where (e.effect_type in ('initiative_bonus', 'skill_bonus') or e.activation = 'p
 delete from public.item_effects e
 where (e.effect_type in ('initiative_bonus', 'skill_bonus') or e.activation = 'permanent' or e.max_score is not null)
   and exists (select 1 from public.item_effects_rd1_backup b where b.item_id = e.item_id and b.seq = e.seq);
-alter table public.item_effects drop constraint item_effects_effect_type_check;
+alter table public.item_effects drop constraint if exists item_effects_effect_type_check;
 alter table public.item_effects add constraint item_effects_effect_type_check check (effect_type in (
   'ac_bonus', 'attack_bonus', 'damage_bonus', 'save_bonus', 'ability_bonus', 'ability_override', 'speed_bonus', 'speed_penalty',
   'resistance', 'carrying_capacity_bonus', 'skill_advantage', 'skill_disadvantage'));
-alter table public.item_effects drop constraint item_effects_activation_check;
+alter table public.item_effects drop constraint if exists item_effects_activation_check;
 alter table public.item_effects add constraint item_effects_activation_check
   check (activation in ('owned', 'equipped', 'attuned', 'equipped_and_attuned'));
 CREATE OR REPLACE FUNCTION public.item_effects_before_write()
@@ -1065,11 +1077,65 @@ end;
 $function$;
 
 -- the new tables are kept (renamed), with their rows; no trigger of this release stays on them
-drop trigger if exists item_spell_grants_before_write on public.item_spell_grants;
+do $$
+begin
+  if to_regclass('public.item_spell_grants') is not null then
+    execute 'drop trigger if exists item_spell_grants_before_write on public.item_spell_grants';
+  end if;
+  if to_regclass('public.character_permanent_effects') is not null then
+    execute 'drop trigger if exists character_permanent_effects_revision on public.character_permanent_effects';
+  end if;
+end $$;
 drop function if exists public.item_spell_grants_before_write();
 alter table if exists public.item_spell_grants rename to item_spell_grants_rd1_backup;
-drop trigger if exists character_permanent_effects_revision on public.character_permanent_effects;
 alter table if exists public.character_permanent_effects rename to character_permanent_effects_rd1_backup;
+
+-- tl_cache.bump: the exact body before 20261114000500
+CREATE OR REPLACE FUNCTION tl_cache.bump()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare mode text := tg_argv[0]; o jsonb; n jsonb; ids uuid[] := '{}'; g boolean := false; cid uuid; k text;
+  runtime constant text[] := array['hp_current', 'hp_temp', 'death_successes', 'death_failures', 'inspiration', 'hit_dice_current',
+    'cp', 'sp', 'ep', 'gp', 'pp', 'updated_at'];
+begin
+  if tg_op <> 'INSERT' then o := to_jsonb(old); end if;
+  if tg_op <> 'DELETE' then n := to_jsonb(new); end if;
+  if tg_op = 'UPDATE' and o = n then return null; end if;                          -- a no-op update changes nothing
+  if mode = 'characters' then
+    if tg_op = 'UPDATE' and (o - runtime) = (n - runtime) then return null; end if;  -- HP, coins, ...: runtime only
+    ids := array[coalesce(n ->> 'id', o ->> 'id')::uuid];
+  elsif mode = 'character' then
+    ids := array_remove(array[(n ->> 'character_id')::uuid, (o ->> 'character_id')::uuid], null);
+    g := (n is not null and n ->> 'character_id' is null) or (o is not null and o ->> 'character_id' is null);
+  elsif mode = 'inventory' then
+    -- a character's inventory bumps that character; a party / shop / NPC inventory (or an unknown one) bumps the global counter
+    foreach cid in array array_remove(array[(n ->> 'inventory_id')::uuid, (o ->> 'inventory_id')::uuid], null) loop
+      k := (select i.character_id::text from public.inventories i where i.id = cid);
+      if k is null then g := true; else ids := ids || k::uuid; end if;
+    end loop;
+  else
+    g := true;
+  end if;
+  foreach cid in array ids loop
+    k := 'tl_cache.c' || md5(cid::text || txid_current()::text);
+    continue when current_setting(k, true) = '1';
+    insert into tl_cache.character_rev as r (character_id, rev)
+    select cid, 1 where exists (select 1 from public.characters c where c.id = cid)
+    on conflict (character_id) do update set rev = r.rev + 1;
+    perform set_config(k, '1', true);
+  end loop;
+  if g then
+    k := 'tl_cache.g' || md5(txid_current()::text);
+    if coalesce(current_setting(k, true), '') <> '1' then
+      update tl_cache.global_rev set rev = rev + 1 where id = 1;
+      perform set_config(k, '1', true);
+    end if;
+  end if;
+  return null;
+end $function$;
 
 update tl_cache.global_rev set rev = rev + 1 where id = 1;
 reset lock_timeout;

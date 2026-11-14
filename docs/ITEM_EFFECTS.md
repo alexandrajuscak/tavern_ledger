@@ -34,7 +34,8 @@ speed note names the items that change the speed.
 | Advantage / Disadvantage on a skill | a skill | — | advantage on Stealth |
 
 Stacking: different items add up (a Ring and a Cloak of Protection give +2 to saves). "Set to" takes the highest. Two
-items of the same stack group (seeded catalog data only) count once, the best one.
+items of the same stack group (seeded catalog data only) count once, the best one, also when one of them is unidentified
+(stack groups reach the client only as opaque keys).
 
 **Permanent ability increases** (Hag's Hair, Tomes and Manuals) are capped: the score goes up to 20 unless the effect has a
 **Maximum score** (a Manual of Bodily Health: 22). A +1 at 20 applies nothing; the ability card shows "none applied: max 20".
@@ -51,7 +52,8 @@ Each granted spell has a source of power:
 The spell appears in the **Spells** tab marked "Magic item: <item>", with "1 of 1 left per long rest" and a **Use** button
 (the counter is also a resource on the Play tab). The spellcasting ability is the one the DM chose, else the character's.
 A spell from an item that is no longer equipped / attuned / carried disappears; its counter is kept (unattune and attune
-again does not refill it). A permanent spell (from a used consumable) stays.
+again does not refill it). An item merged into a Wild Shape form (or dropped) grants nothing while transformed, as its
+bonuses. A permanent spell (from a used consumable) stays.
 
 ## Permanent effects of used items
 
@@ -75,7 +77,8 @@ effects, but the answer names none of them ("your DM tells you what happens").
 
 DM Space → Content → New item (or New version of a published one) → sections **Effects (applied automatically)** and
 **Granted spells** → Validate → Publish. Only DM content items can have effects; player homebrew cannot. Every published
-version has its own catalog row and effects: copies players already hold keep the version they have.
+version has its own catalog row and effects: copies players already hold keep the version they have (changing the effects
+or spells of a published version in place is refused: make a new version).
 
 ### Examples
 
@@ -100,8 +103,12 @@ version has its own catalog row and effects: copies players already hold keep th
 - `item_spell_grants (item_id, seq, spell_version_id, casting at_will|spell_slots|per_rest, uses, recharge, activation, ability)`.
 - `character_permanent_effects`: one row per applied effect / spell, per use request and unit; `reverted_at` instead of delete.
 - Materialized grants: `character_spellcasting_sources.item_grant_key` (`ii:<inventory row>` / `pe:<permanent row>`),
-  `character_spells`, `character_resources` (`item-…` / `itemp-…`, source type `item`). `_sync_item_spell_grants` runs from
-  triggers on inventory rows, equipment, identification and permanent rows.
+  `character_spells`, `character_resources` (`item-…` / `itemp-…`, source type `item`). Row triggers on inventory rows,
+  equipment, identification, permanent rows and Wild Shape transformations only queue the character
+  (`item_grant_sync_queue`); one deferred trigger syncs every queued character when the transaction commits, after taking
+  `pg_advisory_xact_lock(4241, hashtext(character))` for all of them in one fixed order (no deadlock with other RPCs:
+  `supabase/tests/item_grants_concurrency_test.sh`). `tl_cache.bump` takes the two character counters of a transfer in uuid
+  order (opposite transfers deadlocked).
 - Derived stats: `_character_item_effect_rows` (one source for every viewer, masked labels) → `_character_effects` →
   `_derived_stats_core`: `abilities.*.permanent_sources`, `saving_throws.*.item_sources`, `skills.*.item_bonus` /
   `item_sources`, `initiative.item_sources`, `inactive_effects` on abilities, saves, skills, initiative and speed,
@@ -113,3 +120,5 @@ version has its own catalog row and effects: copies players already hold keep th
 - The spell source label stored for the player is the disguise; the DM's spellbook view shows the true name.
 - Equipping / attuning an item with a granted spell writes the party log line "Spell added" (as feats do).
 - Weapon actions, special and condition blocks of weapon cards come in R-D2.
+- The rollback keeps the columns `item_effects.max_score` and `character_spellcasting_sources.item_grant_key` (and its index)
+  on purpose; the migration re-adds them with `if not exists`. The rollback is safe to run twice.

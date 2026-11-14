@@ -12,7 +12,7 @@
 --     revertible by the DM (reverted_at; never deleted). Players have no grant on the table: read models mask the source.
 --  4. _character_item_effect_rows (SECURITY DEFINER, own access check): the item effects of a character for every viewer, so the
 --     player and the DM compute the same numbers; an unidentified item is shown to the player only under its disguise
---     (no item id, an opaque stack group). _character_effects reads it (signature unchanged).
+--     (no item id; stack groups are opaque keys for everybody). _character_effects reads it (signature unchanged).
 --  5. _derived_stats_core: permanent ability increases (capped), item initiative, numeric skill bonus, the sources of save /
 --     skill / initiative / ability bonuses and the inactive effects (as armor_class.inactive_effects already had).
 --  6. use_inventory_item(p_item, p_quantity, p_request): applies the permanent effects of a consumed item (idempotent per request).
@@ -278,7 +278,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
     select 'item_effect'::text as source_type, o.id as source_id, case when o.masked then null else o.item_id end as item_id,
            case when o.masked then o.display_name when o.unidentified then o.true_name || ' (unidentified)' else o.plain_name end as source_name,
            ie.seq, ie.effect_type, ie.value, ie.target, ie.activation, ie.stacking, o.masked,
-           case when o.masked then 'masked:' || md5(p_character::text || ':' || ie.stack_group) else ie.stack_group end as stack_group, ie.priority, o.kind_id,
+           'g:' || md5(p_character::text || ':' || ie.stack_group) as stack_group, ie.priority, o.kind_id,
            coalesce(
              case ie.activation
                when 'equipped' then case when o.slot_id is null then 'not_equipped' end
@@ -1042,7 +1042,7 @@ begin
   select coalesce(jsonb_agg(to_jsonb(x) order by x.gkey, x.seq), '[]') into want from (
     select 'ii:' || h.row_id as gkey, 'item-' || replace(h.row_id::text, '-', '') as rbase, h.label, gr.seq, gr.spell_version_id,
            gr.casting, gr.uses, gr.recharge, gr.ability
-    from (select ii.id as row_id, ii.item_id, ii.is_attuned, e.slot_id,
+    from (select ii.id as row_id, ii.item_id, ii.is_attuned and public._item_active_in_form(p_character, ii.id) as is_attuned, e.slot_id,
                  case when kk.state is not null and kk.state <> 'identified'
                       then coalesce(nullif(ii.custom_name, ''), nullif(ii.name, ''), 'Unidentified item')
                       else coalesce(nullif(ii.custom_name, ''), it.name) end as label
@@ -1050,6 +1050,7 @@ begin
           join public.inventory_items ii on ii.inventory_id = inv.id
           join public.items it on it.id = ii.item_id
           left join public.character_equipment e on e.inventory_item_id = ii.id and e.character_id = p_character
+            and public._item_active_in_form(p_character, ii.id)          -- merged or dropped in Wild Shape: not equipped (review v33 m3)
           left join public.inventory_item_knowledge kk on kk.inventory_item_id = ii.id
           where inv.character_id = p_character
             and exists (select 1 from public.item_spell_grants x where x.item_id = ii.item_id and x.activation <> 'permanent')) h
@@ -1119,20 +1120,66 @@ begin
 end $$;
 revoke all on function public._sync_item_spell_grants(uuid) from public, anon, authenticated;
 
--- triggers: every write that can change the wanted state of a character (cheap guard: only items with spell grants)
+-- Triggers (review v33 M1). Syncing inside the row triggers deadlocked: two RPCs on the same characters (attune vs transfer, two
+-- opposite transfers) took the sync's row locks (sources, spells, resources, tl_cache.character_rev) in different orders while
+-- still holding their own row locks. Now a row trigger only QUEUES the character (item_grant_sync_queue, this transaction);
+-- one DEFERRED constraint trigger flushes the queue at commit (or at the end of the statement under SET CONSTRAINTS IMMEDIATE):
+-- every queued character is locked first, in one fixed order (pg_advisory_xact_lock(4241, hashtext(character)), sorted by that
+-- key, then the id), then synced. A flush only waits for another flush (same order: no cycle) or for rows of its own
+-- characters, and every RPC has taken all its own row locks before its flush. The lock key space (4241, int) is the two-key
+-- space: it never collides with the one-key locks (attunement: hashtext(inventory id)) or the NOWAIT row locks of
+-- party-wide identification.
+create table if not exists public.item_grant_sync_queue (
+  id           bigint generated always as identity primary key,
+  txid         bigint not null default txid_current(),
+  character_id uuid not null
+);
+create index if not exists item_grant_sync_queue_tx on public.item_grant_sync_queue (txid, character_id);
+comment on table public.item_grant_sync_queue is
+  'Transient (20261114000500, review v33): characters whose item spell grants must be re-synced when this transaction commits. Rows live only inside their transaction.';
+alter table public.item_grant_sync_queue enable row level security;
+revoke all on public.item_grant_sync_queue from public, anon, authenticated;
+drop trigger if exists tl_cache_rev on public.item_grant_sync_queue;
+create trigger tl_cache_rev after insert or update or delete on public.item_grant_sync_queue
+  for each row execute function tl_cache.skip();
+
+create or replace function public._item_grants_mark(p_character uuid)
+returns void language sql security definer set search_path = public, pg_temp as $$
+  insert into public.item_grant_sync_queue (character_id)
+  select p_character where p_character is not null
+    and not exists (select 1 from public.item_grant_sync_queue q where q.txid = txid_current() and q.character_id = p_character);
+$$;
+
+create or replace function public._item_grants_flush()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare c record;
+begin
+  if not exists (select 1 from public.item_grant_sync_queue q where q.txid = txid_current()) then return null; end if;
+  for c in select distinct q.character_id, hashtext(q.character_id::text) as k from public.item_grant_sync_queue q
+           where q.txid = txid_current() order by 2, 1 loop
+    perform pg_advisory_xact_lock(4241, c.k);                       -- all locks first, in the fixed order
+  end loop;
+  for c in select distinct q.character_id, hashtext(q.character_id::text) as k from public.item_grant_sync_queue q
+           where q.txid = txid_current() order by 2, 1 loop
+    perform public._sync_item_spell_grants(c.character_id);
+  end loop;
+  delete from public.item_grant_sync_queue q where q.txid = txid_current();
+  return null;
+end $$;
+drop trigger if exists item_grant_sync_queue_flush on public.item_grant_sync_queue;
+create constraint trigger item_grant_sync_queue_flush after insert on public.item_grant_sync_queue
+  deferrable initially deferred for each row execute function public._item_grants_flush();
+
+-- the row triggers: queue the character(s) whose wanted state may have changed (cheap guard: only items with spell grants)
 create or replace function public._item_grants_on_inventory()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
-declare ids uuid[] := '{}'; cid uuid;
 begin
   if tg_op <> 'DELETE' and exists (select 1 from public.item_spell_grants g where g.item_id = new.item_id and g.activation <> 'permanent') then
-    ids := ids || (select i.character_id from public.inventories i where i.id = new.inventory_id);
+    perform public._item_grants_mark((select i.character_id from public.inventories i where i.id = new.inventory_id));
   end if;
   if tg_op <> 'INSERT' and exists (select 1 from public.item_spell_grants g where g.item_id = old.item_id and g.activation <> 'permanent') then
-    ids := ids || (select i.character_id from public.inventories i where i.id = old.inventory_id);
+    perform public._item_grants_mark((select i.character_id from public.inventories i where i.id = old.inventory_id));
   end if;
-  for cid in select distinct x from unnest(ids) x where x is not null loop
-    perform public._sync_item_spell_grants(cid);
-  end loop;
   return null;
 end $$;
 drop trigger if exists inventory_items_item_grants on public.inventory_items;
@@ -1141,19 +1188,15 @@ create trigger inventory_items_item_grants after insert or delete or update of i
 
 create or replace function public._item_grants_on_equipment()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
-declare ids uuid[] := '{}'; cid uuid;
 begin
   if tg_op <> 'DELETE' and exists (select 1 from public.inventory_items ii join public.item_spell_grants g on g.item_id = ii.item_id
                                    where ii.id = new.inventory_item_id and g.activation <> 'permanent') then
-    ids := ids || new.character_id;
+    perform public._item_grants_mark(new.character_id);
   end if;
   if tg_op <> 'INSERT' and exists (select 1 from public.inventory_items ii join public.item_spell_grants g on g.item_id = ii.item_id
                                    where ii.id = old.inventory_item_id and g.activation <> 'permanent') then
-    ids := ids || old.character_id;
+    perform public._item_grants_mark(old.character_id);
   end if;
-  for cid in select distinct x from unnest(ids) x where x is not null loop
-    perform public._sync_item_spell_grants(cid);
-  end loop;
   return null;
 end $$;
 drop trigger if exists character_equipment_item_grants on public.character_equipment;
@@ -1167,7 +1210,7 @@ declare cid uuid; rid uuid := case when tg_op = 'DELETE' then old.inventory_item
 begin
   select inv.character_id into cid from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
   where ii.id = rid and exists (select 1 from public.item_spell_grants g where g.item_id = ii.item_id and g.activation <> 'permanent');
-  if cid is not null then perform public._sync_item_spell_grants(cid); end if;
+  perform public._item_grants_mark(cid);
   return null;
 end $$;
 drop trigger if exists inventory_item_knowledge_item_grants on public.inventory_item_knowledge;
@@ -1178,15 +1221,32 @@ create or replace function public._item_grants_on_permanent()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 begin
   if (tg_op <> 'DELETE' and new.kind = 'spell') or (tg_op <> 'INSERT' and old.kind = 'spell') then
-    perform public._sync_item_spell_grants(case when tg_op = 'DELETE' then old.character_id else new.character_id end);
+    perform public._item_grants_mark(case when tg_op = 'DELETE' then old.character_id else new.character_id end);
   end if;
   return null;
 end $$;
 drop trigger if exists character_permanent_effects_item_grants on public.character_permanent_effects;
 create trigger character_permanent_effects_item_grants after insert or delete or update on public.character_permanent_effects
   for each row execute function public._item_grants_on_permanent();
+
+-- Wild Shape (review v33 m3): a transformation starts, ends or changes what the form wears -> granted spells follow
+create or replace function public._item_grants_on_transformation()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare cid uuid := case when tg_op = 'DELETE' then old.character_id else new.character_id end;
+begin
+  if exists (select 1 from public.inventories inv join public.inventory_items ii on ii.inventory_id = inv.id
+             join public.item_spell_grants g on g.item_id = ii.item_id
+             where inv.character_id = cid and g.activation in ('equipped', 'attuned', 'equipped_and_attuned')) then
+    perform public._item_grants_mark(cid);
+  end if;
+  return null;
+end $$;
+drop trigger if exists character_transformations_item_grants on public.character_transformations;
+create trigger character_transformations_item_grants after insert or delete or update on public.character_transformations
+  for each row execute function public._item_grants_on_transformation();
 revoke all on function public._item_grants_on_inventory(), public._item_grants_on_equipment(), public._item_grants_on_knowledge(),
-  public._item_grants_on_permanent() from public, anon, authenticated;
+  public._item_grants_on_permanent(), public._item_grants_on_transformation(), public._item_grants_mark(uuid), public._item_grants_flush()
+  from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------------------------- 7. use_inventory_item (+ request)
 -- A consumed item with permanent effects (item_effects / item_spell_grants activation 'permanent') writes them to the character
@@ -1514,6 +1574,9 @@ begin
   if (has_fx or has_gs) and p_id !~ '^cc-' then
     raise exception 'Only items made in DM Space can have automated effects or granted spells' using errcode = '42501';
   end if;
+  if (has_fx or has_gs) and not p_is_new then                         -- review v33 m2: copies players hold keep their version
+    raise exception 'A published version never changes its effects or granted spells: make a new version in DM Space' using errcode = '22023';
+  end if;
   if has_fx then
     if jsonb_typeof(p_def -> 'effects') <> 'array' or jsonb_array_length(p_def -> 'effects') > 20 then
       raise exception 'Effects are a list of at most 20 effects' using errcode = '22023';
@@ -1671,6 +1734,54 @@ begin
   from jsonb_array_elements(gs_list) with ordinality t(x, o);
 end;
 $function$;
+
+-- tl_cache.bump (body of 20261030000200): the character counters of one row event are taken in uuid order
+CREATE OR REPLACE FUNCTION tl_cache.bump()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare mode text := tg_argv[0]; o jsonb; n jsonb; ids uuid[] := '{}'; g boolean := false; cid uuid; k text;
+  runtime constant text[] := array['hp_current', 'hp_temp', 'death_successes', 'death_failures', 'inspiration', 'hit_dice_current',
+    'cp', 'sp', 'ep', 'gp', 'pp', 'updated_at'];
+begin
+  if tg_op <> 'INSERT' then o := to_jsonb(old); end if;
+  if tg_op <> 'DELETE' then n := to_jsonb(new); end if;
+  if tg_op = 'UPDATE' and o = n then return null; end if;                          -- a no-op update changes nothing
+  if mode = 'characters' then
+    if tg_op = 'UPDATE' and (o - runtime) = (n - runtime) then return null; end if;  -- HP, coins, ...: runtime only
+    ids := array[coalesce(n ->> 'id', o ->> 'id')::uuid];
+  elsif mode = 'character' then
+    ids := array_remove(array[(n ->> 'character_id')::uuid, (o ->> 'character_id')::uuid], null);
+    g := (n is not null and n ->> 'character_id' is null) or (o is not null and o ->> 'character_id' is null);
+  elsif mode = 'inventory' then
+    -- a character's inventory bumps that character; a party / shop / NPC inventory (or an unknown one) bumps the global counter
+    foreach cid in array array_remove(array[(n ->> 'inventory_id')::uuid, (o ->> 'inventory_id')::uuid], null) loop
+      k := (select i.character_id::text from public.inventories i where i.id = cid);
+      if k is null then g := true; else ids := ids || k::uuid; end if;
+    end loop;
+  else
+    g := true;
+  end if;
+  -- 20261114000500 (review v33): one fixed order (a transfer between two characters bumps both; opposite transfers deadlocked)
+  for cid in select distinct x from unnest(ids) x order by x loop
+    k := 'tl_cache.c' || md5(cid::text || txid_current()::text);
+    continue when current_setting(k, true) = '1';
+    insert into tl_cache.character_rev as r (character_id, rev)
+    select cid, 1 where exists (select 1 from public.characters c where c.id = cid)
+    on conflict (character_id) do update set rev = r.rev + 1;
+    perform set_config(k, '1', true);
+  end loop;
+  if g then
+    k := 'tl_cache.g' || md5(txid_current()::text);
+    if coalesce(current_setting(k, true), '') <> '1' then
+      update tl_cache.global_rev set rev = rev + 1 where id = 1;
+      perform set_config(k, '1', true);
+    end if;
+  end if;
+  return null;
+end $function$;
 
 -- materialize the grants of items already held (none exist before this release; harmless no-op otherwise)
 do $$

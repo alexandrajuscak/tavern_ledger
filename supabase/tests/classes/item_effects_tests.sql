@@ -11,6 +11,8 @@ insert into public.characters (id, owner_id, name, campaign_id, level, strength,
   (:'e1', :'alice', 'Effect Hero', :'camp', 5, 14, 14, 14, 10, 19, 10, 40, 40, 30),
   (:'e2', :'alice', 'Effect Friend', :'camp', 5, 12, 12, 12, 12, 12, 12, 30, 30, 30),
   (:'e3', :'alice', 'Effect Sage', :'camp', 5, 10, 10, 10, 10, 20, 10, 30, 30, 30);
+-- the grant sync runs in a deferred trigger at commit (review v33); this file runs in ONE transaction: flush per statement
+set constraints all immediate;
 create function tl_test.code(p_sql text) returns text language plpgsql as $$
 begin execute p_sql; return 'ok'; exception when others then return sqlstate; end $$;
 create function tl_test.msg(p_sql text) returns text language plpgsql as $$
@@ -292,3 +294,40 @@ select tl_test.rec('IE30 a new version has its own catalog row and effects; the 
   tl_test.ref(:'boots') <> :'bts' and (select value from public.item_effects where item_id = tl_test.ref(:'boots')) = 5
   and (select count(*) from public.item_effects where item_id = :'bts') = 2
   and not exists (select 1 from public.item_spell_grants where item_id = tl_test.ref(:'boots')));
+
+-- ---- 8. review v33 ------------------------------------------------------------------------------------------------------------
+-- m2: a published version never changes its effects / spells in place (update_homebrew_item by the owner DM)
+select tl_test.as_user(:'dm');
+select tl_test.rec('IE32 update_homebrew_item cannot change the effects or spells of a published DM content version',
+  tl_test.msg(format('select public.update_homebrew_item(%L, %L)', :'amu', '{"name": "Amulet of the Grave", "kind_id": "magic_item", "is_magic": true, "rarity_id": "uncommon", "requires_attunement": true, "effects": [{"type": "ac_bonus", "value": 5, "activation": "attuned"}]}')) like '%make a new version%'
+  and (select count(*) from public.item_effects where item_id = :'amu' and effect_type = 'ac_bonus') = 0);
+-- m3: Wild Shape: an attuned amulet merged into the form grants nothing while transformed
+\set e4 f3e00000-0000-0000-0000-000000000004
+insert into public.characters (id, owner_id, name, campaign_id, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp_max, hp_current, speed) values
+  (:'e4', :'alice', 'Effect Druid', :'camp', 2, 10, 12, 12, 10, 16, 10, 20, 20, 30);
+select public.dm_give_item(:'amu', array[:'e4']::uuid[], 1, true);
+select tl_test.as_user(:'alice');
+select public.set_character_class(:'e4', 'druid-phb', 2, null, true);
+select public.attune_item(tl_test.row_of(:'e4', :'amu'));
+select (tl_test.grant_of(:'e4', 'speak-with-dead-phb') is not null) as before_ws \gset
+select public.start_transformation(:'e4', 'wolf', '{"equipment": {"mode": "merge"}}');
+select (tl_test.grant_of(:'e4', 'speak-with-dead-phb') is null) as during_ws, (tl_test.ires(:'e4')).active as res_during \gset
+select public.end_transformation(:'e4');
+select tl_test.rec('IE33 Wild Shape: the merged amulet''s spell is gone in the form (counter inactive) and back after it',
+  :'before_ws'::boolean and :'during_ws'::boolean and not :'res_during'::boolean
+  and tl_test.grant_of(:'e4', 'speak-with-dead-phb') is not null and (tl_test.ires(:'e4')).active);
+-- m4: a masked and an identified item of the same stack group count once for the player, as for the DM
+select tl_test.as_user(:'dm');
+select tl_test.pub('{"name": "Lucky Coin", "definition": {"item": {"kind_id": "gear", "effects": [{"type": "skill_bonus", "target": "stealth", "value": 2, "activation": "owned"}]}}}') as coin_a \gset
+select tl_test.pub('{"name": "Other Coin", "definition": {"item": {"kind_id": "gear", "effects": [{"type": "skill_bonus", "target": "stealth", "value": 1, "activation": "owned"}]},
+  "hidden": {"unidentified_name": "Dull coin"}}}') as coin_b \gset
+select tl_test.as_root();
+update public.item_effects set stacking = 'non_stacking_group', stack_group = 'luck' where item_id in (tl_test.ref(:'coin_a'), tl_test.ref(:'coin_b'));
+select tl_test.as_user(:'dm');
+select public.dm_give_item(tl_test.ref(:'coin_a'), array[:'e4']::uuid[], 1, true);
+select public.dm_give_item(tl_test.ref(:'coin_b'), array[:'e4']::uuid[], 1, false);
+select (tl_test.d(:'e4') -> 'skills' -> 'stealth' ->> 'item_bonus')::int as dm_st \gset
+select tl_test.as_user(:'alice');
+select tl_test.rec('IE34 stack group: a masked and an identified coin count once (+2) for the player and the DM; no group name reaches the player',
+  :'dm_st'::int = 2 and (tl_test.d(:'e4') -> 'skills' -> 'stealth' ->> 'item_bonus')::int = 2
+  and position('luck' in tl_test.d(:'e4')::text) = 0);
