@@ -345,6 +345,35 @@ working through the ordinary modifier path).
 `supabase/tests/classes/weapon_enhancement_tests.sql` (E1–E14), `item_knowledge_transfer_concurrency_test.sh` mode `enhance`,
 `supabase/tests/browser/weapon_enhancement_ui_test.py`.
 
+## Modifier guard (migration 20261114001100, `?v=39`, review finding M1)
+
+Before: a campaign player could attach ANY official modifier (for example `weapon-plus-3`) to an own item, and remove modifier rows
+(for example a DM-given negative one), by a plain REST insert / delete on `inventory_item_modifiers` (grant + `can_write_inventory`
+policy since 20261015000900). R-E2 refused only campaign (`cm-`) modifiers.
+
+Now the before-write trigger `inventory_item_modifiers_before_write` allows a direct insert or delete only:
+- inside an inventory RPC (`tavern.rpc`: stack split copies, crafting / enhancement) or a class-feature path (`tavern.managed_modifier`:
+  infusions);
+- for the DM of the item's campaign (the holding character's campaign, or the stash / party stash / shop / npc inventory's campaign)
+  or an admin;
+- without a signed-in user (postgres / service_role maintenance);
+- for a delete cascaded from deleting the item or its character (the parent row is already gone).
+An item with no campaign (a character outside every campaign, a personal stash) has no DM: only the managed paths and an admin.
+Refusal: 42501 "Item modifiers are changed by the campaign DM or by the game (crafting, infusions), not directly".
+
+**Why the trigger and not a revoke.** No frontend file writes the table (only `item_modifiers` is read). Every SQL writer is a
+SECURITY DEFINER function owned by postgres, so a revoke would not break them, but the campaign DM's direct attach / remove has no RPC
+replacement and is used (tests, the `enhance` / `enhance_dm` concurrency modes). The grants therefore stay and the rule lives in the
+trigger, which also covers any future grant or invoker function.
+
+**Governance.** No governance action covers attaching a modifier, and no preset (also not `relaxed` / player-managed overrides) lets
+a player attach an official modifier through raw REST. A player gets a modifier only through a governed RPC: crafting
+(`inventory.craft`, enhancement recipes) or Infuse Item. A future player-facing attach RPC would have to check a governance action
+(for example `inventory.add_magic`) itself.
+
+Rollback: `supabase/rollback/rollback_modifier_guard.sql` (the exact previous trigger body). Tests:
+`supabase/tests/classes/modifier_guard_tests.sql` (MG1–MG18).
+
 ## Known limits
 
 
