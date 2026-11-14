@@ -8,9 +8,9 @@
 // Lineage traits and feats (20261109000200, docs/ACTIVE_GAMEPLAY_FEATURE_AUDIT.md): sourceFeatures() builds the same compact card
 // model from get_character_lineage, get_character_feats and get_character_resources plus the catalog table catalog_play_timing
 // (the timing the catalog text states; read once per page session). No request per card and no rules evaluation here.
-import { esc } from './utils.js?v=33';
-import { icon } from './icons.js?v=33';
-import { supabase } from './supabase.js?v=33';
+import { esc } from './utils.js?v=34';
+import { icon } from './icons.js?v=34';
+import { supabase } from './supabase.js?v=34';
 
 export const PLAY_TIMINGS = ['action', 'bonus_action', 'reaction', 'special'];
 const AUTOMATION = { automated: 'automatic', partially_automated: 'partly automatic', informational: 'reminder' };

@@ -66,9 +66,9 @@ def run(t):
         page = s.page
 
         # ---- icons ------------------------------------------------------------------------------------------------------
-        reg = page.evaluate("async () => { const m = await import('./js/icon-registry.js?v=33'); return m.ICON_REGISTRY || m.default || m.REGISTRY || null; }")
+        reg = page.evaluate("async () => { const m = await import('./js/icon-registry.js?v=34'); return m.ICON_REGISTRY || m.default || m.REGISTRY || null; }")
         if not reg:
-            reg = page.evaluate("async () => { const m = await import('./js/icon-registry.js?v=33'); return Object.values(m).find((v) => v && typeof v === 'object' && v['item.weapons']) || null; }")
+            reg = page.evaluate("async () => { const m = await import('./js/icon-registry.js?v=34'); return Object.values(m).find((v) => v && typeof v === 'object' && v['item.weapons']) || null; }")
         assets = {k: v.get("asset") for k, v in (reg or {}).items()}
         h = {a: page.evaluate(HASH_JS, f"assets/icons/{a}.webp") for a in ["items/weapons", "items/tools", "classes/fighter", "spell-schools/illusion",
                                                                              "classes/rogue", "spell-schools/divination", "classes/artificer", "items/lute"]}

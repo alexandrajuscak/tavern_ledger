@@ -7,9 +7,9 @@
 //   an unidentified or partly identified weapon shows its decoy and the revealed facts only. Nothing is fetched for the card.
 // * The blocks "Weapon actions", "Special", "Condition" (R-D2) come from derived weapon_blocks (absent for an unknown copy).
 // The hooks of the earlier cards stay: .entry.derived-weapon[data-weapon], [data-attack-bonus], details[data-details] (one <summary>).
-import { esc } from './utils.js?v=33';
-import { icon, ITEM_ICONS } from './icons.js?v=33';
-import { effectText } from './item-effects.js?v=33';
+import { esc } from './utils.js?v=34';
+import { icon, ITEM_ICONS } from './icons.js?v=34';
+import { effectText } from './item-effects.js?v=34';
 
 const fmt = (n) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`);
 const cap = (s) => String(s || '').replace(/^\w/, (c) => c.toUpperCase());

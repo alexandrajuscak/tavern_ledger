@@ -1,9 +1,9 @@
 // Wild Shape: the idle panel, the active-form mode, the form picker with filters / favorites / compare, the transformation
 // review and the HP, healing and revert flows (docs/WILD_SHAPE_UI.md). Every number comes from get_character_transformation
 // (the authoritative transformed sheet); this module renders and sends player decisions only. No class names in rules.
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=33';
-import * as api from './creature-api.js?v=33';
-import { icon } from './icons.js?v=33';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=34';
+import * as api from './creature-api.js?v=34';
+import { icon } from './icons.js?v=34';
 
 const ABIL = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const AB = { str: 'STR', dex: 'DEX', con: 'CON', int: 'INT', wis: 'WIS', cha: 'CHA' };

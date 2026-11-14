@@ -71,7 +71,7 @@ def run(t):
         # a devtools-style subscription: what ANY player could receive about inventory_items of this character
         pp.evaluate("""async (cid) => {
             window.__leak = []; window.__leakStatus = '';
-            const m = await import('./js/supabase.js?v=33');
+            const m = await import('./js/supabase.js?v=34');
             m.supabase.channel('leak-probe').on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_items', filter: 'character_id=eq.' + cid },
               (x) => window.__leak.push(JSON.stringify(x))).subscribe((s) => { window.__leakStatus = s; });
         }""", ch)
