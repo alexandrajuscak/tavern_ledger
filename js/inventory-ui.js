@@ -1,16 +1,20 @@
 // Inventory tab: summary, equipment slots, item list, item detail and the catalog picker.
 // All data comes from inventory-api.js; after every change the authoritative state is re-read from the server
 // (no client-side simulation of splits, merges or quantities).
-import * as api from './inventory-api.js?v=37';
-import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=37';
-import { openHomebrewForm } from './homebrew-form.js?v=37';
-import { galleryIcon } from './item-icon-gallery.js?v=37';
-import { isAnyDM } from './store.js?v=37';
-import { icon, ITEM_ICONS } from './icons.js?v=37';
-import { sectionHead } from './section.js?v=37';
-import { CRAFTING } from './config.js?v=37';
-import { customIconUrl } from './custom-icons.js?v=37';
-import { effectText, castingText } from './item-effects.js?v=37';
+import * as api from './inventory-api.js?v=38';
+import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=38';
+import { openHomebrewForm } from './homebrew-form.js?v=38';
+import { galleryIcon } from './item-icon-gallery.js?v=38';
+import { isAnyDM } from './store.js?v=38';
+import { icon, ITEM_ICONS } from './icons.js?v=38';
+import { sectionHead } from './section.js?v=38';
+import { CRAFTING } from './config.js?v=38';
+import { customIconUrl } from './custom-icons.js?v=38';
+import { effectText, castingText } from './item-effects.js?v=38';
+
+/** A modifier's label: its name when readable (api.modifierName), else the id made readable ("weapon-plus-1" -> "Weapon +1");
+ *  a campaign enhancement ('cm-…') whose name is not readable is just "Enhancement". */
+const modLabel = (m) => api.modifierName(m) || (m.startsWith('cm-') ? 'Enhancement' : m.replace(/-plus-/, ' +').replace(/^\w/, (c) => c.toUpperCase()));
 
 const CATEGORIES = [
   ['all', 'All', () => true],
@@ -227,7 +231,7 @@ export function mountInventory(el, opts) {
   const craftingAllowed = () => (CRAFTING || 'off') === 'on' && !!opts.crafting?.allowed?.();
   const craftingTab = () => craftingAllowed() && s.tab === 'crafting';
   function withCrafting(fn) {
-    craftingLoad ||= import('./crafting.js?v=37').then((m) => {
+    craftingLoad ||= import('./crafting.js?v=38').then((m) => {
       if (s.destroyed) return null;
       crafting ||= m.createPlayerCrafting({ characterId: opts.characterId, onInventoryChanged: () => scheduleRefresh() });
       return m;
@@ -490,7 +494,8 @@ export function mountInventory(el, opts) {
     if (r.is_quest_item) b.push('<span class="badge">Quest item</span>');
     const inf = opts.getInfused?.()?.get(r.id);   // an Artificer infusion on this item (get_character_infusions)
     if (inf) b.push(`<span class="badge inv-b-magic inv-b-infused" title="Artificer Infusion${inf.attunement ? (inf.attuned ? ', attuned' : ', needs attunement') : ''}">${icon('item.magic', { size: 14 })}Infused: ${esc(inf.label)}</span>`);
-    if (r.modifier_ids?.length) b.push(...r.modifier_ids.filter((m) => !(inf && m.startsWith('infusion-'))).map((m) => `<span class="badge inv-b-magic">${esc(m.replace(/-plus-/, ' +').replace(/^\w/, (c) => c.toUpperCase()))}</span>`));
+    // modifiers (a +1, a crafted enhancement): only on a copy the viewer knows (a disguised copy shows nothing new)
+    if (r.modifier_ids?.length && !kn) b.push(...r.modifier_ids.filter((m) => !(inf && m.startsWith('infusion-'))).map((m) => `<span class="badge inv-b-magic" data-modifier="${esc(m)}">${esc(modLabel(m))}</span>`));
     return b.filter(Boolean).join(' ');
   }
 
@@ -1336,8 +1341,7 @@ export function mountInventory(el, opts) {
         rarity, rarityLabel: rarity ? rarityLabel(rarity) : '', magic: magicOf(r),
         attunement: k ? !!facts.attunement : !!(r.requires_attunement ?? d?.requires_attunement), attuned: !!r.is_attuned,
         description: k ? (r.description || '') : (d?.description || r.description || ''), notes: r.notes || '',
-        modifiers: k ? [] : (r.modifier_ids || []).filter((m) => !m.startsWith('infusion-'))
-          .map((m) => m.replace(/-plus-/, ' +').replace(/^\w/, (c) => c.toUpperCase())),
+        modifiers: k ? [] : (r.modifier_ids || []).filter((m) => !m.startsWith('infusion-')).map(modLabel),
       };
     },
     /** The crafting rule or the viewer changed (governance state): show or hide the Crafting panel. */

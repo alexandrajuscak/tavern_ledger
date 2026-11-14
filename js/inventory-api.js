@@ -1,8 +1,8 @@
 // Inventory data access. The ONLY module that talks to Supabase about items, inventories and equipment.
 // Reads come from views (RLS applies: they are security_invoker), every change goes through an RPC.
 // Function names follow the database; where they differ the mapping is written next to the function.
-import { supabase } from './supabase.js?v=37';
-import { onUserCachesCleared } from './read-layer.js?v=37';
+import { supabase } from './supabase.js?v=38';
+import { onUserCachesCleared } from './read-layer.js?v=38';
 
 // ---- Errors -----------------------------------------------------------------------------------
 
@@ -220,19 +220,25 @@ export const examineItem = (inventoryItemId, checkKey, rollTotal, requestId) =>
   rpc('examine_inventory_item', { p_inventory_item: inventoryItemId, p_check: checkKey, p_roll: rollTotal, p_request: requestId || null });
 
 const modifierRarityCache = new Map();
+const modifierNameCache = new Map();
 // item_modifiers are read with the user's RLS (homebrew modifiers): forgotten on a user switch
-onUserCachesCleared(() => modifierRarityCache.clear());
+onUserCachesCleared(() => { modifierRarityCache.clear(); modifierNameCache.clear(); });
 
-/** Rarity of item modifiers (a +1 on a mundane weapon is uncommon): Map(modifier id → rarity id or null), cached. */
+/** Rarity of item modifiers (a +1 on a mundane weapon is uncommon): Map(modifier id → rarity id or null), cached. The names
+ *  come with it (modifierName). A campaign enhancement ('cm-…') is readable only while the reader knows a copy carrying it
+ *  (20261114001000), so a miss of such an id is not remembered: it is read again next time. */
 export async function getModifierRarities(ids) {
   const missing = [...new Set(ids)].filter((id) => id && !modifierRarityCache.has(id));
   if (missing.length) {
-    const { data } = await read(() => supabase.from('item_modifiers').select('id, rarity_id').in('id', missing));
-    missing.forEach((id) => modifierRarityCache.set(id, null));
-    data.forEach((m) => modifierRarityCache.set(m.id, m.rarity_id || null));
+    const { data } = await read(() => supabase.from('item_modifiers').select('id, name, rarity_id').in('id', missing));
+    missing.forEach((id) => { if (!id.startsWith('cm-')) modifierRarityCache.set(id, null); });
+    data.forEach((m) => { modifierRarityCache.set(m.id, m.rarity_id || null); modifierNameCache.set(m.id, m.name || null); });
   }
   return new Map(ids.map((id) => [id, modifierRarityCache.get(id) ?? null]));
 }
+
+/** The name of a modifier read by getModifierRarities (null when unknown). */
+export const modifierName = (id) => modifierNameCache.get(id) || null;
 
 /** PostgREST `ilike` pattern for a free-text search: % and _ are escaped, * would be a wildcard. */
 const likeTerm = (s) => String(s).replace(/[*]/g, ' ').replace(/[\\%_]/g, (c) => `\\${c}`).trim();
