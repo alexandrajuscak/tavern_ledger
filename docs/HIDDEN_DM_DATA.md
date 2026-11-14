@@ -306,6 +306,14 @@ DC IS shown to the player (`check.dc`, owner decision 2026-11-13); herb examinat
 grants for players. Their only reads are RPCs, and the player read (`get_character_recipes`, the attempt answers) never
 contains these fields.
 
+Weapon enhancement (20261114001000): the DM's campaign modifiers ('cm-…' `item_modifiers` and their effects) are readable through
+REST only by their author, an admin, the campaign DM, or a reader of an inventory holding a row with the modifier that he sees
+undisguised (`_modifier_visible`; before that, every campaign member could read campaign modifiers). On a copy the reader sees
+disguised, the derived stats carry the disguise alone (no modifier name, no modifier id, no inactive modifier row; the numbers are
+unchanged) and the inventory card shows no modifier badge. A player cannot attach a campaign modifier directly (only crafting,
+the campaign DM or an admin). Residual (as B9): the opaque id in `inventory_item_modifiers` / `v_inventory_detail.modifier_ids`
+stays readable by the holder.
+
 A secret item the character does not know is shown as the DM's label, never its name or id. Only rows the character fully
 knows (no knowledge row, or an identified one) count as ingredients. The player read is identical with or without an
 unidentified matching row, and any unidentified selected row gets one fixed refusal. A result made "unidentified" is inserted

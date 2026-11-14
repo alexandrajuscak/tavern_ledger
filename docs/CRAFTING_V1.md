@@ -3,8 +3,9 @@
 Players turn ingredients from their inventory into items, following recipes the DM writes. The player rolls at the table and
 types the total; the DM confirms or corrects it. The server never rolls dice.
 
-Migrations `20261113000100_crafting_v1.sql` (rollback `supabase/rollback/rollback_crafting_v1.sql`) and
-`20261114000900_crafting_v2.sql` (rollback `supabase/rollback/rollback_crafting_v2.sql`). Frontend `js/crafting.js`.
+Migrations `20261113000100_crafting_v1.sql` (rollback `supabase/rollback/rollback_crafting_v1.sql`),
+`20261114000900_crafting_v2.sql` (rollback `supabase/rollback/rollback_crafting_v2.sql`) and `20261114001000_weapon_enhancement.sql`
+(rollback `supabase/rollback/rollback_weapon_enhancement.sql`, see "Weapon enhancement"). Frontend `js/crafting.js`.
 Earlier design notes: [POTION_AND_HERBAL_CRAFTING_DESIGN.md](POTION_AND_HERBAL_CRAFTING_DESIGN.md). What v2 added is summarized in
 "Crafting v2" below.
 
@@ -225,7 +226,9 @@ opened next). The Items tab never requests anything crafting-related.
 
 ### The DM's confirmation
 
-The attempt card shows **Suggested: …** (`_craft_suggest`): natural 20 → Critical success, natural 1 → Critical failure, otherwise
+The attempt card shows **Suggested: …** (`_craft_suggest`): natural 20 → Critical success, natural 1 → Critical failure (a **house
+rule**, the owner's choice: in the SRD a natural 20 / 1 is automatic only on attack rolls and death saves, not on ability or tool
+checks; the DM can always pick another outcome), otherwise
 the roll (the DM's corrected roll if typed) against the DC; Success without a DC. The outcome select is preselected with it and
 follows a corrected roll until the DM picks an outcome himself. Approve applies it: ingredients used and the result added in
 one transaction (as v1). The API default when no outcome is sent is unchanged from v1 (the roll against the DC, without natural
@@ -260,18 +263,87 @@ lock instead: 20 runs × 20 crafts per mode, 0 errors, 0 new deadlocks.
 
 `get_character_recipes` builds the character's row set once per call (`_craft_recipes_player`, set-based: known rows, their free
 flag, trusted (item, tag) pairs, then one join per ingredient line) instead of per recipe × line × row function calls. The
-knowledge rule is the same predicate (`_craft_row_known`); the v1 fields of the answer are identical (checked on a 30 recipes ×
+knowledge rule is the same predicate (`_craft_row_known`); the v1 fields of the answer are identical except `can_craft`, which now
+also needs the tool (the tool rule above) (checked on a 30 recipes ×
 5 lines × 300 rows fixture with disguised, partly identified, quest and container rows and a player-authored tagged item):
 median 1727 ms → 71 ms locally. `start_craft_attempt` checks the visibility with a cheap `_craft_recipe_visible`.
 
-### Weapon enhancement (parked)
+## Weapon enhancement (migration 20261114001000, `?v=38`)
 
-Not built in v2. Design for a later release: a recipe with `enhance_modifier_id` (an `item_modifiers` row, e.g. a +1 weapon
-modifier) and one ingredient line marked as the target (a base weapon by item or tag, kept); on success the modifier is inserted
-into `inventory_item_modifiers` for **that same row** (identity, equipped / attuned state and knowledge kept; the existing
-triggers recompute the stack key and check the kind / category; quantity 1 required, as for infusions), logged as
-`apply_modifier` with `metadata.craft_attempt`. It needs `crafting_recipes.output_item_id` to become nullable (a rollback would then
-need a guard or a `NOT VALID` check) and a modifier picker in the editor; R-D2 weapon blocks would stay per item, not per copy.
+"A recipe whose ingredient is a longsword plus other things, and whose result is that same sword with an enhancement attached."
+
+### The DM
+
+1. **DM Space → Crafting → Enhancements → + New enhancement**: name, description (players see both), what it fits (weapons, armor
+   and shields, or any item), rarity, and effects the sheet applies while the item is equipped: **Attack rolls +** and **Damage +**
+   (that item only), **Armor Class +**, **Saving throws +** (all), or a **Note** (text, not automatic). Values -10 to 10, not 0.
+   Stored as an `item_modifiers` row `cm-<10 hex>` (owner = the DM, `campaign_id`, `is_magic_override`) with `item_modifier_effects`
+   (`dm_save_campaign_modifier`, DM of the campaign; up to 10 effects). Once the enhancement is on an item its effects and kind are
+   frozen (name, description and rarity may change; make a new enhancement for other effects). Enhancements cannot be deleted.
+2. **+ New recipe → The recipe: enhances an item**: choose the enhancement (only this campaign's enhancements authored by its DMs,
+   never official or another campaign's modifiers), add the ingredients and mark **one** as **Base item** (an exact item such as
+   Longsword, or a tag; kept, quantity 1). Check, DC, tool, approval, failure rule and junk result work as for any recipe.
+
+### The player
+
+The recipe card says "→ enhances the base item: Flame Rune (Attack +1, Damage +2, …)" (or the DM's label "Shown to players who do
+not know …" instead of name and effects) and marks the base line "(base item: gets the enhancement)". The base line offers only
+known rows that can take the enhancement: quantity 1, not carrying it yet, a kind / category it fits. An equipped, attuned or quest
+item counts (it is kept). An **unidentified** base is never offered and is refused with the ingredient text ("You don't know what
+this ingredient is yet"). A stack of several (daggers) is refused ("split the stack first").
+
+### Result and outcomes
+
+- **Success / critical success**: the modifier is inserted into `inventory_item_modifiers` for **that same row**: same id, quantity
+  1, knowledge record, equipped / attuned state. Logged as `inventory_events.apply_modifier` with `metadata.craft_attempt`; the
+  attempt's `produced` reads "Longsword (Flame Rune)". A critical success has success semantics (no bonus; the critical result item
+  and extra quantity do not exist for enhancement recipes).
+- **Failure / critical failure**: the failure rule (or the DM's choice) applies to the used-up ingredients; a critical failure loses
+  all of them. The base is **never** used up or changed. The junk result, if any, is produced.
+- Before the insert, `start_craft_attempt` and `_craft_apply` re-check the base (`_craft_base_refusal`: quantity 1, not enhanced
+  with it yet, kind / category); at approval a problem becomes `apply_failed` with a fixed text.
+- Locks: the base row is part of the selection, so the 4242 per-item locks (base item and ingredients, one fixed order) are taken
+  before the first write, then the rows `FOR UPDATE` in id order, as for every recipe.
+- A plain modifier grants no spells, weapon blocks or counters, so nothing is queued for the R-D1 grant sync (the modifier's
+  after-write trigger updates the inventory row, which the existing triggers handle). R-D2 weapon blocks stay per item.
+
+### On the sheet
+
+The enhancement reaches the derived stats through the existing modifier path (`_character_effects`, now reading its modifier rows
+from the SECURITY DEFINER `_character_modifier_effect_rows`): the weapon's attack and damage include the bonuses, the sources read
+"Longsword (Flame Rune)". The inventory card shows a badge with the enhancement's name, the weapon card lists it.
+
+### Secrecy
+
+- A copy the reader sees disguised: the derived stats carry the disguise alone (no modifier name or id, no inactive modifier rows;
+  the numbers still count, as for every unidentified item). This applies to every modifier on a disguised copy (also an official
+  +1 or an infusion), changed from 20261114000800 where the modifier's name was appended. No badge on its inventory card.
+- `item_modifiers` / `item_modifier_effects` of a homebrew modifier are readable through REST only by the author, an admin, the
+  campaign DM, or a reader of an inventory holding a row with it that he sees undisguised (`_modifier_visible`).
+- A player cannot attach a campaign modifier through REST (`inventory_item_modifiers_before_write`: only inside an RPC, the
+  campaign DM or an admin). Removing one is not blocked (it only takes the player's own bonus away).
+- The DM's recipe notes never reach a player (as before); enhancements have no DM-only field.
+- Residual (as B9): the opaque modifier id in `inventory_item_modifiers` (REST, Realtime) / `v_inventory_detail.modifier_ids`
+  stays readable by the holder.
+
+### Review follow-ups folded in
+
+- m3: `start_craft_attempt` refuses a natural 20 / 1 on a recipe without a check ("This recipe has no roll", 22023).
+- m4: recipe items (`crafting_recipe_teachers`) must be items of the campaign (DM content or a DM's campaign homebrew):
+  `dm_save_recipe` refuses an official catalog item (22023), the editor's picker lists campaign items only. Existing links keep
+  working (learning is unchanged; production had no recipe).
+
+### Rollback
+
+`supabase/rollback/rollback_weapon_enhancement.sql` restores the exact previous bodies and the previous `item_modifiers` read policy
+and drops the new columns. It **refuses** (raises, changes nothing) once any enhancement recipe exists, because the v2 bodies would
+use up ingredients and produce nothing; the operator decides. Campaign modifiers and attached enhancements are kept (they keep
+working through the ordinary modifier path).
+
+### Tests
+
+`supabase/tests/classes/weapon_enhancement_tests.sql` (E1–E14), `item_knowledge_transfer_concurrency_test.sh` mode `enhance`,
+`supabase/tests/browser/weapon_enhancement_ui_test.py`.
 
 ## Known limits
 
