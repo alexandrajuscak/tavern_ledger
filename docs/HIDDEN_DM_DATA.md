@@ -299,8 +299,10 @@ switching it off never takes knowledge away.
 
 ## Crafting (20261113000100)
 
-DM-only in crafting ([CRAFTING_V1.md](CRAFTING_V1.md)): a recipe's DC (`check_dc`), the DM's recipe notes (`dm_notes`), the
-critical-success and failure results, and an attempt's private DM note (`dm_private_note`). The four crafting tables have no
+DM-only in crafting ([CRAFTING_V1.md](CRAFTING_V1.md)): the DM's recipe notes (`dm_notes`), the critical-success and failure
+results, an attempt's private DM note (`dm_private_note`), secret / discoverable recipes the character has not learned, and the
+recipe-item links (`crafting_recipe_teachers`; before learning a player sees only a count). Since v2 (20261114000900) a recipe's
+DC IS shown to the player (`check.dc`, owner decision 2026-11-13); herb examination DCs stay hidden. The four crafting tables have no
 grants for players. Their only reads are RPCs, and the player read (`get_character_recipes`, the attempt answers) never
 contains these fields.
 
