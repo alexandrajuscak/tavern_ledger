@@ -4,9 +4,9 @@
 // quests, individual quests of the party, its own private quests) and never DM notes; the DM read and every write need the
 // DM of the campaign. Quest data lives only in this module's memory (never in localStorage / the legacy bundle cache).
 
-import { supabase } from './supabase.js?v=35';
-import { $, $$, esc, toast, openModal, confirmDialog, friendlyError } from './utils.js?v=35';
-import { sectionHead } from './section.js?v=35';
+import { supabase } from './supabase.js?v=36';
+import { $, $$, esc, toast, openModal, confirmDialog, friendlyError } from './utils.js?v=36';
+import { sectionHead } from './section.js?v=36';
 
 async function rpc(fn, args) {
   const { data, error } = await supabase.rpc(fn, args);

@@ -1,16 +1,16 @@
 // Inventory tab: summary, equipment slots, item list, item detail and the catalog picker.
 // All data comes from inventory-api.js; after every change the authoritative state is re-read from the server
 // (no client-side simulation of splits, merges or quantities).
-import * as api from './inventory-api.js?v=35';
-import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=35';
-import { openHomebrewForm } from './homebrew-form.js?v=35';
-import { galleryIcon } from './item-icon-gallery.js?v=35';
-import { isAnyDM } from './store.js?v=35';
-import { icon, ITEM_ICONS } from './icons.js?v=35';
-import { sectionHead } from './section.js?v=35';
-import { CRAFTING } from './config.js?v=35';
-import { customIconUrl } from './custom-icons.js?v=35';
-import { effectText, castingText } from './item-effects.js?v=35';
+import * as api from './inventory-api.js?v=36';
+import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=36';
+import { openHomebrewForm } from './homebrew-form.js?v=36';
+import { galleryIcon } from './item-icon-gallery.js?v=36';
+import { isAnyDM } from './store.js?v=36';
+import { icon, ITEM_ICONS } from './icons.js?v=36';
+import { sectionHead } from './section.js?v=36';
+import { CRAFTING } from './config.js?v=36';
+import { customIconUrl } from './custom-icons.js?v=36';
+import { effectText, castingText } from './item-effects.js?v=36';
 
 const CATEGORIES = [
   ['all', 'All', () => true],
@@ -228,7 +228,7 @@ export function mountInventory(el, opts) {
   function attachCrafting() {
     if (!craftingAllowed()) return;
     if (crafting) { crafting.attach($('[data-crafting-slot]', el)); return; }
-    craftingLoad ||= import('./crafting.js?v=35').then((m) => {
+    craftingLoad ||= import('./crafting.js?v=36').then((m) => {
       if (s.destroyed) return;
       crafting = m.createPlayerCrafting({ characterId: opts.characterId, onInventoryChanged: () => scheduleRefresh() });
       if (craftingAllowed()) crafting.attach($('[data-crafting-slot]', el));

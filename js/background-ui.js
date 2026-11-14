@@ -1,10 +1,10 @@
 // Background card on the Build tab and its dialogs (docs/BACKGROUNDS.md): choose a background version (2024 or legacy, never
 // mixed), allocate the 2024 ability increases, make the choices, review and apply the starting equipment once, replace a
 // duplicated proficiency, keep personal characteristics. The server validates everything (set_character_background).
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=35';
-import * as api from './background-api.js?v=35';
-import { loadIntoPicker } from './catalog-load.js?v=35';
-import { SKILLS } from './dnd.js?v=35';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=36';
+import * as api from './background-api.js?v=36';
+import { loadIntoPicker } from './catalog-load.js?v=36';
+import { SKILLS } from './dnd.js?v=36';
 
 const AB = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const ABS = { str: 'STR', dex: 'DEX', con: 'CON', int: 'INT', wis: 'WIS', cha: 'CHA' };

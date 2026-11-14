@@ -1,8 +1,8 @@
 // DM Space data (docs/DM_SPACE.md): campaigns, overview, party, the custom content library and its lifecycle, assignment and
 // hidden information. Every function is a DM-only RPC that checks the campaign role itself (20261019000400-000600).
 
-import { supabase } from './supabase.js?v=35';
-import { friendlyError } from './utils.js?v=35';
+import { supabase } from './supabase.js?v=36';
+import { friendlyError } from './utils.js?v=36';
 
 export class DmError extends Error {
   constructor(message, raw) {
