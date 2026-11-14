@@ -70,10 +70,12 @@ select public.get_character_derived_stats(:'s1')::text as pd \gset
 select tl_test.as_user(:'dm');
 select public.get_character_derived_stats(:'s1')::text as dd \gset
 select tl_test.as_user(:'alice');
-select tl_test.rec('S2 F1 player derived: the modifier effect is labelled with the disguise and has no item id',
+-- since 20261114001000 (R-E2) the modifier's own name and id are masked too: the label is the disguise alone
+select tl_test.rec('S2 F1 player derived: the modifier effect is labelled with the disguise only (no modifier name) and has no item id / modifier id',
   exists (select 1 from jsonb_array_elements(:'pd'::jsonb -> 'effects') e
-          where e ->> 'source_id' = :'uw' and e ->> 'source_name' = 'Plain sword (Weapon +1)' and e ->> 'item_id' is null
-            and e ->> 'effect_type' = 'attack_bonus'),
+          where e ->> 'source_id' = :'uw' and e ->> 'source_name' = 'Plain sword' and e ->> 'item_id' is null and e ->> 'modifier_id' is null
+            and e ->> 'effect_type' = 'attack_bonus')
+  and position('Weapon +1' in :'pd') = 0,
   left(:'pd', 300));
 select tl_test.rec('S3 F1 player derived: no true name and no catalog id anywhere (effects, breakdowns, weapons, armor)',
   position('Veritas' in :'pd') = 0 and position(:'wpn' in :'pd') = 0 and position(:'arm' in :'pd') = 0);
@@ -110,8 +112,11 @@ select tl_test.rec('S7 F1 infusion candidates: the disguised copy is offered und
 select tl_test.rec('S8 F1 active infusion on the disguised copy: item_name is the disguise; no true name in the infusions or the derived read',
   exists (select 1 from jsonb_array_elements(:'pi1'::jsonb -> 'active') a where a ->> 'inventory_item_id' = :'uc' and a ->> 'item_name' = 'Bent stick')
   and position('Veritas' in :'pi1') = 0 and position('Veritas' in :'pd3') = 0 and position(:'club' in :'pd3') = 0
-  and exists (select 1 from jsonb_array_elements(:'pd3'::jsonb -> 'effects' || coalesce(:'pd3'::jsonb -> 'inactive_effects', '[]'::jsonb)) e
-              where e ->> 'source_id' = :'uc' and e ->> 'source_name' like 'Bent stick (%' and e ->> 'item_id' is null));
+  -- since 20261114001000 (R-E2): the club is not equipped, so its modifier rows are inactive, and a disguised copy shows no
+  -- inactive modifier row (it would tell that the item is magic); any row of it carries the disguise alone
+  and not exists (select 1 from jsonb_array_elements(:'pd3'::jsonb -> 'effects' || coalesce(:'pd3'::jsonb -> 'inactive_effects', '[]'::jsonb)) e
+                  where e ->> 'source_id' = :'uc' and (e ->> 'source_name' <> 'Bent stick' or e ->> 'item_id' is not null))
+  and position('Enhanced Weapon' in :'pd3') = 0);
 select tl_test.rec('S9 F1 the DM sees the true item name of the infused copy (infusions and derived)',
   exists (select 1 from jsonb_array_elements(:'di1'::jsonb -> 'active') a where a ->> 'inventory_item_id' = :'uc' and a ->> 'item_name' = 'Veritas Club')
   and exists (select 1 from jsonb_array_elements(:'dd3'::jsonb -> 'effects' || coalesce(:'dd3'::jsonb -> 'inactive_effects', '[]'::jsonb)) e

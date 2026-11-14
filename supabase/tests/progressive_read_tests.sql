@@ -29,6 +29,9 @@ insert into pr select 'counter trigger on every public table', count(*) = 0,
 insert into pr select 'trigger mode: character tables', count(*) = 0, coalesce(string_agg(c.relname, ', '), '') from pg_class c
   join pg_trigger t on t.tgrelid = c.oid and t.tgname = 'tl_cache_rev'
   where c.relnamespace = 'public'::regnamespace and c.relname <> 'characters'
+    -- item_grant_sync_queue (20261114000500): a transient per-transaction queue; its rows live only inside one transaction (the
+    -- deferred flush deletes them) and the sync writes bump on their own tables, so its tl_cache.skip() trigger is correct
+    and c.relname <> 'item_grant_sync_queue'
     and exists (select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'character_id' and not a.attisdropped)
     and encode(t.tgargs, 'escape') <> 'character\000';
 -- allow-list (20261112000200): tables with DM-hidden rows count only visible changes (tl_cache.bump_visible, same mode argument)
