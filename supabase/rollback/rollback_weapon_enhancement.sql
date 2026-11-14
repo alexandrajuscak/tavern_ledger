@@ -16,9 +16,14 @@
 -- =============================================================================
 set local lock_timeout = '5s';
 do $$
+declare found boolean := false;
 begin
-  if exists (select 1 from public.crafting_recipes where kind <> 'item' or output_item_id is null)
-     or exists (select 1 from public.crafting_recipe_ingredients where is_base) then
+  -- dynamic: the columns are gone after a first rollback (a second run is a no-op)
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'crafting_recipes' and column_name = 'kind') then
+    execute 'select exists (select 1 from public.crafting_recipes where kind <> ''item'' or output_item_id is null)
+                 or exists (select 1 from public.crafting_recipe_ingredients where is_base)' into found;
+  end if;
+  if found then
     raise exception 'rollback_weapon_enhancement: enhancement recipes exist; nothing was changed (archive them and keep the migration, or decide per recipe)';
   end if;
 end $$;
