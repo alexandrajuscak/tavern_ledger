@@ -2754,6 +2754,16 @@ details.combat-group.passive-group > summary { cursor: pointer; }
 .cr-ing-row [data-ing-label] { flex: 1 1 12em; min-width: 0; }
 .cr-queue { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
 .cr-history { padding-left: 1.2em; }
+/* Crafting v2: the Inventory's Crafting sub-tab */
+.inv-subtabs { margin: 10px 0; }
+.inv-crafting-page { min-width: 0; }
+.cr-chips { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.cr-chips .req-chip { display: inline-flex; align-items: center; gap: 4px; }
+.cr-tools h3, .cr-manuals h3 { margin: 6px 0 2px; }
+.cr-count { font-variant-numeric: tabular-nums; margin-left: 4px; }
+.cr-have { color: var(--success); }
+.cr-miss { color: var(--warning); }
+.cr-ings .cr-have { color: inherit; }
 /* ---- R-A weapon cards in Play (js/weapon-card.js): the spell-card look; the rarity (or a neutral edge) leads the card ------- */
 .wpn-card { --wpn: var(--border-strong); display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 12px 10px 14px; }
 .wpn-card[data-rarity] { --wpn: var(--rarity, var(--border-strong)); }

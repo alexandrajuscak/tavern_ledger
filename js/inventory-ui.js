@@ -1,16 +1,16 @@
 // Inventory tab: summary, equipment slots, item list, item detail and the catalog picker.
 // All data comes from inventory-api.js; after every change the authoritative state is re-read from the server
 // (no client-side simulation of splits, merges or quantities).
-import * as api from './inventory-api.js?v=36';
-import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=36';
-import { openHomebrewForm } from './homebrew-form.js?v=36';
-import { galleryIcon } from './item-icon-gallery.js?v=36';
-import { isAnyDM } from './store.js?v=36';
-import { icon, ITEM_ICONS } from './icons.js?v=36';
-import { sectionHead } from './section.js?v=36';
-import { CRAFTING } from './config.js?v=36';
-import { customIconUrl } from './custom-icons.js?v=36';
-import { effectText, castingText } from './item-effects.js?v=36';
+import * as api from './inventory-api.js?v=37';
+import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=37';
+import { openHomebrewForm } from './homebrew-form.js?v=37';
+import { galleryIcon } from './item-icon-gallery.js?v=37';
+import { isAnyDM } from './store.js?v=37';
+import { icon, ITEM_ICONS } from './icons.js?v=37';
+import { sectionHead } from './section.js?v=37';
+import { CRAFTING } from './config.js?v=37';
+import { customIconUrl } from './custom-icons.js?v=37';
+import { effectText, castingText } from './item-effects.js?v=37';
 
 const CATEGORIES = [
   ['all', 'All', () => true],
@@ -75,7 +75,7 @@ function sourceBadge(d) {
 export function mountInventory(el, opts) {
   const s = {
     inventoryId: null, rows: [], equipment: [], attunement: null, weight: null, containers: new Map(), review: new Map(),
-    details: new Map(), knowledge: new Map(), knowledgeOk: true, modifierRarity: new Map(), lookups: null, filter: 'all', status: 'loading', error: null, busy: new Set(),
+    details: new Map(), knowledge: new Map(), knowledgeOk: true, modifierRarity: new Map(), lookups: null, filter: 'all', tab: 'items', status: 'loading', error: null, busy: new Set(),
     refreshing: null, again: false, destroyed: false, eqOpen: window.matchMedia?.('(min-width: 900px)').matches ?? true,
   };
 
@@ -206,7 +206,7 @@ export function mountInventory(el, opts) {
           if (s.destroyed) return;
           Object.assign(s, data, { status: 'ready', error: null });
           opts.onRows?.(s.rows);
-          crafting?.refresh();   // what the recipes can use follows the inventory
+          crafting?.invalidate();   // what the recipes can use follows the inventory (re-read only while the Crafting tab is shown)
         } catch (raw) {
           if (s.destroyed) return;
           s.error = api.normalizeError(raw);
@@ -221,18 +221,23 @@ export function mountInventory(el, opts) {
   const scheduleRefresh = debounce(() => { if (!s.destroyed) refresh(); }, 400);
 
   // ---- crafting (docs/CRAFTING_V1.md): only with CRAFTING = 'on', for the character's owner, when the campaign rule allows it.
-  // js/crafting.js is imported on first use; with the shipped 'off' nothing is loaded and nothing is rendered.
+  // A "Crafting" sub-tab of the inventory; js/crafting.js is imported (and the recipes read) only when the tab is opened.
   let crafting = null;
   let craftingLoad = null;
   const craftingAllowed = () => (CRAFTING || 'off') === 'on' && !!opts.crafting?.allowed?.();
+  const craftingTab = () => craftingAllowed() && s.tab === 'crafting';
+  function withCrafting(fn) {
+    craftingLoad ||= import('./crafting.js?v=37').then((m) => {
+      if (s.destroyed) return null;
+      crafting ||= m.createPlayerCrafting({ characterId: opts.characterId, onInventoryChanged: () => scheduleRefresh() });
+      return m;
+    });
+    return craftingLoad.then((m) => (m && !s.destroyed ? fn(m) : null)).catch((err) => console.warn('[crafting]', err?.message || err));
+  }
   function attachCrafting() {
-    if (!craftingAllowed()) return;
+    if (!craftingTab()) { crafting?.hide(); return; }
     if (crafting) { crafting.attach($('[data-crafting-slot]', el)); return; }
-    craftingLoad ||= import('./crafting.js?v=36').then((m) => {
-      if (s.destroyed) return;
-      crafting = m.createPlayerCrafting({ characterId: opts.characterId, onInventoryChanged: () => scheduleRefresh() });
-      if (craftingAllowed()) crafting.attach($('[data-crafting-slot]', el));
-    }).catch((err) => console.warn('[crafting]', err?.message || err));
+    withCrafting(() => { if (craftingTab()) crafting.attach($('[data-crafting-slot]', el)); });
   }
 
   /** Run a mutation once per key (double-click safe), report errors, then re-read the server state. */
@@ -270,17 +275,21 @@ export function mountInventory(el, opts) {
     el.innerHTML = `
       <div class="inv">
         ${summaryHTML()}
+        ${craftingAllowed() ? `<div class="inv-filters inv-subtabs" role="tablist" aria-label="Inventory views">
+          <button type="button" role="tab" class="inv-chip" data-inv="tab" data-tab="items" aria-selected="${s.tab !== 'crafting'}">${icon('section.inventory', { size: 18 })}Items</button>
+          <button type="button" role="tab" class="inv-chip" data-inv="tab" data-tab="crafting" aria-selected="${s.tab === 'crafting'}">${icon('potion.flask', { size: 18 })}Crafting</button>
+        </div>` : ''}
+        ${craftingTab() ? '<div class="inv-crafting-page" data-crafting-slot role="tabpanel"></div>' : `
         <div class="inv-layout">
           <div class="inv-side">
             ${equipmentHTML()}
             ${attunementHTML()}
             ${quickUseHTML()}
-            ${craftingAllowed() ? '<div data-crafting-slot></div>' : ''}
             ${containersHTML()}
             ${legacyHTML()}
           </div>
           ${listSectionHTML()}
-        </div>
+        </div>`}
       </div>`;
     assignFocusKeys();
     attachCrafting();
@@ -800,6 +809,7 @@ export function mountInventory(el, opts) {
         ${propsHTML(r)}
         ${(d?.description || r.description) ? `<p class="inv-desc">${esc(d?.description || r.description)}</p>` : ''}
         ${knowledgeHTML(r)}
+        ${craftingAllowed() && r.item_id && !knowledgeOf(r) ? '<div data-learn-slot></div>' : ''}
         ${definition}
         ${reviewOf(r).map((x) => `<p class="inv-note warn">${esc(reviewText(x))}</p>`).join('')}
         ${cont ? containerLineHTML(cont) : ''}
@@ -834,6 +844,8 @@ export function mountInventory(el, opts) {
       footer: actions.join(''),
     });
 
+    const learnSlot = $('[data-learn-slot]', m.el);
+    if (learnSlot) withCrafting((mod) => mod.learnSection(learnSlot, r.id, { onLearned: () => { m.close(); scheduleRefresh(); crafting?.invalidate(); } }));
     m.el.addEventListener('click', async (e) => {
       const x = e.target.closest('[data-x]')?.dataset.x;
       if (!x) return;
@@ -1254,6 +1266,7 @@ export function mountInventory(el, opts) {
   const ACTIONS = {
     retry: () => { s.status = 'loading'; render(); return refresh(); },
     filter: (b) => { s.filter = b.dataset.filter; render(); },
+    tab: (b) => { s.tab = b.dataset.tab === 'crafting' ? 'crafting' : 'items'; render(); },
     'add-item': () => openCatalogPicker(),
     detail: (b) => openDetail(b.dataset.id),
     inc: (b) => changeQty(rowById(b.dataset.id), 1),
@@ -1328,9 +1341,9 @@ export function mountInventory(el, opts) {
       };
     },
     /** The crafting rule or the viewer changed (governance state): show or hide the Crafting panel. */
-    craftingChanged() { if ((CRAFTING || 'off') === 'on' && !s.destroyed && s.status === 'ready') render(); },
-    /** A crafting attempt or recipe changed (character revision): re-read the recipes if the panel is shown. */
-    refreshCrafting() { crafting?.refresh(); },
+    craftingChanged() { if ((CRAFTING || 'off') === 'on' && !s.destroyed && s.status === 'ready') { if (!craftingAllowed()) s.tab = 'items'; render(); } },
+    /** A crafting attempt or recipe changed (character revision): re-read the recipes if the Crafting tab is shown (else later). */
+    refreshCrafting() { crafting?.invalidate(); },
     destroy() {
       s.destroyed = true;
       crafting?.destroy();

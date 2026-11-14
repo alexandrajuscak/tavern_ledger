@@ -1,16 +1,19 @@
-"""Crafting v1 (20261113000100, docs/CRAFTING_V1.md), browser suite. LOCAL ONLY, synthetic users inside isolation.
+"""Crafting v1 + v2 (20261113000100, 20261114000900, docs/CRAFTING_V1.md), browser suite. LOCAL ONLY, synthetic users inside isolation.
 
-CF-01..03  shipped config (js/config.js CRAFTING = 'off'): DM Space has no Crafting tab and Campaign rules no Crafting row; the
-           player's Inventory has no Crafting panel; js/crafting.js and no crafting RPC is ever requested.
-CF-04..12  CRAFTING = 'on' (js/config.js served with the flag switched for these contexts only, as in auth_reset_ui_test.py), the
-           campaign rule turned on: the DM creates and publishes a recipe with a DC and a DM note in DM Space -> Crafting; the player
-           sees it in Inventory -> Crafting with what they have, crafts with a typed roll (pending); the DM sees the DC and the
-           roll, approves with an edited roll, a reply and a private note; the player's open Inventory changes live (ingredient
-           used, result added, status Done, the DM's reply).
+CF-01..03  CRAFTING = 'off' (js/config.js served with the flag switched off for these contexts): DM Space has no Crafting tab and
+           Campaign rules no Crafting row; the player's Inventory has no Crafting tab; js/crafting.js and no crafting RPC is requested.
+CF-04..12  CRAFTING = 'on' (served with the flag on, whatever the shipped value), the campaign rule turned on by the DM: the DM writes
+           a SECRET recipe in DM Space -> Crafting (tag ingredient, Herbalism kit check DC 15, a DM note) taught by a recipe book
+           (a manual item, kept when read); the player opens Inventory -> Crafting (a sub-tab: tools carried, recipe books), reads
+           the book (Learn recipe), sees the recipe with have / need, the tool and the DC, types the d20 total (pending); the DM
+           sees the suggested outcome, confirms it with a reply and a private note; the items swap (ingredient used, result
+           added) and the player's open tab follows live.
+CF-07b     an unidentified ingredient never counts (a second recipe names a secret herb the player holds disguised: "Missing
+           ingredients") and a direct start with it gets the one fixed refusal.
 CF-13..16  REQUIRED leak check on the player's page: no REST / RPC body, no websocket frame, no DOM text and no local /
-           sessionStorage value carries the DC, the DM's recipe note, the DM's private note or the true name of a secret
-           ingredient (a second recipe names it exactly; the player holds a disguised copy). The player's token cannot read
-           the crafting tables (REST).
+           sessionStorage value carries the DM's recipe note, the DM's private note, the DM view's check_dc key or the true name
+           of the secret ingredient. (Since v2 the DC itself is shown to the player: owner decision 2026-11-13.) The player's
+           token cannot read the crafting tables (REST).
 Usage: APP_URL=... python crafting_ui_test.py   (run_browser_local.sh sets the environment)
 """
 import json
@@ -27,9 +30,10 @@ from class_ui_common import ANON, API, APP, PW, RUN, Sheet, User, call, check, r
 q = iso.psql
 ROOT = Path(__file__).resolve().parents[3]
 CONFIG = (ROOT / "js" / "config.js").read_text(encoding="utf-8")
-FLAG_OFF = "export const CRAFTING = 'off';"
-assert FLAG_OFF in CONFIG, "flag line not found in js/config.js"
-CONFIG_ON = CONFIG.replace(FLAG_OFF, "export const CRAFTING = 'on';")
+FLAG_RE = re.compile(r"export const CRAFTING = '(off|dm|on)';")
+assert FLAG_RE.search(CONFIG), "flag line not found in js/config.js"
+CONFIG_ON = FLAG_RE.sub("export const CRAFTING = 'on';", CONFIG)
+CONFIG_OFF = FLAG_RE.sub("export const CRAFTING = 'off';", CONFIG)
 SECRET = f"Starmoss {RUN}"
 DMNOTE = f"SENTINEL-DMNOTE-{RUN}"
 PRIVATE = f"SENTINEL-PRIVATE-{RUN}"
@@ -37,16 +41,17 @@ REPLY = f"Nicely brewed {RUN}"
 LEAF = f"Moonleaf {RUN}"
 DRAUGHT = f"Healing Draught {RUN}"
 RECIPE = f"Star Tea {RUN}"
-DC_RE = re.compile(r'"(check_)?dc"\s*:|DC 37')
+MANUAL = f"Herbal Primer {RUN}"
+DC_RE = re.compile(r'"check_dc"\s*:')
 
 
 class CSheet(Sheet):
-    """A Sheet whose context serves js/config.js with CRAFTING = 'on' (installed before the first page load)."""
+    """A Sheet whose context serves js/config.js with CRAFTING = 'on' / 'off' (installed before the first page load)."""
 
     def __init__(self, browser, user, tab="inventory", flag_on=True):
         self.ctx = browser.new_context(viewport={"width": 1366, "height": 900})
-        if flag_on:
-            self.ctx.route(re.compile(r".*/js/config\.js(\?.*)?$"), lambda r: r.fulfill(status=200, content_type="text/javascript", body=CONFIG_ON))
+        body = CONFIG_ON if flag_on else CONFIG_OFF
+        self.ctx.route(re.compile(r".*/js/config\.js(\?.*)?$"), lambda r: r.fulfill(status=200, content_type="text/javascript", body=body))
         self.ctx.add_init_script(f"localStorage.setItem('tavern-ledger:local-supabase', JSON.stringify({{url: {json.dumps(API)}, key: {json.dumps(ANON)}}}));"
                                  f"localStorage.setItem('tavern-ledger:tab', {json.dumps(tab)});")
         self.errors, self.remote, self.urls = [], [], []
@@ -101,9 +106,12 @@ def run(t):
     leaf = hb({"name": LEAF, "kind_id": "herbs_plants", "category_id": "plant-flower", "stackable": True, "details": {"ingredient_tags": ["silver"]}})
     moss = hb({"name": SECRET, "kind_id": "herbs_plants", "category_id": "plant-flower", "stackable": True, "description": f"{SECRET} truth."})
     draught = hb({"name": DRAUGHT, "kind_id": "gear", "stackable": True})
+    manual = hb({"name": MANUAL, "kind_id": "gear"})
     assert dm.rpc("set_item_identify_options", p_item=moss, p_options={"unidentified_name": "Grey fluff", "show_kind": True})[0] == 200
     assert dm.rpc("dm_give_item", p_item=leaf, p_characters=[cha], p_quantity=3, p_identified=True)[0] == 200
     assert dm.rpc("dm_give_item", p_item=moss, p_characters=[cha], p_quantity=1, p_identified=False)[0] == 200
+    assert dm.rpc("dm_give_item", p_item=manual, p_characters=[cha], p_quantity=1, p_identified=True)[0] == 200
+    assert dm.rpc("dm_give_item", p_item="herbalism-kit", p_characters=[cha], p_quantity=1, p_identified=True)[0] == 200
     t.note(character=cha, camp=camp)
 
     with sync_playwright() as p:
@@ -122,7 +130,8 @@ def run(t):
         Poff.open(cha)
         Poff.wait(lambda: LEAF in inv_text(Poff), 15000)
         Poff.page.wait_for_timeout(1500)
-        check("CF-02 flag off: the player's Inventory has no Crafting panel", Poff.page.locator("[data-crafting]").count() == 0 and "Crafting" not in inv_text(Poff))
+        check("CF-02 flag off: the player's Inventory has no Crafting tab", Poff.page.locator('[data-inv="tab"]').count() == 0
+              and Poff.page.locator("[data-crafting]").count() == 0 and "Crafting" not in inv_text(Poff))
         check("CF-03 flag off: js/crafting.js and no crafting RPC were requested (DM and player)",
               not crafting_requests(Doff.urls + Poff.urls), crafting_requests(Doff.urls + Poff.urls)[:3])
         Doff.close(); Poff.close()
@@ -156,14 +165,20 @@ def run(t):
         m.locator('[data-pick="output"] [data-pick-sel]').select_option(draught)
         m.locator("[data-ing-kind]").first.select_option("tag")
         m.locator("[data-ing-tag]").first.fill("silver")
-        m.locator("[data-r=check_key]").select_option("nature")
-        m.locator("[data-r=check_dc]").fill("37")
+        m.locator("[data-r=check_key]").select_option("herbalism-kit")
+        m.locator("[data-r=check_dc]").fill("15")
+        m.locator("[data-r=visibility]").select_option("secret")
         m.locator("[data-r=dm_notes]").fill(DMNOTE)
+        m.locator("[data-teach-add]").click()
+        m.locator('[data-pick="teach"] [data-pick-q]').fill(MANUAL)
+        D.wait(lambda: m.locator(f'[data-pick="teach"] [data-pick-sel] option[value="{manual}"]').count() == 1)
+        m.locator('[data-pick="teach"] [data-pick-sel]').select_option(manual)
         m.locator("[data-r-save][data-publish]").click()
         ok = D.wait(lambda: dp.locator("[data-craft-recipes]").inner_text().count(RECIPE) == 1 and "published" in dp.locator("[data-craft-recipes]").inner_text())
         rid = q(f"select id from public.crafting_recipes where campaign_id = '{camp}' and name = '{RECIPE}'").strip()
-        check("CF-06 the DM creates and publishes a recipe (tag ingredient, Nature DC 37, DM note) in DM Space -> Crafting",
-              ok and rid and q(f"select check_dc || '|' || status || '|' || dm_notes from public.crafting_recipes where id = '{rid}'").strip() == f"37|published|{DMNOTE}",
+        check("CF-06 the DM writes and publishes a secret recipe (tag ingredient, Herbalism kit DC 15, DM note) taught by a recipe book (kept when read)",
+              ok and rid and q(f"select check_dc || '|' || status || '|' || visibility || '|' || dm_notes from public.crafting_recipes where id = '{rid}'").strip() == f"15|published|secret|{DMNOTE}"
+              and q(f"select item_id || '|' || consume_on_learn from public.crafting_recipe_teachers where recipe_id = '{rid}'").strip() == f"{manual}|false",
               dp.locator("[data-craft-recipes]").inner_text()[:300])
         # a second recipe naming the SECRET herb exactly (the player holds a disguised copy of it)
         st, _ = dm.rpc("dm_save_recipe", p_campaign=camp, p_recipe={"name": f"Fluff Paste {RUN}", "output_item_id": draught, "dm_notes": DMNOTE,
@@ -185,20 +200,39 @@ def run(t):
         pp.on("response", on_response)
         pp.on("websocket", lambda ws: ws.on("framereceived", lambda f: seen["frames"].append(f if isinstance(f, str) else str(f))))
         P.open(cha)
+        P.wait(lambda: LEAF in inv_text(P), 15000)
+        no_read_yet = not any("get_character_recipes" in u for u in P.urls)
+        pp.locator('[data-inv="tab"][data-tab="crafting"]').click()
+        ok = P.wait(lambda: pp.locator("[data-crafting] [data-craft-manuals]").count() == 1, 20000)
+        tools = pp.locator("[data-craft-tools]").inner_text() if ok else ""
+        hidden_before = pp.locator(f'[data-recipe="{rid}"]').count() == 0
+        check("CF-06b Inventory -> Crafting is a sub-tab read only when opened: tools carried (Herbalism kit), the recipe book with Learn, the secret recipe not shown yet",
+              ok and no_read_yet and "Herbalism" in tools and hidden_before and MANUAL in pp.locator("[data-craft-manuals]").inner_text(),
+              (no_read_yet, tools[:200], hidden_before, P.errors[:3]))
+        pp.locator(f'[data-craft-manuals] [data-cr="learn"]').click()
         ok = P.wait(lambda: pp.locator(f'[data-crafting] [data-recipe="{rid}"]').count() == 1, 20000)
         card = pp.locator(f'[data-recipe="{rid}"]').inner_text() if ok else ""
-        check("CF-07 the player's Inventory -> Crafting lists the recipe with the result, the ingredient (have 3) and the roll, no DC",
-              ok and DRAUGHT in card and "you have 3" in card and "Nature" in card and "37" not in card
-              and pp.locator(f'[data-recipe="{rid2}"]').count() == 1 and "a grey fluff" in pp.locator(f'[data-recipe="{rid2}"]').inner_text(),
-              card[:300] or (pp.locator("[data-crafting-slot]").count(), pp.locator("[data-crafting]").count(), P.errors[:3],
-                             pp.evaluate("() => document.querySelector('[data-crafting]')?.innerText || ''")[:300]))
+        check("CF-07 after reading the book the recipe is listed (learned for good, source manual, the book kept) with have / need 1 / 1, the tool present and DC 15",
+              ok and DRAUGHT in card and "1 / 1" in card and "Herbalism" in card and "you have it" in card and "DC 15" in card
+              and q(f"select source from public.character_known_recipes where character_id = '{cha}' and recipe_id = '{rid}'").strip() == "manual"
+              and q(f"select count(*) from public.inventory_items where item_id = '{manual}'").strip() == "1"
+              and pp.locator(f'[data-recipe="{rid}"] [data-cr="craft"]').is_enabled(),
+              card[:300] or (P.errors[:3], pp.evaluate("() => document.querySelector('[data-crafting]')?.innerText || ''")[:300]))
+        card2 = pp.locator(f'[data-recipe="{rid2}"]').inner_text() if pp.locator(f'[data-recipe="{rid2}"]').count() else ""
+        moss_row = q(f"select ii.id from public.inventory_items ii join public.inventories i on i.id = ii.inventory_id where i.character_id = '{cha}' and ii.item_id = '{moss}'").strip()
+        st_m, r_m = pa.rpc("start_craft_attempt", p_character=cha, p_recipe=rid2, p_selected=[{"seq": 1, "inventory_item_id": moss_row, "quantity": 1}],
+                           p_roll_total=None, p_request_id=str(uuid.uuid4()))
+        check("CF-07b an unidentified ingredient never counts: the second recipe shows 0 / 1 and 'Missing ingredients'; a direct start with the disguised herb is refused with the fixed message",
+              "a grey fluff" in card2 and "0 / 1" in card2 and "Missing ingredients" in card2 and st_m == 400 and "know what this ingredient is" in json.dumps(r_m),
+              (card2[:200], st_m, str(r_m)[:200]))
         pp.locator(f'[data-recipe="{rid}"] [data-cr="craft"]').click()
         pp.wait_for_selector(".modal [data-cr-roll]")
-        pp.locator(".modal [data-cr-roll]").fill("12")
+        dialog_dc = "DC 15" in pp.locator(".modal").inner_text()
+        pp.locator(".modal [data-cr-roll]").fill("16")
         pp.locator(".modal [data-cr-go]").click()
         ok = P.wait(lambda: pp.locator(f'[data-recipe="{rid}"] [data-craft-status="pending"]').count() == 1, 15000)
-        check("CF-08 the player crafts with a typed roll: the attempt waits for the DM, nothing used yet",
-              ok and q(f"select status || '|' || roll_total from public.crafting_attempts where character_id = '{cha}'").strip() == "pending|12"
+        check("CF-08 the player types the d20 total (the dialog shows the DC): the attempt waits for the DM, nothing used yet",
+              ok and dialog_dc and q(f"select status || '|' || roll_total from public.crafting_attempts where character_id = '{cha}'").strip() == "pending|16"
               and q(f"select sum(quantity) from public.inventory_items where item_id = '{leaf}'").strip() == "3")
 
         # ---- the DM answers
@@ -208,24 +242,27 @@ def run(t):
         D.wait(lambda: dp.locator("[data-craft-queue] [data-attempt]").count() == 1)
         att = dp.locator("[data-craft-queue] [data-attempt]").first
         at = att.inner_text()
-        check("CF-09 the DM sees the attempt (badge on the tab) with the roll 12 and the DC 37", ok_badge and "12" in at and "DC 37" in at and RECIPE in at, at[:300])
-        att.locator('[data-cra="roll"]').fill("38")
+        check("CF-09 the DM sees the attempt (badge on the tab) with the roll 16, the DC 15 and the suggested outcome Success (preselected)",
+              ok_badge and "16" in at and "DC 15" in at and RECIPE in at and "Suggested: Success" in at
+              and att.locator('[data-cra="outcome"]').input_value() == "success", at[:300])
         att.locator('[data-cra="reply"]').fill(REPLY)
         att.locator('[data-cra="private"]').fill(PRIVATE)
         att.locator('[data-crd="approve"]').click()
-        ok = D.wait(lambda: q(f"select status || '|' || outcome || '|' || dm_roll_total from public.crafting_attempts where character_id = '{cha}'").strip() == "applied|success|38")
-        check("CF-10 the DM approves with an edited roll (38 >= 37): applied, success", ok,
+        ok = D.wait(lambda: q(f"select status || '|' || outcome from public.crafting_attempts where character_id = '{cha}'").strip() == "applied|success")
+        check("CF-10 the DM confirms the suggested outcome: applied, success (the items swap in one transaction)", ok,
               q(f"select status, outcome, dm_roll_total, apply_error from public.crafting_attempts where character_id = '{cha}'"))
         ok = P.wait(lambda: DRAUGHT in inv_text(P) and pp.locator(f'[data-recipe="{rid}"] [data-cr="craft"]').count() == 1, 20000)
-        check("CF-11 the player's open Inventory changes live: the draught is there, the recipe can be crafted again",
-              ok and q(f"select sum(quantity) from public.inventory_items where item_id = '{leaf}'").strip() == "2", inv_text(P)[:300])
+        check("CF-11 the items swapped and the open Crafting tab follows live: 1 leaf used (3 -> 2), the draught made, the kit kept, the recipe can be crafted again",
+              ok and q(f"select sum(quantity) from public.inventory_items where item_id = '{leaf}'").strip() == "2"
+              and q(f"select count(*) from public.inventory_items where item_id = 'herbalism-kit' and character_id is not distinct from character_id and inventory_id in (select id from public.inventories where character_id = '{cha}')").strip() == "1",
+              inv_text(P)[:300])
         pp.locator("[data-crafting] details.cr-recent summary").click()
         rec = pp.locator("[data-crafting] details.cr-recent").inner_text()
         check("CF-12 the recent attempts show Done, the DM's reply and what was made / used", "Done" in rec and REPLY in rec and DRAUGHT in rec and LEAF in rec, rec[:300])
 
         # ---- REQUIRED: the player's page never received the DC, the DM notes or the secret name
         pp.wait_for_timeout(1500)
-        check("CF-13 REQUIRED REST / RPC: no response body of the player's page carries the DC, a DM note, the private note or the secret name",
+        check("CF-13 REQUIRED REST / RPC: no response body of the player's page carries check_dc, a DM note, the private note or the secret name",
               not leaks(seen["bodies"]), leaks(seen["bodies"])[:3])
         check("CF-14 REQUIRED Realtime: no websocket frame of the player's page carries them", not leaks(seen["frames"]), leaks(seen["frames"])[:3])
         check("CF-15 REQUIRED DOM, localStorage and sessionStorage of the player's page hold none of them",
