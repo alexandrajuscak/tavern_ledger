@@ -97,7 +97,52 @@ or spells of a published version in place is refused: make a new version).
 **Manual of Bodily Health** (consumable)
 - Effects: Ability score + · Constitution · 2 · Permanent, when used · Maximum score 22.
 
+## Weapon blocks (R-D2, migration 20261114000600)
+
+A DM content weapon can carry three BG3-style blocks besides its normal attack. The DM adds them in **DM Space → Content →
+Item** (type Weapon) in the sections **Weapon actions**, **Special** and **Condition**; they appear on the weapon's card in
+**Play → Attacks** while the weapon is in a hand. Rollback: `supabase/rollback/rollback_weapon_blocks.sql` (keeps every block in
+`item_weapon_blocks_rd2_backup`).
+
+| Block | Fields | What the sheet does |
+|---|---|---|
+| Weapon actions | name, what it does, cost (action / bonus action / reaction), roll (none / attack roll / saving throw + ability), DC (fixed, or 8 + proficiency bonus + the weapon's or a chosen ability's modifier), damage + type, uses (empty = unlimited, or N per short / long rest) | shows the action with its computed DC or to-hit; a limited action gets a counter with **Use** / **Restore** (back on the chosen rest) |
+| Special | name, text, optionally the number of one of the item's **Effects** rows (e.g. "Attack rolls +1") | shows the text; the linked effect is applied by the existing effect engine (not by the block) and marked "applied automatically" |
+| Condition | condition (a catalog condition such as Prone, or your own text such as Bleeding), on a hit / by a weapon action, saving throw + DC, duration, note | display only: nothing is applied to targets (Combat Builder integration is a follow-up) |
+
+Rules:
+- Available only while the weapon is in the main or off hand, active in the current form (a weapon merged into a Wild Shape
+  form has no card and its counter is inactive), and attuned when the item requires attunement (otherwise shown "Needs attunement").
+- A counter (`character_resources`, key `itemw-<inventory row>-<n>`, source type `item`) is created by the R-D1 grant sync (same
+  queue, same ordered lock); unequipping only deactivates it (uses spent stay spent until a rest).
+- Weapons may now also author the effects **Attack rolls +** and **Damage +** (they apply to that weapon only).
+- Only DM content items; a published version never changes its blocks (make a new version).
+
+Secrecy: an unidentified or partly identified copy shows **no** block to the player, not even block names. The table has no REST
+or Realtime access at all; the blocks reach the sheet only inside `get_character_derived_stats` (`equipped_weapon_attacks[].weapon_blocks`),
+computed per inventory row for the viewer (the DM sees them). No counter exists for a copy the character has not identified; a
+counter of a copy that becomes unidentified again is deactivated and renamed to the disguise.
+
+### Examples
+
+**The Watcher's Guide** (uncommon spear, simple melee, 1d6 piercing, versatile 1d8, thrown; summarized from the BG3 wiki)
+- Weapon actions: Rush Attack · Action · no roll here (the charge ends in a normal weapon attack) · Uses 1 · Short rest ·
+  "Charge forward and attack the first enemy in your path; it may be pushed and knocked Off Balance."
+- Special: Death's Promise · "When a melee attack with this spear misses, your next attack roll against the same creature has
+  advantage (not when the spear is thrown)."
+- Condition: Off Balance · By a weapon action. Condition: True Strike · On a hit (after a miss) · Duration 2 turns · note
+  "advantage on your next attack roll against that creature".
+
+**Lacerate** (a generic action for slashing weapons such as a longsword or greataxe)
+- Weapon actions: Lacerate · Action · Saving throw CON · DC formula (8 + proficiency + the weapon's ability; BG3 adds 2) · Uses 1 ·
+  Short rest · "Make a weapon attack; on a hit the target must save or start bleeding."
+- Condition: Bleeding · By a weapon action · Saving throw CON · Duration 2 turns · note "2 slashing damage at the start of each of
+  its turns and disadvantage on Constitution saves; healing ends it".
+
 ## Data model
+
+- `item_weapon_blocks (item_id, block_type action|special|condition, seq, ...)` (20261114000600): no REST / Realtime grant; read by
+  `_character_weapon_blocks` (SECURITY DEFINER, masked per inventory row) through `_weapon_blocks_layer` in `get_character_derived_stats`.
 
 - `item_effects` (20261015001400) + kinds `initiative_bonus`, `skill_bonus`, activation `permanent`, column `max_score`.
 - `item_spell_grants (item_id, seq, spell_version_id, casting at_will|spell_slots|per_rest, uses, recharge, activation, ability)`.
@@ -119,6 +164,6 @@ or spells of a published version in place is refused: make a new version).
 - An equipped "Ability score +" item is not capped at 20 (as before: up to 30); only permanent increases have a maximum.
 - The spell source label stored for the player is the disguise; the DM's spellbook view shows the true name.
 - Equipping / attuning an item with a granted spell writes the party log line "Spell added" (as feats do).
-- Weapon actions, special and condition blocks of weapon cards come in R-D2.
+- Weapon blocks: conditions are reminders (nothing is applied to targets); Combat Builder integration is a follow-up.
 - The rollback keeps the columns `item_effects.max_score` and `character_spellcasting_sources.item_grant_key` (and its index)
   on purpose; the migration re-adds them with `if not exists`. The rollback is safe to run twice.

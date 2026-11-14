@@ -68,6 +68,8 @@ echo "== party-wide identification (live share to a second player, pending share
 (cd supabase/tests/browser && "$PY" party_knowledge_ui_test.py) || RC=1
 echo "== item effects (DM authors an amulet in DM Space; attune: bonuses + granted spell with its counter; unattune removes them)"
 (cd supabase/tests/browser && "$PY" item_effects_ui_test.py) || RC=1
+echo "== weapon blocks (DM authors Weapon actions / Special / Condition; the card shows them, Use spends; an unidentified copy shows none)"
+(cd supabase/tests/browser && "$PY" weapon_blocks_ui_test.py) || RC=1
 echo "== player-first redesign (typography, sections, bottom navigation, home cards, icons, Build, Wild Shape vitals, DM Needs you)"
 (cd supabase/tests/browser && "$PY" ux_redesign_ui_test.py) || RC=1
 (cd supabase/tests/browser && "$PY" ui_refinement_ui_test.py) || RC=1
