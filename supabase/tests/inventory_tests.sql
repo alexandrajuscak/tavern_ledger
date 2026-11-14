@@ -278,12 +278,17 @@ select tl_test.rec('E0 the dagger stack merged with nothing equipped (equipped d
 select public.add_inventory_item(:'inv_a', 'dagger', 1) as dg3 \gset
 select tl_test.rec('E1 stackable thrown weapons merge', :'dg3' = :'dg2' and (select quantity = 3 from public.inventory_items where id = :'dg2'));
 select public.split_inventory_stack(:'dg2', 1) as dg_split \gset
+-- since 20261114001100 only the campaign DM (or a managed path) attaches / removes a modifier directly
+select tl_test.as_user(:'dm');
 insert into public.inventory_item_modifiers (inventory_item_id, modifier_id) values (:'dg_split', 'weapon-plus-1');
+select tl_test.as_user(:'alice');
 select tl_test.rec('E2 a modifier changes the stack identity', (select stack_key is distinct from (select stack_key from public.inventory_items where id = :'dg2') from public.inventory_items where id = :'dg_split'));
 select tl_test.rec('E3 stacks with different modifiers cannot be merged', tl_test.raises(format('select public.merge_inventory_stacks(%L, %L)', :'dg2', :'dg_split')) like '%not identical%');
+select tl_test.as_user(:'dm');
 select tl_test.rec('E4 a +1 weapon modifier cannot be applied to a potion',
   tl_test.raises(format('insert into public.inventory_item_modifiers (inventory_item_id, modifier_id) values (%L, ''weapon-plus-1'')', (select public.add_inventory_item(:'inv_a', 'potion-of-healing-common', 1)))) like '%does not apply%');
 delete from public.inventory_item_modifiers where inventory_item_id = :'dg_split';
+select tl_test.as_user(:'alice');
 select public.merge_inventory_stacks(:'dg2', :'dg_split') as merged \gset
 select tl_test.rec('E5 after removing the modifier the stacks merge again', (select quantity = 3 from public.inventory_items where id = :'merged') and not exists (select 1 from public.inventory_items where id = :'dg_split'));
 select tl_test.rec('E6 modifier and merge events are logged',
