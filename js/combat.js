@@ -1654,6 +1654,12 @@ async function loadFeatures(cid) {
       supabase.rpc('get_character_reads', { p_character: cid, p_reads: FEATURE_READS }), loadPlayTiming()]);
     if (error) throw error;
     const r = res?.reads || {};
+    // a part that failed on the server (its own error, the rest still came) is said, not silently left out
+    const failed = Object.keys(res?.errors || {});
+    if (failed.length) {
+      console.warn('[combat features] partly loaded', failed.join(', '), res?.server_ms);
+      toast('Some active features could not be loaded; open them again to retry.', 'bad');
+    }
     featureCache[cid] = { classFeatures: r.get_character_class_features, classResources: r.get_character_resources,
       feats: r.get_character_feats, lineage: r.get_character_lineage, timing };
     if (root) repaint();

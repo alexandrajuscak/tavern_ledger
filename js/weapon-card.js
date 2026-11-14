@@ -75,7 +75,9 @@ export function weaponSpecialHTML(w, info) {
   if (!list.length) return '';
   return `<section class="wpn-block wpn-special" data-wpn-block="special"><h4 class="wpn-block-title">Special</h4>
     ${list.map((x) => `<article class="wpn-act" data-wpn-special="${esc(x.seq)}"><div class="wpn-act-head"><strong class="wpn-act-name">${esc(x.name)}</strong>
-      ${x.effect ? chip(`${effectText(x.effect)} (applied automatically)`, { cls: 'wpn-auto' }) : ''}</div>
+      ${x.effect ? (x.effect.active === false
+        ? chip(`${effectText(x.effect)} (not active now)`, { cls: 'wpn-auto is-inactive', title: 'Applies automatically once the weapon meets its condition (for example attuned)' })
+        : chip(`${effectText(x.effect)} (applied automatically)`, { cls: 'wpn-auto' })) : ''}</div>
       ${x.text ? `<p class="wpn-desc small">${esc(x.text)}</p>` : ''}</article>`).join('')}</section>`;
 }
 

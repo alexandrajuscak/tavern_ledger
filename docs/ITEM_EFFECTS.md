@@ -73,6 +73,11 @@ at all (it would reveal that the item is magic and needs attunement); the DM see
 the true name appears. Using an unidentified consumable applies its permanent
 effects, but the answer names none of them ("your DM tells you what happens").
 
+R-D3 (migration 20261114000700): an equipped disguised weapon, armor or shield also carries only its disguise and no item id
+in the derived stats (attacks, armor, AC / speed parts, warnings, proficiency match), even when the player can read the catalog
+row because another of his characters knows the item; a disguised tool is not listed under tools. The numbers are unchanged.
+(The raw `inventory_items.item_id` of the row stays readable: documented residual B9 of `docs/night/DESIGN_hidden_items_reveal.md`.)
+
 ## Authoring (DM Space)
 
 DM Space → Content → New item (or New version of a published one) → sections **Effects (applied automatically)** and
@@ -107,7 +112,7 @@ Item** (type Weapon) in the sections **Weapon actions**, **Special** and **Condi
 | Block | Fields | What the sheet does |
 |---|---|---|
 | Weapon actions | name, what it does, cost (action / bonus action / reaction), roll (none / attack roll / saving throw + ability), DC (fixed, or 8 + proficiency bonus + the weapon's or a chosen ability's modifier), damage + type, uses (empty = unlimited, or N per short / long rest) | shows the action with its computed DC or to-hit; a limited action gets a counter with **Use** / **Restore** (back on the chosen rest) |
-| Special | name, text, optionally the number of one of the item's **Effects** rows (e.g. "Attack rolls +1") | shows the text; the linked effect is applied by the existing effect engine (not by the block) and marked "applied automatically" |
+| Special | name, text, optionally the number of one of the item's **Effects** rows (e.g. "Attack rolls +1") | shows the text; the linked effect is applied by the existing effect engine (not by the block) and marked "applied automatically" while it applies, "not active now" otherwise (e.g. an attuned-only effect on an unattuned weapon) |
 | Condition | condition (a catalog condition such as Prone, or your own text such as Bleeding), on a hit / by a weapon action, saving throw + DC, duration, note | display only: nothing is applied to targets (Combat Builder integration is a follow-up) |
 
 Rules:
@@ -121,7 +126,12 @@ Rules:
 Secrecy: an unidentified or partly identified copy shows **no** block to the player, not even block names. The table has no REST
 or Realtime access at all; the blocks reach the sheet only inside `get_character_derived_stats` (`equipped_weapon_attacks[].weapon_blocks`),
 computed per inventory row for the viewer (the DM sees them). No counter exists for a copy the character has not identified; a
-counter of a copy that becomes unidentified again is deactivated and renamed to the disguise.
+counter of a copy that becomes unidentified again is deactivated and renamed to the disguise. Such an inactive counter is not listed in the player's
+resources at all (R-D3); the DM still sees it.
+
+Counters of items, feats and lineages (R-D3): a player cannot edit, create or delete them through `save_character_resource` /
+`delete_character_resource`; the DM may adjust them but nobody deletes them by hand (the sync would recreate one unspent, past the
+rest limit). Rolling back R-D2 gives `itemw-` counters the neutral label "Weapon action".
 
 ### Examples
 

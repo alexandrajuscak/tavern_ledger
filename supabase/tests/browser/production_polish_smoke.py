@@ -148,7 +148,8 @@ def run():
         md = d.locator(".modal").last
         md.locator('[name="definition.item.kind_id"]').select_option("tool")
         md.locator("[name=name]").fill(f"Smoke Tinker Kit {base.RUN}")
-        check("PP-19 Tool: no Armor / Weapon section", not md.locator('[data-ce-for="armor"]').is_visible() and not md.locator('[data-ce-for="weapon"]').is_visible())
+        check("PP-19 Tool: no Armor / Weapon section", not md.locator('[data-ce-for="armor"]:not([data-ce-section])').is_visible()
+              and not md.locator('[data-ce-for="weapon"]:not([data-ce-section])').is_visible())
         md.locator('[data-ce-act="validate"]').click()
         ok = wait(lambda: md.locator(".ce-status").count() > 0 and "Ready" in md.locator(".ce-status").inner_text(), 20)
         check("PP-20 a Tool draft without armor fields saves and validates", ok, md.locator(".modal-body").inner_text()[:300])

@@ -214,7 +214,7 @@ def run(t):
         kinds = md.locator('[name="definition.item.kind_id"] option').evaluate_all("(o) => o.map((x) => x.value)")
         check("H0 the Type list offers only the homebrew types (no mount / vehicle)", "mount" not in kinds and "vehicle" not in kinds and "tool" in kinds, kinds)
         md.locator('[name="definition.item.kind_id"]').select_option("tool")
-        vis = lambda k: md.locator(f'[data-ce-for="{k}"]').is_visible()
+        vis = lambda k: md.locator(f'[data-ce-for="{k}"]:not([data-ce-section])').is_visible()   # the base section (R-D2 weapon blocks also carry data-ce-for)
         check("H11 Tool: neither the Armor nor the Weapon section is shown", not vis("armor") and not vis("weapon"))
         md.locator("[name=name]").fill(f"GP Tinker Kit {RUN}")
         md.locator('[data-ce-act="validate"]').click()

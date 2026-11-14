@@ -294,10 +294,24 @@ def main():
         wait(lambda: dp.locator(f".cb-row[data-pid='{pid}']").count() > 0, 20)
         dp.locator(f".cb-row[data-pid='{pid}'] .cb-row-main").click()
         wait(lambda: dp.locator('[data-cb="load-features"]').count() > 0, 10)
+        reads_resp = []
+        dp.on("response", lambda r: reads_resp.append(r) if "rpc/get_character_reads" in r.url and r.request.method == "POST" else None)
         t0 = time.time()
         dp.locator('[data-cb="load-features"]').first.click()
-        ok = wait(lambda: "Breath Weapon" in dp.locator(".cb-active-features").first.inner_text(), 15)
+        try:   # polls without the 30 s auto-wait of inner_text on a panel that never renders (an error toast instead)
+            dp.wait_for_function("() => (document.querySelector('.cb-active-features')?.innerText || '').includes('Breath Weapon')", timeout=15000)
+            ok = True
+        except Exception:
+            ok = False
         timings["combat_features_ms"] = round((time.time() - t0) * 1000)
+        try:   # server time, cache use and per-read errors of the feature read (no character data)
+            b = reads_resp[-1].json()
+            timings["combat_features_server"] = {"status": reads_resp[-1].status, "server_ms": b.get("server_ms"), "cache": b.get("cache"),
+                                                 "errors": {k: (v or {}).get("code") for k, v in (b.get("errors") or {}).items()}}
+        except Exception as e:
+            timings["combat_features_server"] = {"status": reads_resp[-1].status if reads_resp else None, "note": str(e)[:120]}
+        if not ok:
+            timings["combat_features_toasts"] = D.toasts()[:200]
         check("C-01 Combat Builder: the linked character's active features on request (Breath Weapon, Interception)",
               ok and "Interception" in dp.locator(".cb-active-features").first.inner_text())
 
