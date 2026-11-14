@@ -1,8 +1,8 @@
 // Campaign governance, change requests and the campaign audit (docs/DM_GOVERNANCE.md, APPROVAL_WORKFLOWS.md).
 // Thin wrappers around the RPCs of 20261019000100 / 000200; the database decides, the UI only explains.
 
-import { supabase } from './supabase.js?v=38';
-import { friendlyError } from './utils.js?v=38';
+import { supabase } from './supabase.js?v=39';
+import { friendlyError } from './utils.js?v=39';
 
 export class GovError extends Error {
   constructor(message, raw) {
