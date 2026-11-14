@@ -295,21 +295,25 @@ def main():
         dp.locator(f".cb-row[data-pid='{pid}'] .cb-row-main").click()
         wait(lambda: dp.locator('[data-cb="load-features"]').count() > 0, 10)
         reads_resp = []
-        dp.on("response", lambda r: reads_resp.append(r) if "rpc/get_character_reads" in r.url and r.request.method == "POST" else None)
+        # the feature read of the click (a later refresh of the shown features is a cache hit and must not replace it)
+        dp.on("response", lambda r: reads_resp.append(r) if "rpc/get_character_reads" in r.url and r.request.method == "POST"
+              and "get_character_class_features" in (r.request.post_data or "") else None)
         t0 = time.time()
         dp.locator('[data-cb="load-features"]').first.click()
-        try:   # polls without the 30 s auto-wait of inner_text on a panel that never renders (an error toast instead)
+        # polls without the 30 s auto-wait of inner_text on a panel that never renders: a failure now ends at ~15 s (a 15xxx
+        # combat_features_ms is a timeout, not a faster run; the old smoke reported ~30 s for the same case)
+        try:
             dp.wait_for_function("() => (document.querySelector('.cb-active-features')?.innerText || '').includes('Breath Weapon')", timeout=15000)
             ok = True
         except Exception:
             ok = False
         timings["combat_features_ms"] = round((time.time() - t0) * 1000)
         try:   # server time, cache use and per-read errors of the feature read (no character data)
-            b = reads_resp[-1].json()
-            timings["combat_features_server"] = {"status": reads_resp[-1].status, "server_ms": b.get("server_ms"), "cache": b.get("cache"),
+            b = reads_resp[0].json()
+            timings["combat_features_server"] = {"status": reads_resp[0].status, "server_ms": b.get("server_ms"), "cache": b.get("cache"),
                                                  "errors": {k: (v or {}).get("code") for k, v in (b.get("errors") or {}).items()}}
         except Exception as e:
-            timings["combat_features_server"] = {"status": reads_resp[-1].status if reads_resp else None, "note": str(e)[:120]}
+            timings["combat_features_server"] = {"status": reads_resp[0].status if reads_resp else None, "note": str(e)[:120]}
         if not ok:
             timings["combat_features_toasts"] = D.toasts()[:200]
         check("C-01 Combat Builder: the linked character's active features on request (Breath Weapon, Interception)",
