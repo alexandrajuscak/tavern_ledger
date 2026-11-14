@@ -33,8 +33,9 @@ export const CONTENT_MANAGEMENT = 'on';
 // (the built-in mailer delivers only to project team addresses). A link the user arrives with (reset, confirm, magic link) is
 // handled with either value. Rollback of the frontend = 'off'.
 export const AUTH_EMAIL_FLOWS = 'off';
-// Crafting v1 (docs/CRAFTING_V1.md): 'off' = no crafting UI, no crafting request and js/crafting.js is never loaded (the app is
+// Crafting (docs/CRAFTING_V1.md, v2): 'off' = no crafting UI, no crafting request and js/crafting.js is never loaded (the app is
 // exactly as before); 'dm' = DM Space shows Crafting (recipes, attempts) so a DM can prepare recipes; 'on' = also the player's
-// Inventory panel, for characters whose campaign turned the rule "Crafting" on (Campaign rules; off in every preset). It never
-// grants anything: every crafting RPC checks the DM role or the character's owner and the campaign rule itself.
-export const CRAFTING = 'off';
+// Inventory > Crafting sub-tab, for characters whose campaign turned the rule "Crafting" on (Campaign rules; off in every preset,
+// so a campaign changes only when its DM sets the rule to "Player managed"). It never grants anything: every crafting RPC checks
+// the DM role or the character's owner and the campaign rule itself. 'on' since ?v=37; rollback of the frontend = 'off'.
+export const CRAFTING = 'on';
