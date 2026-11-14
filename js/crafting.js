@@ -3,11 +3,11 @@
 // RPCs need the campaign DM role, the player RPCs the character's owner and the campaign rule inventory.craft (off by default).
 // The server never rolls: the player types the total of a physical roll, the DM confirms or corrects it.
 
-import { supabase } from './supabase.js?v=32';
-import { $, $$, esc, toast, openModal, confirmDialog, debounce, friendlyError } from './utils.js?v=32';
-import { getEditorReference } from './dm-api.js?v=32';
-import { icon } from './icons.js?v=32';
-import { sectionHead } from './section.js?v=32';
+import { supabase } from './supabase.js?v=33';
+import { $, $$, esc, toast, openModal, confirmDialog, debounce, friendlyError } from './utils.js?v=33';
+import { getEditorReference } from './dm-api.js?v=33';
+import { icon } from './icons.js?v=33';
+import { sectionHead } from './section.js?v=33';
 
 async function rpc(fn, args) {
   const { data, error } = await supabase.rpc(fn, args);

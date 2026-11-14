@@ -2,8 +2,8 @@
 // Divine Power) and slot <-> points conversion (Font of Magic). Which resources offer them, the budget, the costs and the
 // limits all come from get_character_resources (resource config) and get_character_spell_slots; the server re-checks every
 // request in one transaction. Also: attack riders that spend a slot (riderSlotButton / openSlotRider). No class names here.
-import { $, $$, esc, toast, openModal } from './utils.js?v=32';
-import * as api from './class-api.js?v=32';
+import { $, $$, esc, toast, openModal } from './utils.js?v=33';
+import * as api from './class-api.js?v=33';
 
 const ord = (n) => `${n}${n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`;
 

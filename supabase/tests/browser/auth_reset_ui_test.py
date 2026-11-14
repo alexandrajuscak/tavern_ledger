@@ -316,7 +316,7 @@ def run(t):
         s.page.click("#btn-link-continue")
         ok = s.wait(lambda: "Signed in" in s.text(), 15000) and title == "Sign in" and "Email confirmed" not in s.text()
         s.page.wait_for_timeout(1500)
-        uid = s.page.evaluate("async () => (await (await import('./js/supabase.js?v=32')).supabase.auth.getSession()).data.session?.user?.id")
+        uid = s.page.evaluate("async () => (await (await import('./js/supabase.js?v=33')).supabase.auth.getSession()).data.session?.user?.id")
         check("AR-32 magic link (type=magiclink, the template's type) reads as signing in; in a page signed in as A: now B, and none of A's characters is shown", ok and uid == b.id
               and s.page.locator(".char-card").count() == 0 and f"Auth Hero {RUN}" not in s.page.locator("#app").inner_text(), (uid, s.text()[:200]))
         s.page.click("#btn-signout")
@@ -342,7 +342,7 @@ def run(t):
         s = Page(br)
         s.page.goto(APP)
         s.page.wait_for_selector("input[name=email]", timeout=20000)
-        sk = s.page.evaluate("async () => (await import('./js/supabase.js?v=32')).supabase.auth.storageKey")
+        sk = s.page.evaluate("async () => (await import('./js/supabase.js?v=33')).supabase.auth.storageKey")
         s.page.evaluate("(k) => localStorage.setItem(k + '-code-verifier', JSON.stringify('x'.repeat(56)))", sk)
         s.page.goto(f"{APP}?code=00000000-0000-4000-8000-00000000c0de")
         ok = s.wait(lambda: s.page.locator("#auth-notice").count() == 1 and "could not finish here" in s.page.locator("#auth-notice").inner_text())

@@ -1,7 +1,7 @@
 // Combat Builder data access (docs/COMBAT_BUILDER_ARCHITECTURE.md). Every rule lives in the database (combat_* RPCs);
 // this module only moves data. Mutations carry a request id, so a retry or a double click is applied once.
-import { supabase } from './supabase.js?v=32';
-import { friendlyError } from './utils.js?v=32';
+import { supabase } from './supabase.js?v=33';
+import { friendlyError } from './utils.js?v=33';
 
 export class CombatError extends Error {}
 
