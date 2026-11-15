@@ -297,3 +297,40 @@ select tl_test.rec('S11 grants: start_craft_batch is executable by authenticated
   has_function_privilege('authenticated', 'public.start_craft_batch(uuid, uuid, jsonb, int, int, uuid, text, text)', 'execute')
   and not has_function_privilege('authenticated', 'public._craft_item_has_uses(text)', 'execute')
   and not has_function_privilege('anon', 'public.start_craft_batch(uuid, uuid, jsonb, int, int, uuid, text, text)', 'execute'), '');
+
+-- ---- S12 "lose half" is per ingredient line, not per stack (review m2) -------------------------------------------------------------
+select tl_test.as_user(:'dm');
+select public.set_campaign_governance(:'camp', '{"overrides": {"inventory.craft": "player_managed"}}');
+select public.create_homebrew_item(gen_random_uuid(), jsonb_build_object('name', 'Mote', 'kind_id', 'gear', 'campaign_id', :'camp', 'stackable', true)) ->> 'id' as mote \gset
+select public.dm_save_recipe(:'camp', jsonb_build_object('name', 'Half Brew', 'requires_dm_approval', true, 'failure_mode', 'lose_half',
+  'output_item_id', :'salts', 'ingredients', jsonb_build_array(jsonb_build_object('item_id', :'mote', 'quantity', 2)))) ->> 'id' as r_half \gset
+select public.dm_set_recipe_status(:'r_half', 'published');
+select tl_test.as_user(:'alice');
+select tl_test.give(:'ca', :'mote') as m1 \gset
+select tl_test.as_root();
+-- six separate 1-stacks (written directly: no auto merge)
+create temp table t8_motes as select :'m1'::uuid as id;
+with ins as (insert into public.inventory_items (inventory_id, item_id, quantity, name, notes)
+  select inventory_id, item_id, 1, name, 'mote ' || g from public.inventory_items, generate_series(2, 6) g where id = :'m1' returning id)
+insert into t8_motes select id from ins;
+grant select on t8_motes to public;
+select jsonb_agg(tl_test.s_sel(1, id, 1) order by id) as sel6 from t8_motes \gset
+select tl_test.as_user(:'alice');
+select public.start_craft_batch(:'ca', :'r_half', :'sel6'::jsonb, 3, null, gen_random_uuid()) as h1 \gset
+select tl_test.as_user(:'dm');
+select public.dm_resolve_craft_attempt((:'h1'::jsonb ->> 'attempt_id')::uuid, 'approve', 'failure') as h1r \gset
+select tl_test.as_root();
+select tl_test.s_qty(:'ca', :'mote') as after_ones \gset
+-- one 6-stack
+delete from public.inventory_items where id in (select ii.id from public.inventory_items ii join public.inventories inv on inv.id = ii.inventory_id
+  where inv.character_id = :'ca' and ii.item_id = :'mote');
+select tl_test.as_user(:'alice');
+select tl_test.give(:'ca', :'mote', null, 6) as m6 \gset
+select public.start_craft_batch(:'ca', :'r_half', jsonb_build_array(tl_test.s_sel(1, :'m6', 6)), 3, null, gen_random_uuid()) as h2 \gset
+select tl_test.as_user(:'dm');
+select public.dm_resolve_craft_attempt((:'h2'::jsonb ->> 'attempt_id')::uuid, 'approve', 'failure') as h2r \gset
+select tl_test.as_root();
+select tl_test.rec('S12 lose half per line: 3 batches x 2 from six 1-stacks -> exactly 3 lost; from one 6-stack -> exactly 3 lost; nothing made',
+  :'h1r'::jsonb ->> 'status' = 'applied' and :'after_ones'::int = 3 and :'h2r'::jsonb ->> 'status' = 'applied' and tl_test.s_qty(:'ca', :'mote') = 3
+  and (select sum((x ->> 'quantity')::int) from public.crafting_attempts a, jsonb_array_elements(a.consumed) x where a.id = (:'h1'::jsonb ->> 'attempt_id')::uuid) = 3,
+  concat_ws(' | ', :'after_ones', left(:'h1r', 200), left(:'h2r', 200)));

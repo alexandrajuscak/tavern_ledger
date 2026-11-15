@@ -6,6 +6,8 @@
 --     existing attempt (also the production one) behaves exactly as before. _craft_apply reads it: every used-up line needs
 --     N x quantity, a kept line (a tool, the enhancement base) once; the result is N x output_quantity (+ the critical bonus once:
 --     one roll for the whole batch), a failure's junk result N x. All N or nothing (one transaction, one request id).
+--     "Lose half" is computed per ingredient line (floor(line total / 2), across its stacks in selection order), not per stack, for
+--     every attempt: the loss no longer depends on how a line is split over stacks.
 --  2. start_craft_batch(character, recipe, selected, batches, roll, request_id, natural, note): a NEW function (the old
 --     start_craft_attempt keeps its signature and body; an overload with a defaulted extra argument would make the old 7-argument
 --     call ambiguous). Same checks and order as start_craft_attempt (knowledge first with the one fixed text, fit, quantity, free,
@@ -146,7 +148,7 @@ set search_path = public, pg_temp
 as $$
 declare a public.crafting_attempts; r public.crafting_recipes; g public.crafting_recipe_ingredients; s jsonb; ir public.inventory_items;
   inv_char uuid; inv_kind text; q int; mode text; consumed jsonb := '[]'; produced jsonb := '[]'; meta jsonb; out_item text; out_qty int;
-  covered int; base_row uuid; why text; mname text;
+  covered int; base_row uuid; why text; mname text; half jsonb := '{}';
 begin
   select * into a from public.crafting_attempts where id = p_attempt;
   select * into r from public.crafting_recipes where id = a.recipe_id;
@@ -201,10 +203,23 @@ begin
                when p_outcome = 'critical_failure' then 'lose_all'
                else coalesce(p_failure_consumes, r.failure_mode) end;
   meta := jsonb_build_object('craft_attempt', a.id, 'recipe', r.id, 'outcome', p_outcome);
-  for s in select x from jsonb_array_elements(a.selected) x order by (x ->> 'inventory_item_id') loop
+  -- 20261115000100: "lose half" is per ingredient LINE: floor(the line's selected total / 2), taken from the line's stacks in the
+  -- order of the selection, so the loss does not depend on how the line is split over stacks (six 1-stacks lose 3 like one 6-stack)
+  if mode = 'lose_half' then
+    select coalesce(jsonb_object_agg(t.seq, t.total / 2), '{}') into half
+    from (select (x ->> 'seq') as seq, sum((x ->> 'quantity')::int) as total from jsonb_array_elements(a.selected) x group by 1) t;
+  end if;
+  for s in select x from jsonb_array_elements(a.selected) with ordinality e(x, ord)
+           order by case when mode = 'lose_half' then (x ->> 'seq')::int else 0 end, case when mode = 'lose_half' then ord else 0 end,
+                    (x ->> 'inventory_item_id') loop
     select * into g from public.crafting_recipe_ingredients where recipe_id = r.id and seq = (s ->> 'seq')::int;
     continue when not g.consumed;
-    q := case mode when 'lose_all' then (s ->> 'quantity')::int when 'lose_half' then (s ->> 'quantity')::int / 2 else 0 end;
+    if mode = 'lose_half' then
+      q := least((s ->> 'quantity')::int, coalesce((half ->> (s ->> 'seq'))::int, 0));
+      half := jsonb_set(half, array[s ->> 'seq'], to_jsonb(coalesce((half ->> (s ->> 'seq'))::int, 0) - q));
+    else
+      q := case mode when 'lose_all' then (s ->> 'quantity')::int else 0 end;
+    end if;
     continue when q < 1;
     select * into ir from public.inventory_items where id = (s ->> 'inventory_item_id')::uuid;
     if q = ir.quantity then delete from public.inventory_items where id = ir.id;

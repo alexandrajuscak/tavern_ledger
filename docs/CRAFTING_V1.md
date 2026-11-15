@@ -407,8 +407,9 @@ server re-checks everything.
 
 **Quantity N** (`start_craft_batch`, design (a) of the brief): ONE attempt with `batches = N`, one request id, all or nothing. Every
 used-up line needs N × its quantity, a kept line (a tool, the enhancement base) once. Success makes N × the result; a critical
-success adds the bonus quantity **once** (one roll for the whole batch); a failure's junk result is N ×; "lose half" halves the
-whole selection. For a recipe the DM confirms, the batch is one pending attempt (the rule "one pending attempt per character and
+success adds the bonus quantity **once** (one roll for the whole batch); a failure's junk result is N ×; "lose half" loses
+floor(half) of each ingredient line's total (N × quantity), taken from that line's stacks in selection order, so six 1-stacks and
+one 6-stack both lose 3 (since 20261115000100 for every attempt; before, half was computed per stack). For a recipe the DM confirms, the batch is one pending attempt (the rule "one pending attempt per character and
 recipe" stays) and the DM answers it with one outcome. An enhancement recipe is crafted one at a time.
 
 **Roll**: the simple start asks for a roll only when the recipe has a **DC**. A tool without a DC only has to be in the bag. (The old
