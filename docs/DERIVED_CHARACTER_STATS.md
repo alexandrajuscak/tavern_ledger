@@ -115,7 +115,9 @@ explained, description, notes. Rules:
 the repo (the repo has no per-weapon art; candidates from outside the repo need the owner's licence check first). Resolution:
 1. the DM's uploaded icon (`custom_icon`, docs/CUSTOM_ICONS.md), sent by the server only for a copy the viewer knows;
 2. the item's own gallery key (`items.icon_key`, picked in the homebrew / Content editor), known copy only;
-3. the base weapon map below, by the catalog item id;
+3. the base weapon map below, by the catalog item id; for an official magic weapon (no `base_item_id` in any payload) by the
+   first base weapon or weapon word in its id (`dagger-of-venom` → dagger, `sword-of-vengeance` → sword; words: sword / blade →
+   sword, axe → blade, bow → arrows, hammer / staff → hammer);
 4. the category: firearm group → `item.firearm`, ranged → `item.ammunition`, melee by damage type (slashing → sword,
    piercing → spear head, bludgeoning → hammer);
 5. the generic weapon icon `item.weapons`.

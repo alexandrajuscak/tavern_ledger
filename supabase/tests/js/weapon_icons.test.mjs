@@ -2,7 +2,7 @@
 // Pure functions, no network, no DOM.
 // Run with node:            node supabase/tests/js/weapon_icons.test.mjs
 // Run in a browser (the T7 smoke does): import('/supabase/tests/js/weapon_icons.test.mjs').then((m) => m.run())
-import { weaponIconKey, weaponIsKnown, weaponCategoryIcon, WEAPON_ICON_MAP, GENERIC_WEAPON_ICON } from '../../../js/weapon-icons.js';
+import { weaponIconKey, weaponIdIcon, weaponIsKnown, weaponCategoryIcon, WEAPON_ICON_MAP, GENERIC_WEAPON_ICON } from '../../../js/weapon-icons.js';
 
 const longbow = { inventory_item_id: 'i1', item_id: 'longbow', weapon_group: 'martial', is_ranged: true, damage_type: 'piercing' };
 const known = { known: true, icon: 'inventory.weapon', iconKey: null };
@@ -19,6 +19,12 @@ export const cases = () => [
   ['homebrew melee slashing', weaponIconKey({ item_id: 'x-3', damage_type: 'slashing' }, known), 'slot.main-hand'],
   ['homebrew melee piercing', weaponIconKey({ item_id: 'x-4', damage_type: 'piercing' }, known), 'spell.damage.piercing'],
   ['homebrew melee fire -> generic', weaponIconKey({ item_id: 'x-5', damage_type: 'fire' }, known), GENERIC_WEAPON_ICON],
+  ['official magic dagger by its id words', weaponIdIcon('dagger-of-venom'), 'slot.off-hand'],
+  ['official magic sword by a weapon word', weaponIdIcon('sword-of-vengeance'), 'slot.main-hand'],
+  ['two-word base inside an id', weaponIdIcon('hand-crossbow-plus-one'), 'item.ammunition'],
+  ['magic greataxe', weaponIconKey({ item_id: 'bloodrage-greataxe', damage_type: 'slashing' }, known), 'spell.damage.slashing'],
+  ['homebrew uuid id does not match words', weaponIdIcon('hb-8c5ab05e-1aa2-4828-a6e2-c12b8628db2b'), null],
+  ['decoy: id words never used for a masked copy', weaponIconKey({ item_id: null, damage_type: 'piercing' }, { known: false, icon: 'item.gear' }), 'item.gear'],
   ['known, inventory not loaded (info null) still maps', weaponIconKey({ item_id: 'longsword' }, null), 'slot.main-hand'],
   // SECRECY: a masked copy. The derived row keeps the true stats (longbow) but item_id is null; the masked view says known:false.
   ['decoy: masked longbow shows the decoy face icon', weaponIconKey({ ...longbow, item_id: null }, { known: false, icon: 'item.gear', iconKey: null }), 'item.gear'],

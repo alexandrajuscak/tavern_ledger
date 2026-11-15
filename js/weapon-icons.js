@@ -5,7 +5,8 @@
 // Resolution (weaponIconKey):
 //   0. the DM's uploaded icon (custom_icon) is not decided here: weapon-card.js passes it as <img src> for a known copy only;
 //   1. the item's own gallery key (items.icon_key, set in the homebrew / content editor), known copy only;
-//   2. WEAPON_ICON_MAP by the catalog item id (official base weapons);
+//   2. WEAPON_ICON_MAP by the catalog item id (official base weapons), then by its words for the official magic weapons
+//      (dagger-of-venom -> dagger, sword-of-vengeance -> sword, bloodrage-greataxe -> greataxe): base_item_id is in no payload;
 //   3. the category: firearm group -> ranged -> melee by damage type;
 //   4. the generic weapon icon.
 // SECRECY: steps 1-3 run only for a copy the viewer knows: the derived read sends item_id = null for a masked (unidentified /
@@ -42,6 +43,21 @@ export const WEAPON_ICON_MAP = Object.freeze({
   'palm-pistol': GUN, pistol: GUN, musket: GUN, pepperbox: GUN, blunderbuss: GUN, 'bad-news': GUN, 'hand-mortar': GUN,
 });
 
+/** Words of official magic weapon ids that are not a base weapon id themselves. */
+const WEAPON_WORD_ICON = Object.freeze({ sword: SWORD, blade: SWORD, axe: BLADE, bow: ARROWS, hammer: HAMMER, staff: HAMMER });
+
+/** The icon of a catalog item id: the exact base weapon, else the first base weapon / weapon word in its id, else null. */
+export function weaponIdIcon(id) {
+  if (!id) return null;
+  if (WEAPON_ICON_MAP[id]) return WEAPON_ICON_MAP[id];
+  const t = String(id).split('-');
+  for (let i = 0; i < t.length; i += 1) {
+    const hit = WEAPON_ICON_MAP[`${t[i]}-${t[i + 1]}`] || WEAPON_ICON_MAP[t[i]] || WEAPON_WORD_ICON[t[i]];
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /** Melee fallback by damage type (homebrew weapons have no base id in any payload the sheet has). */
 export const WEAPON_DAMAGE_ICON = Object.freeze({ slashing: SWORD, piercing: POINT, bludgeoning: HAMMER });
 
@@ -62,5 +78,5 @@ export const weaponIsKnown = (w, info) => !!w && w.item_id != null && info?.know
  */
 export function weaponIconKey(w, info) {
   if (!weaponIsKnown(w, info)) return info?.icon || GENERIC_WEAPON_ICON;   // the decoy face only
-  return info?.iconKey || WEAPON_ICON_MAP[w.item_id] || weaponCategoryIcon(w);
+  return info?.iconKey || weaponIdIcon(w.item_id) || weaponCategoryIcon(w);
 }
