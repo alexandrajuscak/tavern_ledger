@@ -232,8 +232,8 @@ export function createPlayerCrafting({ characterId, onInventoryChanged, canCraft
       roll = s.roll === '' ? null : Number(s.roll);
       if (roll == null || !Number.isInteger(roll) || roll < -10 || roll > 60) { toast('Enter the total of your roll (-10 to 60).', 'bad'); return; }
     }
-    // one request id per intent: a repeated click (or a retry after a lost answer) is applied once by the server
-    const key = JSON.stringify([r.recipe_id, n, sel, roll, s.natural]);
+    // one request id per intent (recipe, quantity, roll, base): a repeated click or a retry after a lost answer replays the first attempt
+    const key = JSON.stringify([r.recipe_id, n, roll, s.natural, baseRow]);   // not the stacks: they change after a lost answer
     if (s.req?.key !== key) s.req = { key, id: crypto.randomUUID() };
     s.busy = true; paint();
     try {

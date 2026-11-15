@@ -419,7 +419,7 @@ and the read's free flag exclude a row with `charges_max` / `charges_current` > 
 spell grant, a weapon action with uses).
 
 **Double click**: the Craft button is disabled while the request is in flight, and one request id is kept per intent (recipe,
-quantity, stacks, roll) until it succeeds, so a repeated click or a retry after a lost answer replays the first attempt.
+quantity, roll, base item; not the stacks) until it succeeds, so a repeated click or a retry after a lost answer replays the first attempt.
 
 **Who crafts**: the character's owner (the campaign rule must allow it); a DM's own character crafts like any player's. The
 campaign's DM viewing a player's character sees the same Crafting tab **read-only** (what the character has and misses, read with
