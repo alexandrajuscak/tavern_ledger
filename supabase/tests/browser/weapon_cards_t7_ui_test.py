@@ -57,7 +57,7 @@ def run():
     q(f"insert into public.campaigns (id, name, created_by) values ('{camp}', 'T7 Table {RUN}', '{dm.id}');"
       f"insert into public.campaign_members (campaign_id, user_id, role) values ('{camp}', '{dm.id}', 'dm'), ('{camp}', '{pa.id}', 'player');"
       f"insert into public.campaign_governance (campaign_id, preset) values ('{camp}', 'relaxed');")
-    chars = {k: pa.character(f"T7 {k} {RUN}", [("fighter-phb", 1)], strength=16, dexterity=14) for k in ("swords", "bow", "gun", "brew", "masked")}
+    chars = {k: pa.character(f"T7 {k} {RUN}", [("fighter-phb", 1)], strength=16, dexterity=14) for k in ("swords", "bow", "gun", "brew", "masked", "direct")}
     ids = ",".join(f"'{c}'" for c in chars.values())
     q(f"update public.characters set campaign_id = '{camp}' where id in ({ids});"
       f"insert into public.character_governance (character_id, setup_complete) select id, true from public.characters where id in ({ids});")
@@ -70,6 +70,7 @@ def run():
                     {"weapon": {"weapon_group": "simple", "damage_dice": "1d6", "damage_type_id": "bludgeoning", "properties": ["versatile"], "versatile_damage": "1d8"}})
     give_equip(dm, pa, inv_["brew"], chars["brew"], brew, "main_hand")
     add_equip(pa, inv_["brew"], "javelin", "off_hand")
+    give_equip(dm, pa, inv_["direct"], chars["direct"], brew, "main_hand")   # T7 fix: direct Play open, Inventory never visited
     # masked copies (official items cannot be hidden: campaign homebrew only): a ranged "Starbow" whose true icon would be the
     # arrows, and a melee "Shadow Edge"; both made unidentified by the DM after they are equipped
     bow = homebrew(dm, camp, BOW, "weapon", "Strung with moonlight", {"category_id": "martial-ranged", "weight_lb": 2, "is_magic": True, "rarity_id": "rare"},
@@ -138,6 +139,31 @@ def run():
         check("T6 homebrew weapon: the author's gallery icon (item.weapon-dagger, a new weapon gallery key) beats the category icon; javelin: spear icon + thrown range",
               icon_of(box, HB) == "item.weapon-dagger" and icon_of(box, "Javelin") == "item.weapon-spear"
               and "Range 30 ft / 120 ft" in box.locator(".wpn-card", has_text="Javelin").inner_text(), (icon_of(box, HB), icon_of(box, "Javelin")))
+
+        # T7 fix (?v=41): a FRESH direct open of Play (tab 'combat' stored, Inventory never visited). Fluent path: the homebrew
+        # weapon's gallery icon arrives through ONE idle inventory read; a sheet with only official weapons reads nothing more.
+        def direct_open(cid, wait_icon=None):
+            S = Sheet(br, pa, tab="combat")
+            reqs = []
+            S.ctx.on("request", lambda r: reqs.append((r.url, r.post_data or "")))
+            S.open(cid)
+            if wait_icon:
+                S.wait(lambda: icon_of(S.page.locator("#equipped-weapons"), wait_icon[0]) == wait_icon[1], timeout=12000)
+            S.page.wait_for_timeout(6000)
+            inv_reads = [u for u, b in reqs if "inventory_bundle" in b or ("/rest/v1/" in u and "inventor" in u.split("/rest/v1/")[1].split("?")[0])]
+            return S, reqs, inv_reads
+        D, dreqs, dinv = direct_open(chars["direct"], (HB, "item.weapon-dagger"))
+        dicon = icon_of(D.page.locator("#equipped-weapons"), HB)
+        D.page.locator("#equipped-weapons").screenshot(path=str(SHOTS / "t7_direct_play_homebrew.png"))
+        check("T14 direct Play open (Inventory never visited): the homebrew card shows the author's gallery icon, via exactly one idle inventory read",
+              dicon == "item.weapon-dagger" and len([1 for u, b in dreqs if "inventory_bundle" in b]) == 1, (dicon, [u for u in dinv][:5]))
+        derrs = [e for e in D.errors if "favicon" not in e]
+        D.close()
+        O, oreqs, oinv = direct_open(chars["swords"], ("Longsword", "item.weapon-sword"))
+        check(f"T15 direct Play open with only official weapons: no extra inventory read ({len(oreqs)} requests in total)", not oinv, oinv[:5])
+        derrs += [e for e in O.errors if "favicon" not in e]
+        O.close()
+        check("T16 no console errors on the direct opens", not derrs, derrs[:3])
 
         # masked copies: open Inventory first so the masked view (known:false) is loaded, then Play
         A.open(chars["masked"])

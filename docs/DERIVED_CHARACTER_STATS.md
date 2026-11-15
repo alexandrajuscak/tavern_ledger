@@ -100,7 +100,12 @@ explained, description, notes. Rules:
 - The item facts come only from the masked inventory data the sheet already has (the Inventory panel's rows and the
   character's knowledge read). An unidentified or partly identified copy shows its decoy name and description and the revealed
   facts only, never the derived `name` (that is the catalog name). Without the panel's data (fluent path before the Inventory tab
-  was opened) the card shows the stored row's name only and gets the rest when the inventory loads; it never fetches anything.
+  was opened) the card shows the stored row's name only and gets the rest when the inventory loads; the card itself never fetches
+  anything. Since `?v=41`: when the derived read lists a known equipped weapon (`item_id` not null) that the base-weapon map and
+  the magic-weapon id words do not cover (in practice homebrew / campaign weapons, whose icon may be the author's gallery key or
+  the DM's upload), the sheet loads the Inventory panel once per open, when the browser is idle after the open, through its usual
+  cached `inventory_bundle` read; its rows re-render the cards. Sheets with only covered (official) weapons read nothing more;
+  opening Inventory meanwhile does not read twice; `?fluent=0` already loads the panel at once (unchanged).
 - An equipped item in a hand whose catalog row the player cannot read (`hidden_item`) gets a card with its decoy and no numbers
   (unchanged; in practice every unidentified campaign weapon of a player takes this path).
 - The magic tag sums the breakdown parts whose `source_id` is this inventory row (catalog effects, modifiers such as +1,

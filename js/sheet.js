@@ -24,6 +24,7 @@ import {
   openProficiencyManager, equipmentNotes,
 } from './derived-ui.js?v=40';
 import { openWeaponDetail } from './weapon-card.js?v=40';
+import { weaponIdIcon } from './weapon-icons.js?v=40';
 import { openLevelUp } from './levelup.js?v=40';
 import { mountGovernance } from './request-ui.js?v=40';
 import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=40';
@@ -74,6 +75,7 @@ let liveReady = false;       // fluent: Realtime confirmed it delivers changes o
 // coalesced, Realtime is one revision table, the inventory panel loads on its first open. Never mixed with the legacy path.
 let sheetFluent = false;
 let inventoryDeferred = false;
+let weaponFactsWarmed = false;   // T7 fix: the idle Inventory load for homebrew weapon icons, at most once per sheet open
 let serverChar = null;       // the character row as last stored on the server (bundle, Realtime): what a remote UPDATE changed
 let inventory = null; // inventory-ui controller
 let quests = null;    // js/quests.js tab controller (loaded on the Quests tab's first open)
@@ -511,6 +513,7 @@ async function loadDerived() {
     profState = p;
     profPending = {};
     renderDerived(startedAt);
+    warmWeaponFacts();
   } catch (err) {
     if (my === derivedSeq) console.warn('[derived]', err?.message || err);
   }
@@ -3595,6 +3598,7 @@ export function mountSheet(container, bundle, options = {}) {
   }
   // fluent: the Inventory panel (7 reads + catalog on the legacy path) loads in one request on its first open
   inventoryDeferred = sheetFluent && activeTabKey() !== 'inventory';
+  weaponFactsWarmed = false;
   if (!inventoryDeferred) mountInventoryPanel();
   // a change the campaign refuses is never saved: reload the sheet so it shows the stored values again
   governance = mountGovernance($('#gov-bar', root), { characterId: C().id, reload: () => ctx.reload?.(), onRefused: () => ctx.reload?.(),
@@ -3658,6 +3662,22 @@ function openQuests() {
     quests?.destroy();
     quests = m.mountQuestTab(el, { characterId: id });
   }).catch((err) => { if (my === questsSeq && el.isConnected) el.innerHTML = `<p class="gov-error" role="alert">${esc(err?.message || 'The quest log could not be loaded.')}</p>`; });
+}
+
+/**
+ * Fluent path, Play opened directly: the weapon cards' item facts (the author's gallery icon, the DM's uploaded icon, rarity,
+ * description) come from the Inventory panel, which loads only when its tab opens. When the derived read lists a known equipped
+ * weapon (item_id not null) that the base-weapon map / magic-weapon id words do not cover (in practice homebrew), load the panel
+ * once, when the browser is idle, through its usual cached read; its onRows re-renders the cards. Sheets with only official
+ * weapons read nothing more. Opening Inventory first makes this a no-op (the panel is mounted once). Secrecy: unchanged, the
+ * cards still use the masked view and its known-copy gate.
+ */
+function warmWeaponFacts() {
+  if (!sheetFluent || weaponFactsWarmed || !inventoryDeferred || inventory) return;
+  if (!(derived?.equipped_weapon_attacks || []).some((w) => w.item_id != null && !weaponIdIcon(w.item_id))) return;
+  weaponFactsWarmed = true;
+  const id = C().id;
+  whenIdle(() => { if (B && root && C().id === id && inventoryDeferred && !inventory) mountInventoryPanel(); });
 }
 
 function mountInventoryPanel() {
