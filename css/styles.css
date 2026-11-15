@@ -2764,6 +2764,23 @@ details.combat-group.passive-group > summary { cursor: pointer; }
 .cr-have { color: var(--success); }
 .cr-miss { color: var(--warning); }
 .cr-ings .cr-have { color: inherit; }
+/* Simple crafting (?v=42): tool -> recipe -> how many -> Craft; the editor's "More options" */
+.crs-step h3 { margin: 8px 0 4px; }
+.crs-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.crs-tools .inv-chip[aria-pressed="true"] { border-color: var(--gold); background: var(--gold-soft); }
+.crs-recipe.is-open { border-color: var(--gold); }
+.crs-recipe-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; width: 100%; text-align: left; background: none; border: 0; padding: 2px 0;
+  color: inherit; font: inherit; cursor: pointer; }
+.crs-recipe-head:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.crs-go { border-top: 1px dashed var(--line, rgba(255, 255, 255, 0.12)); margin-top: 6px; padding-top: 6px; }
+.crs-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.crs-controls .crs-field { margin: 0; }
+.crs-qty { display: inline-flex; align-items: center; gap: 6px; }
+.crs-qty output { min-width: 2ch; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.crs-inline { display: inline-flex; align-items: center; gap: 4px; }
+.cr-editor:not(.cr-adv-open) .crs-adv { display: none; }
+.crs-adv { display: contents; }
+.crs-more > summary { cursor: pointer; }
 /* ---- R-A weapon cards in Play (js/weapon-card.js): the spell-card look; the rarity (or a neutral edge) leads the card ------- */
 .wpn-card { --wpn: var(--border-strong); display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 12px 10px 14px; }
 .wpn-card[data-rarity] { --wpn: var(--rarity, var(--border-strong)); }

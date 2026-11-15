@@ -1404,6 +1404,8 @@ function refreshCharacterBits() {
 
 /** Governance state of this character (request-ui onState): lock, decisions, open requests. Null until loaded / ungoverned. */
 let govState = null;
+/** Crafting: the viewer is the character's player and the campaign rule allows it (the DM's own character included). */
+const craftingCanCraft = () => !!state.profile?.id && C().owner_id === state.profile.id && govState?.gov?.decisions?.['inventory.craft'] === 'player_managed';
 
 /** How removing a directly assigned feat behaves now: 'allow' | 'request' | 'dm_only' | 'locked' (labels only). */
 function featRemovalPolicy() {
@@ -3700,8 +3702,13 @@ function mountInventoryPanel() {
       invLoaded = true;
     },
     getEquipmentNotes: (inventoryItemId) => equipmentNotes(derived, inventoryItemId),
-    // Crafting (docs/CRAFTING_V1.md; only with js/config.js CRAFTING = 'on'): the character's player, when the campaign allows it
-    crafting: { allowed: () => !!state.profile?.id && C().owner_id === state.profile.id && govState?.gov?.decisions?.['inventory.craft'] === 'player_managed' },
+    // Crafting (docs/CRAFTING_V1.md; only with js/config.js CRAFTING = 'on'): the character's player crafts, when the campaign allows
+    // it; the campaign's DM sees the same tab read-only (what the character has and misses; get_character_recipes allows the DM)
+    crafting: {
+      allowed: () => craftingCanCraft() || !!govState?.gov?.is_dm,
+      canCraft: () => craftingCanCraft(),
+      isDm: () => !!govState?.gov?.is_dm,
+    },
     loadBundle: sheetFluent ? async () => {
       const seed = await awaitSeed('inventory_bundle', id);
       if (seed.hit) { if (seed.error) throw seed.error; return seed.data; }

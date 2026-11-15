@@ -224,16 +224,19 @@ export function mountInventory(el, opts) {
   }
   const scheduleRefresh = debounce(() => { if (!s.destroyed) refresh(); }, 400);
 
-  // ---- crafting (docs/CRAFTING_V1.md): only with CRAFTING = 'on', for the character's owner, when the campaign rule allows it.
+  // ---- crafting (docs/CRAFTING_V1.md): only with CRAFTING = 'on', for the character's owner when the campaign rule allows it,
+  // and read-only for the campaign's DM (opts.crafting.canCraft / isDm).
   // A "Crafting" sub-tab of the inventory; js/crafting.js is imported (and the recipes read) only when the tab is opened.
   let crafting = null;
   let craftingLoad = null;
   const craftingAllowed = () => (CRAFTING || 'off') === 'on' && !!opts.crafting?.allowed?.();
   const craftingTab = () => craftingAllowed() && s.tab === 'crafting';
+  const craftingActs = () => craftingAllowed() && (opts.crafting?.canCraft ? !!opts.crafting.canCraft() : true);
   function withCrafting(fn) {
     craftingLoad ||= import('./crafting.js?v=41').then((m) => {
       if (s.destroyed) return null;
-      crafting ||= m.createPlayerCrafting({ characterId: opts.characterId, onInventoryChanged: () => scheduleRefresh() });
+      crafting ||= m.createPlayerCrafting({ characterId: opts.characterId, onInventoryChanged: () => scheduleRefresh(),
+        canCraft: () => craftingActs(), isDm: () => !!opts.crafting?.isDm?.() });
       return m;
     });
     return craftingLoad.then((m) => (m && !s.destroyed ? fn(m) : null)).catch((err) => console.warn('[crafting]', err?.message || err));
@@ -814,7 +817,7 @@ export function mountInventory(el, opts) {
         ${propsHTML(r)}
         ${(d?.description || r.description) ? `<p class="inv-desc">${esc(d?.description || r.description)}</p>` : ''}
         ${knowledgeHTML(r)}
-        ${craftingAllowed() && r.item_id && !knowledgeOf(r) ? '<div data-learn-slot></div>' : ''}
+        ${craftingActs() && r.item_id && !knowledgeOf(r) ? '<div data-learn-slot></div>' : ''}
         ${definition}
         ${reviewOf(r).map((x) => `<p class="inv-note warn">${esc(reviewText(x))}</p>`).join('')}
         ${cont ? containerLineHTML(cont) : ''}
