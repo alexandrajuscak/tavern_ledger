@@ -2,16 +2,16 @@
 // type, the lifecycle actions (save draft, validate, preview, publish, new version, archive, restore, duplicate, delete) and a
 // preview of what players will see. The definition is validated and materialized by the database (_dm_try / _dm_materialize).
 
-import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=40';
-import * as dm from './dm-api.js?v=40';
-import { icon } from './icons.js?v=40';
-import { spellIconHTML } from './spell-icons.js?v=40';
-import { iconPickerHTML } from './item-icon-gallery.js?v=40';
-import { supabase } from './supabase.js?v=40';
-import { CONTENT_MANAGEMENT } from './config.js?v=40';
-import { openItemIconsDialog } from './custom-icons.js?v=40';
+import { $, $$, esc, toast, openModal, confirmDialog } from './utils.js?v=41';
+import * as dm from './dm-api.js?v=41';
+import { icon } from './icons.js?v=41';
+import { spellIconHTML } from './spell-icons.js?v=41';
+import { iconPickerHTML } from './item-icon-gallery.js?v=41';
+import { supabase } from './supabase.js?v=41';
+import { CONTENT_MANAGEMENT } from './config.js?v=41';
+import { openItemIconsDialog } from './custom-icons.js?v=41';
 import { EFFECT_KINDS, ACTIVATIONS, CASTING, RECHARGE, effectTargetOptions, ACTION_COSTS, ACTION_ROLLS, DC_ABILITIES, CONDITION_APPLIES,
-  CONDITION_NAMES } from './item-effects.js?v=40';
+  CONDITION_NAMES } from './item-effects.js?v=41';
 
 /** The content management actions (usage report, delete any unused content, duplicate official) are behind js/config.js
  *  CONTENT_MANAGEMENT; 'off' keeps the earlier buttons. The database authorizes every action itself. */

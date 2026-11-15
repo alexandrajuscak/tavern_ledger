@@ -1,8 +1,8 @@
 // Spell data access (migration 20261015001600): catalog reads, the resolved spellbook and the spell write RPCs.
 // The rules (source resolution, Save DC, attack bonus, list eligibility) live in the database; this module moves data.
-import { supabase } from './supabase.js?v=40';
-import { friendlyError } from './utils.js?v=40';
-import { onUserCachesCleared } from './read-layer.js?v=40';
+import { supabase } from './supabase.js?v=41';
+import { friendlyError } from './utils.js?v=41';
+import { onUserCachesCleared } from './read-layer.js?v=41';
 
 export class SpellError extends Error {
   constructor(message, raw) { super(message); this.raw = raw; }
