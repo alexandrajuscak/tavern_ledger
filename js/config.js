@@ -37,5 +37,5 @@ export const AUTH_EMAIL_FLOWS = 'off';
 // exactly as before); 'dm' = DM Space shows Crafting (recipes, attempts) so a DM can prepare recipes; 'on' = also the player's
 // Inventory > Crafting sub-tab, for characters whose campaign turned the rule "Crafting" on (Campaign rules; off in every preset,
 // so a campaign changes only when its DM sets the rule to "Player managed"). It never grants anything: every crafting RPC checks
-// the DM role or the character's owner and the campaign rule itself. 'on' since ?v=40; rollback of the frontend = 'off'.
+// the DM role or the character's owner and the campaign rule itself. 'on' since ?v=39; rollback of the frontend = 'off'.
 export const CRAFTING = 'on';
