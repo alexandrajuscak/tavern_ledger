@@ -2780,6 +2780,11 @@ details.combat-group.passive-group > summary { cursor: pointer; }
 .wpn-top .wpn-icon { width: 36px; height: 36px; flex: none; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4)); }
 .wpn-title { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-card-title); font-weight: 650; overflow-wrap: anywhere; }
 .wpn-slot { flex: none; white-space: nowrap; }
+.wpn-name { font: inherit; color: inherit; letter-spacing: inherit; text-decoration: none; padding: 0; text-align: left; overflow-wrap: anywhere; }
+.wpn-name:hover, .wpn-name:focus-visible { text-decoration: underline; }
+.wpn-chip.wpn-magic, .badge.wpn-magic { white-space: nowrap; }
+.wpn-props { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; }
+.wpn-detail .sp-detail-badges { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .wpn-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
 .wpn-tags .badge { margin: 0; }
 .wpn-chip { color: var(--text-2); white-space: nowrap; }

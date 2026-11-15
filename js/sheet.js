@@ -23,6 +23,7 @@ import {
   acNote, openAcBreakdown, equippedWeaponsHTML, trackWeaponDetails, toolsHTML, specificProficienciesHTML,
   openProficiencyManager, equipmentNotes,
 } from './derived-ui.js?v=39';
+import { openWeaponDetail } from './weapon-card.js?v=39';
 import { openLevelUp } from './levelup.js?v=39';
 import { mountGovernance } from './request-ui.js?v=39';
 import { beginSheetReads, endSheetReads, isAbortError } from './read-control.js?v=39';
@@ -3168,6 +3169,11 @@ const actions = {
       characterId: C().id, book: spellbook, classes: classSummary?.classes || [], onSaved: async () => { await loadSpellbook(); loadClasses(); },
       onNewSource: (done) => openSourceEditor({ characterId: C().id, onSaved: async () => { await loadSpellbook(); await done(spellbook); } }),
     });
+  },
+  // a weapon card's name (js/weapon-card.js): the details dialog, from the data the card already has (no read)
+  'weapon-detail': (el) => {
+    const w = (derived?.equipped_weapon_attacks || []).find((x) => x.inventory_item_id === el.dataset.wpnId);
+    if (w) openWeaponDetail(w, weaponInfo(w.inventory_item_id), { infused: infusedItemMap(infusionState) });
   },
   'spell-detail': (el) => {
     const sp = spellbook?.spells.find((x) => x.id === el.dataset.spell);

@@ -1338,6 +1338,7 @@ export function mountInventory(el, opts) {
       const facts = k?.facts || {};
       return {
         known: !k, state: k?.state || 'identified', name: r.display_name || r.custom_name || r.name, icon: itemIcon(r, ui), iconSrc: k ? null : customOf(r, ui),
+        iconKey: k ? null : galleryIcon(r.icon_key || detail(r)?.icon_key),   // the author's own gallery key (known copy only)
         rarity, rarityLabel: rarity ? rarityLabel(rarity) : '', magic: magicOf(r),
         attunement: k ? !!facts.attunement : !!(r.requires_attunement ?? d?.requires_attunement), attuned: !!r.is_attuned,
         description: k ? (r.description || '') : (d?.description || r.description || ''), notes: r.notes || '',

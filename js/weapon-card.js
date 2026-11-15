@@ -7,9 +7,13 @@
 //   an unidentified or partly identified weapon shows its decoy and the revealed facts only. Nothing is fetched for the card.
 // * The blocks "Weapon actions", "Special", "Condition" (R-D2) come from derived weapon_blocks (absent for an unknown copy).
 // The hooks of the earlier cards stay: .entry.derived-weapon[data-weapon], [data-attack-bonus], details[data-details] (one <summary>).
-import { esc } from './utils.js?v=39';
-import { icon, ITEM_ICONS } from './icons.js?v=39';
+// * The icon (js/weapon-icons.js) and the magic bonus tag use only what the viewer may see: a masked copy gets its decoy's icon.
+// * The name opens a details dialog (openWeaponDetail), like the name of a spell card: properties explained, range / reach, both
+//   damage grips, the item text. No extra read: it shows the same data as the card.
+import { esc, openModal } from './utils.js?v=39';
+import { icon } from './icons.js?v=39';
 import { effectText } from './item-effects.js?v=39';
+import { weaponIconKey, weaponIsKnown } from './weapon-icons.js?v=39';
 
 const fmt = (n) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`);
 const cap = (s) => String(s || '').replace(/^\w/, (c) => c.toUpperCase());
@@ -106,12 +110,26 @@ function propertyChips(w) {
     if (p === 'reach') { out.push(chip(`Reach (${distance(10)})`, { title: PROPERTY_HINT[p] })); continue; }
     out.push(chip(PROPERTY[p] || cap(String(p).replace(/[-_]/g, ' ')), { title: PROPERTY_HINT[p] || '' }));
   }
-  if (w.range_normal) {
-    const r = w.range_max && w.range_max !== w.range_normal ? `${distance(w.range_normal)} / ${distance(w.range_max)}` : distance(w.range_normal);
-    out.push(chip(`Range ${r}`, { cls: 'wpn-range', title: 'Normal / long range (disadvantage beyond normal range)' }));
-  }
+  if (!w.is_ranged && !props.includes('reach')) out.push(chip(`Reach ${distance(5)}`, { cls: 'wpn-range', title: 'Melee attacks reach targets within this distance' }));
+  if (w.range_normal) out.push(chip(`Range ${rangeText(w)}`, { cls: 'wpn-range', title: 'Normal / long range (disadvantage beyond normal range)' }));
   return out.join('');
 }
+const rangeText = (w) => (w.range_max && w.range_max !== w.range_normal ? `${distance(w.range_normal)} / ${distance(w.range_max)}` : distance(w.range_normal));
+
+/**
+ * The weapon's own magic bonus (the parts of the derived breakdown that come from this copy: catalog effects, modifiers such as
+ * +1, infusions), already included in To hit / Damage. Only for a copy the viewer knows: a masked copy shows no magic tag.
+ */
+export function weaponMagicBonus(w, info) {
+  if (!weaponIsKnown(w, info)) return null;
+  const own = (parts, effect) => (parts || []).filter((p) => p.effect === effect && p.source_id === w.inventory_item_id)
+    .reduce((n, p) => n + (Number(p.value) || 0), 0);
+  const hit = own(w.attack_breakdown, 'attack_bonus');
+  const dmg = own(w.damage_breakdown, 'damage_bonus');
+  return hit || dmg ? { hit, dmg } : null;
+}
+const magicText = (m) => (m.hit === m.dmg ? `Magic ${fmt(m.hit)}` : [m.hit ? `${fmt(m.hit)} to hit` : '', m.dmg ? `${fmt(m.dmg)} damage` : ''].filter(Boolean).join(', '));
+const magicChip = (m) => (m ? `<span class="badge inv-b-magic wpn-magic" data-wpn-magic title="This weapon's magic bonus (already in To hit and Damage)">${icon('item.magic', { size: 14 })}${esc(magicText(m))}</span>` : '');
 
 /** The tags about the ITEM: what the viewer legitimately knows (info from the masked inventory data). */
 function itemChips(info, infused) {
@@ -152,18 +170,19 @@ export function weaponCardHTML(w, info, { open = new Set(), infused = null, reso
   const known = info?.known !== false;
   // the name the player sees on their own copy (decoy while unidentified); "Weapon" when no row is loaded
   const name = info?.name || 'Weapon';   // never the derived (catalog) name: it may be the true name of a disguised copy
-  const iconName = info?.icon || ITEM_ICONS.weapon;
+  const iconName = weaponIconKey(w, info);   // the decoy's icon for a masked copy (js/weapon-icons.js)
   const inf = infused?.get?.(w.inventory_item_id) || null;
   const desc = info?.description || '';   // the catalog text when known, the decoy text otherwise (already masked by weaponInfo)
   const rarity = known ? info?.rarity : null;
   return `
     <article class="entry derived-weapon wpn-card" data-weapon="${esc(w.inventory_item_id)}" data-dmg="${esc(w.damage_type || 'none')}"${rarity ? ` data-rarity="${esc(rarity)}"` : ''}>
       <div class="wpn-top">
-        ${icon(iconName, { size: 36, cls: 'wpn-icon', src: known ? info?.iconSrc : null })}
-        <h3 class="entry-name wpn-title">${esc(name)}</h3>
+        ${icon(iconName, { size: 36, cls: 'wpn-icon', src: weaponIsKnown(w, info) ? info?.iconSrc : null })}
+        <h3 class="entry-name wpn-title"><button type="button" class="btn-link wpn-name" data-action="weapon-detail" data-wpn-id="${esc(w.inventory_item_id)}"
+          data-focus-key="${esc(key)}:name" aria-label="${esc(name)}: show details">${esc(name)}</button></h3>
         <span class="badge wpn-slot" title="Equipped">${esc(SLOT[w.slot_id] || w.slot_id)}</span>
       </div>
-      <div class="sp-tags wpn-tags">${w.damage_type ? dmgChip(w.damage_type) : ''}${propertyChips(w)}${itemChips(info, inf)}</div>
+      <div class="sp-tags wpn-tags">${w.damage_type ? dmgChip(w.damage_type) : ''}${propertyChips(w)}${magicChip(weaponMagicBonus(w, info))}${itemChips(info, inf)}</div>
       <div class="roll-row">
         <div class="roll roll-hit"><span class="roll-label">To hit</span><span class="roll-val" data-attack-bonus>${fmt(w.attack_bonus)}</span></div>
         <div class="roll roll-dmg dt-${esc(w.damage_type || '')}">
@@ -209,4 +228,44 @@ export function unknownWeaponCardHTML(inventoryItemId, slotId, info) {
       ${info?.description ? `<p class="wpn-desc small" data-wpn-desc>${esc(info.description)}</p>` : ''}
       <p class="muted small">You don’t know what this item does yet. Your DM tells you what happens when you use it.</p>
     </article>`;
+}
+
+/**
+ * "Expand for details", like a spell card's name: a dialog with the same facts as the card spelled out (each property explained,
+ * reach / range, one- and two-handed damage, the ability used, the item text and the player's notes). Uses only w (derived) and
+ * info (masked inventory view) the card already has; never reads anything.
+ */
+export function openWeaponDetail(w, info, { infused = null } = {}) {
+  const name = info?.name || 'Weapon';
+  const known = info?.known !== false;
+  const row = (k, v) => (v ? `<div class="kv"><span>${esc(k)}</span><strong>${v}</strong></div>` : '');
+  const props = (w.properties || []).map((p) => `<li><strong>${esc(PROPERTY[p] || cap(String(p).replace(/[-_]/g, ' ')))}</strong>${PROPERTY_HINT[p] ? `: ${esc(PROPERTY_HINT[p])}` : ''}</li>`).join('');
+  const kind = `${w.weapon_group ? `${cap(w.weapon_group)} ` : ''}${w.is_ranged ? 'ranged' : 'melee'} weapon`;
+  const reach = w.is_ranged ? '' : distance((w.properties || []).includes('reach') ? 10 : 5);
+  const desc = info?.description || '';
+  return openModal({
+    title: name,
+    wide: true,
+    body: `
+      <div class="wpn-detail" data-wpn-detail="${esc(w.inventory_item_id)}">
+      <p class="sp-detail-badges">${icon(weaponIconKey(w, info), { size: 28, cls: 'wpn-icon', src: weaponIsKnown(w, info) ? info?.iconSrc : null })}
+        ${w.damage_type ? dmgChip(w.damage_type) : ''}${magicChip(weaponMagicBonus(w, info))}${itemChips(info, infused?.get?.(w.inventory_item_id) || null)}</p>
+      <div class="kv-list" data-wpn-facts>
+        ${row('Type', esc(kind))}
+        ${row('To hit', esc(fmt(w.attack_bonus)))}
+        ${row('Damage', `${esc(w.damage ?? '—')} ${esc(w.damage_type || '')}`)}
+        ${w.versatile_damage ? row('Two-handed', `${esc(w.versatile_damage)} <span class="muted small">(dice, before modifiers)</span>`) : ''}
+        ${row('Ability', `${esc(ABILITY[w.ability] || w.ability)} <span class="muted small">(${esc(abilityRule(w))})</span>`)}
+        ${row('Reach', esc(reach))}
+        ${w.range_normal ? row(w.is_ranged ? 'Range' : 'Thrown range', esc(rangeText(w))) : ''}
+        ${row('Proficient', w.proficient ? 'Yes' : 'No')}
+        ${row('Slot', esc(SLOT[w.slot_id] || w.slot_id))}
+      </div>
+      ${props ? `<h4 class="lin-group-title">Properties</h4><ul class="wpn-props small">${props}</ul>` : ''}
+      ${desc ? `<h4 class="lin-group-title">Description</h4><p class="wpn-desc small">${esc(desc)}</p>` : ''}
+      ${info?.notes ? `<p class="wpn-notes small muted"><strong>Your notes:</strong> ${esc(info.notes)}</p>` : ''}
+      ${known ? '' : '<p class="muted small">You haven’t identified this item: only what you know about it is shown.</p>'}
+      </div>`,
+    footer: '<button type="button" class="btn btn-gold" data-close>Close</button>',
+  });
 }
