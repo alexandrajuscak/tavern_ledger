@@ -1,7 +1,7 @@
 """T7 weapon cards like spell cards (?v=40, frontend only). LOCAL ONLY, synthetic users.
 
 One player with several characters (two hand slots each): longsword + dagger, longbow, musket, a campaign homebrew weapon with
-the author's gallery icon (item.wand) + javelin, and two campaign weapons the DM made unidentified after they were equipped (a ranged
+the author's gallery icon (item.weapon-dagger, a new weapon gallery key) + javelin, and two campaign weapons the DM made unidentified after they were equipped (a ranged
 "Starbow" whose true icon would be the arrows, and a melee "Shadow Edge"). Checks per-weapon icons, reach / range, the name
 opening the details dialog, no true icon / name for the masked copies, no console errors, ?fluent=0, and the icon unit tests
 (supabase/tests/js/weapon_icons.test.mjs) plus a masked-row render of weaponCardHTML in the page.
@@ -66,7 +66,7 @@ def run():
     add_equip(pa, inv_["swords"], "dagger", "off_hand")
     add_equip(pa, inv_["bow"], "longbow", "main_hand")
     add_equip(pa, inv_["gun"], "musket", "main_hand")
-    brew = homebrew(dm, camp, HB, "weapon", HB_DESC, {"category_id": "simple-melee", "weight_lb": 4, "icon_key": "item.wand"},
+    brew = homebrew(dm, camp, HB, "weapon", HB_DESC, {"category_id": "simple-melee", "weight_lb": 4, "icon_key": "item.weapon-dagger"},
                     {"weapon": {"weapon_group": "simple", "damage_dice": "1d6", "damage_type_id": "bludgeoning", "properties": ["versatile"], "versatile_damage": "1d8"}})
     give_equip(dm, pa, inv_["brew"], chars["brew"], brew, "main_hand")
     add_equip(pa, inv_["brew"], "javelin", "off_hand")
@@ -106,10 +106,10 @@ def run():
 
         box = cards(chars["swords"], "t7_swords", 2)
         ls, dg = box.locator(".wpn-card", has_text="Longsword"), box.locator(".wpn-card", has_text="Dagger")
-        check("T1 longsword: sword icon, reach 5 ft, versatile, To hit + damage", icon_of(box, "Longsword") == "slot.main-hand"
+        check("T1 longsword: sword icon, reach 5 ft, versatile, To hit + damage", icon_of(box, "Longsword") == "item.weapon-sword"
               and "Reach 5 ft" in ls.inner_text() and "Versatile (1d10)" in ls.inner_text() and ls.locator("[data-attack-bonus]").count() == 1
               and ls.locator("summary").count() == 1, (icon_of(box, "Longsword"), ls.inner_text()[:300]))
-        check("T2 dagger: dagger icon, finesse / light / thrown, reach + thrown range", icon_of(box, "Dagger") == "slot.off-hand"
+        check("T2 dagger: dagger icon, finesse / light / thrown, reach + thrown range", icon_of(box, "Dagger") == "item.weapon-dagger"
               and all(x in dg.inner_text() for x in ("Finesse", "Light", "Thrown", "Reach 5 ft", "Range 20 ft / 60 ft")), dg.inner_text()[:300])
         ls.locator("[data-action=weapon-detail]").click()
         ap.wait_for_selector(".modal [data-wpn-detail]", timeout=5000)
@@ -122,7 +122,7 @@ def run():
 
         box = cards(chars["bow"], "t7_longbow")
         bt = box.locator(".wpn-card", has_text="Longbow").inner_text()
-        check("T4 longbow: arrows icon, range 150 / 600, no melee reach", icon_of(box, "Longbow") == "item.ammunition"
+        check("T4 longbow: arrows icon, range 150 / 600, no melee reach", icon_of(box, "Longbow") == "item.weapon-bow"
               and "Range 150 ft / 600 ft" in bt and "Reach 5 ft" not in bt, bt[:300])
         box = cards(chars["gun"], "t7_musket")
         check("T5 musket: firearm icon, two-handed, range", icon_of(box, "Musket") == "item.firearm" and "Two-handed" in box.inner_text()
@@ -132,11 +132,11 @@ def run():
         A.tab("inventory")
         A.wait(lambda: HB in ap.locator("#panel-inventory").inner_text())
         A.tab("combat")
-        A.wait(lambda: icon_of(ap.locator("#equipped-weapons"), HB) == "item.wand")
+        A.wait(lambda: icon_of(ap.locator("#equipped-weapons"), HB) == "item.weapon-dagger")
         ap.locator("#equipped-weapons").screenshot(path=str(SHOTS / "t7_homebrew_icon.png"))
         box = ap.locator("#equipped-weapons")
-        check("T6 homebrew weapon: the author's gallery icon (item.wand) beats the category icon; javelin: spear icon + thrown range",
-              icon_of(box, HB) == "item.wand" and icon_of(box, "Javelin") == "spell.damage.piercing"
+        check("T6 homebrew weapon: the author's gallery icon (item.weapon-dagger, a new weapon gallery key) beats the category icon; javelin: spear icon + thrown range",
+              icon_of(box, HB) == "item.weapon-dagger" and icon_of(box, "Javelin") == "item.weapon-spear"
               and "Range 30 ft / 120 ft" in box.locator(".wpn-card", has_text="Javelin").inner_text(), (icon_of(box, HB), icon_of(box, "Javelin")))
 
         # masked copies: open Inventory first so the masked view (known:false) is loaded, then Play
@@ -150,7 +150,7 @@ def run():
         box.screenshot(path=str(SHOTS / "t7_masked.png"))
         html = ap.content()
         icons = box.locator("img.wpn-icon").evaluate_all("els => els.map((e) => e.dataset.icon)")
-        check("T7 masked copies: no true icon (arrows) / name / magic tag, decoy name shown", "item.ammunition" not in icons and EDGE not in html and BOW not in html and "Bent stick" in box.inner_text()
+        check("T7 masked copies: no true icon (arrows) / name / magic tag, decoy name shown", "item.weapon-bow" not in icons and EDGE not in html and BOW not in html and "Bent stick" in box.inner_text()
               and "Rusty knife" in box.inner_text() and box.locator("[data-wpn-magic]").count() == 0, (icons, box.inner_text()[:400]))
         if masked_rows:
             mc = box.locator(".wpn-card.derived-weapon").first
@@ -158,7 +158,7 @@ def run():
             ap.wait_for_selector(".modal [data-wpn-detail]", timeout=5000)
             dt = ap.locator(".modal").inner_text()
             dicons = ap.locator(".modal img.wpn-icon").evaluate_all("els => els.map((e) => e.dataset.icon)")
-            check("T8 masked copy's dialog: decoy icon, not-identified note", "item.ammunition" not in dicons and "haven’t identified" in dt, (dicons, dt[:300]))
+            check("T8 masked copy's dialog: decoy icon, not-identified note", "item.weapon-bow" not in dicons and "haven’t identified" in dt, (dicons, dt[:300]))
             ap.locator(".modal [data-close]").first.click()
 
         # in-page: the icon unit tests + weaponCardHTML on a synthetic masked row with a +2 item bonus
@@ -173,8 +173,8 @@ def run():
           const decoy = { known: false, state: 'unidentified', name: 'Old stick', icon: 'item.gear', iconKey: 'item.wand', iconSrc: 'https://evil/x.png' };
           const h = m.weaponCardHTML(w, decoy);
           const k = m.weaponCardHTML({ ...w, item_id: 'longbow' }, { known: true, name: 'Longbow', icon: 'inventory.weapon' });
-          return { masked: /data-icon="item.gear"/.test(h) && !/item.ammunition|item.wand|evil|data-wpn-magic/.test(h),
-                   known: /data-icon="item.ammunition"/.test(k) && /data-wpn-magic/.test(k) && /Magic \\+2/.test(k) };
+          return { masked: /data-icon="item.gear"/.test(h) && !/item.weapon-bow|item.wand|evil|data-wpn-magic/.test(h),
+                   known: /data-icon="item.weapon-bow"/.test(k) && /data-wpn-magic/.test(k) && /Magic \\+2/.test(k) };
         })""")
         check("T10 weaponCardHTML: masked row -> decoy icon only, no gallery key / upload / magic tag; known row -> map icon + Magic +2", r.get("masked") and r.get("known"), r)
 
@@ -183,7 +183,7 @@ def run():
         A.tab("combat")
         A.wait(lambda: ap.locator("#equipped-weapons .wpn-card").count() >= 2)
         check("T11 ?fluent=0 renders the Actions weapon cards with icons", ap.locator("#equipped-weapons img.wpn-icon").count() >= 2
-              and icon_of(ap.locator("#equipped-weapons"), "Longsword") == "slot.main-hand")
+              and icon_of(ap.locator("#equipped-weapons"), "Longsword") == "item.weapon-sword")
         ap.locator("#equipped-weapons").screenshot(path=str(SHOTS / "t7_fluent0.png"))
         ap.set_viewport_size({"width": 375, "height": 800})
         ap.wait_for_timeout(400)

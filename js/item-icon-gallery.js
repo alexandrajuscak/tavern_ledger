@@ -12,7 +12,8 @@ export const ITEM_ICON_GALLERY = [
   ['potion.empty', 'Empty bottle'], ['plant.herb', 'Herb sprig'], ['plant.leaf', 'Leaf / grass'], ['plant.flower', 'Flower'],
   ['plant.wildflowers', 'Wildflowers'], ['plant.mushroom', 'Mushroom'], ['plant.root', 'Root / thorny vine'], ['plant.seed', 'Seed head'],
   ['plant.berry', 'Berries'], ['item.crystal', 'Crystal / resin'], ['item.gem', 'Gem'], ['item.mortar-pestle', 'Ingredient (mortar)'],
-  ['item.cauldron', 'Cauldron'], ['item.weapons', 'Weapon'], ['item.tools', 'Tool'], ['item.armor', 'Armor'], ['item.magic', 'Magic'],
+  ['item.cauldron', 'Cauldron'], ['item.weapons', 'Weapon (hammer / mace)'], ['item.weapon-sword', 'Sword'], ['item.weapon-dagger', 'Dagger'],
+  ['item.weapon-axe', 'Axe / polearm'], ['item.weapon-spear', 'Spear'], ['item.weapon-bow', 'Bow / crossbow'], ['item.firearm', 'Firearm'], ['item.tools', 'Tool'], ['item.armor', 'Armor'], ['item.magic', 'Magic'],
   ['item.scroll', 'Scroll'], ['item.wand', 'Wand'], ['item.amulet-gem', 'Amulet'], ['item.bandage', 'Bandage'], ['item.candle', 'Candle'],
   ['item.containers', 'Container'], ['item.treasure', 'Treasure'], ['item.key', 'Key'], ['item.book', 'Book'],
 ].filter(([k]) => ICON_REGISTRY[k]);

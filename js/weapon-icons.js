@@ -16,11 +16,13 @@
 
 export const GENERIC_WEAPON_ICON = 'item.weapons';
 
-const SWORD = 'slot.main-hand';          // equipment-slots/main-hand: a sword
-const KNIFE = 'slot.off-hand';           // equipment-slots/off-hand: a dagger
-const BLADE = 'spell.damage.slashing';   // damage-types/slashing: a broad cleaving blade (axes, polearm blades, whip, sickle)
-const POINT = 'spell.damage.piercing';   // damage-types/piercing: a spear head
-const ARROWS = 'item.ammunition';        // items/ammunition: arrows (bows, crossbows, darts, sling, blowgun)
+// item.weapon-* are registry aliases (scripts/local/build_icon_registry.py) so the same keys are gallery choices that pass the
+// items_icon_key_check (item|potion|plant|inventory|slot prefixes) for a homebrew weapon.
+const SWORD = 'item.weapon-sword';       // equipment-slots/main-hand: a sword
+const KNIFE = 'item.weapon-dagger';      // equipment-slots/off-hand: a dagger
+const BLADE = 'item.weapon-axe';         // damage-types/slashing: a broad cleaving blade (axes, polearm blades, whip, sickle)
+const POINT = 'item.weapon-spear';       // damage-types/piercing: a spear head
+const ARROWS = 'item.weapon-bow';        // items/ammunition: arrows (bows, crossbows, darts, sling, blowgun)
 const GUN = 'item.firearm';              // items/firearm: a flintlock pistol
 const HAMMER = GENERIC_WEAPON_ICON;      // items/weapons: a war hammer (same picture as damage-types/bludgeoning)
 

@@ -59,6 +59,10 @@ ALIASES = {
     'build.reminders': ('ui.notes', 'Reminders'), 'build.own-features': ('ui.custom-content', 'Your own features'),
     'inventory.herbs': ('plant.herb', 'Herbs & Plants'), 'inventory.potion': ('potion.generic', 'Potion'),
     'inventory.weapon': ('item.weapons', 'Weapon'), 'inventory.armor': ('item.armor', 'Armor'), 'inventory.shield': ('slot.shield', 'Shield'),
+    # weapon card icons (js/weapon-icons.js) and their gallery choices: item.* keys pass items_icon_key_check (T7)
+    'item.weapon-sword': ('slot.main-hand', 'Sword'), 'item.weapon-dagger': ('slot.off-hand', 'Dagger'),
+    'item.weapon-axe': ('spell.damage.slashing', 'Axe / polearm'), 'item.weapon-spear': ('spell.damage.piercing', 'Spear'),
+    'item.weapon-bow': ('item.ammunition', 'Bow / crossbow'),
 }
 FALLBACK_OF = {'build.lineage': 'identity.generic', 'build.background': 'identity.generic'}
 

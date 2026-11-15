@@ -118,7 +118,7 @@ the repo (the repo has no per-weapon art; candidates from outside the repo need 
 3. the base weapon map below, by the catalog item id; for an official magic weapon (no `base_item_id` in any payload) by the
    first base weapon or weapon word in its id (`dagger-of-venom` → dagger, `sword-of-vengeance` → sword; words: sword / blade →
    sword, axe → blade, bow → arrows, hammer / staff → hammer);
-4. the category: firearm group → `item.firearm`, ranged → `item.ammunition`, melee by damage type (slashing → sword,
+4. the category: firearm group → `item.firearm`, ranged → `item.weapon-bow`, melee by damage type (slashing → sword,
    piercing → spear head, bludgeoning → hammer);
 5. the generic weapon icon `item.weapons`.
 
@@ -129,13 +129,17 @@ weapon's name is never used for the icon. No database field, no extra query, no 
 
 | Icon (registry key → file) | Weapons |
 |---|---|
-| `slot.main-hand` → `equipment-slots/main-hand.webp` (sword) | longsword, shortsword, greatsword, rapier, scimitar, double-bladed scimitar; melee slashing fallback |
-| `slot.off-hand` → `equipment-slots/off-hand.webp` (dagger) | dagger |
-| `spell.damage.slashing` → `damage-types/slashing.webp` (broad blade) | handaxe, battleaxe, greataxe, glaive, halberd, sickle, whip |
-| `spell.damage.piercing` → `damage-types/piercing.webp` (spear head) | spear, javelin, pike, lance, trident, yklwa, war pick, morningstar; melee piercing fallback |
+| `item.weapon-sword` → `equipment-slots/main-hand.webp` (sword) | longsword, shortsword, greatsword, rapier, scimitar, double-bladed scimitar; melee slashing fallback |
+| `item.weapon-dagger` → `equipment-slots/off-hand.webp` (dagger) | dagger |
+| `item.weapon-axe` → `damage-types/slashing.webp` (broad blade) | handaxe, battleaxe, greataxe, glaive, halberd, sickle, whip |
+| `item.weapon-spear` → `damage-types/piercing.webp` (spear head) | spear, javelin, pike, lance, trident, yklwa, war pick, morningstar; melee piercing fallback |
 | `item.weapons` → `items/weapons.webp` (war hammer) | club, greatclub, mace, maul, warhammer, light hammer, flail, quarterstaff; melee bludgeoning fallback; generic |
-| `item.ammunition` → `items/ammunition.webp` (arrows) | longbow, shortbow, light / hand / heavy crossbow, dart, sling, blowgun, hoopak; ranged fallback |
+| `item.weapon-bow` → `items/ammunition.webp` (arrows) | longbow, shortbow, light / hand / heavy crossbow, dart, sling, blowgun, hoopak; ranged fallback |
 | `item.firearm` → `items/firearm.webp` (flintlock) | palm pistol, pistol, musket, pepperbox, blunderbuss, bad news, hand mortar; firearm group fallback |
+
+The `item.weapon-*` keys are registry aliases of those files (`scripts/local/build_icon_registry.py`), so they pass
+`items_icon_key_check` and are also gallery choices: a DM or author can pick Sword, Dagger, Axe / polearm, Spear, Bow / crossbow,
+Firearm or Weapon (hammer / mace) for a homebrew weapon (step 2). A masked copy still ignores the gallery key.
 
 ## Warnings
 
