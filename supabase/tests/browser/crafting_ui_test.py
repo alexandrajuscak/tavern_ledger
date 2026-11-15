@@ -5,7 +5,7 @@ CF-01..03  CRAFTING = 'off' (js/config.js served with the flag switched off for 
 CF-04..12  CRAFTING = 'on' (served with the flag on, whatever the shipped value), the campaign rule turned on by the DM: the DM writes
            a SECRET recipe in DM Space -> Crafting (tag ingredient, Herbalism kit check DC 15, a DM note) taught by a recipe book
            (a manual item, kept when read); the player opens Inventory -> Crafting (a sub-tab: tools carried, recipe books), reads
-           the book (Learn recipe), sees the recipe with have / need, the tool and the DC, types the d20 total (pending); the DM
+           the book (Learn recipe), picks the tool and the recipe (?v=42 simple flow), sees have / need and the DC, types the d20 total (pending); the DM
            sees the suggested outcome, confirms it with a reply and a private note; the items swap (ingredient used, result
            added) and the player's open tab follows live.
 CF-07b     an unidentified ingredient never counts (a second recipe names a secret herb the player holds disguised: "Missing
@@ -159,6 +159,7 @@ def run(t):
         dp.wait_for_selector(".modal [data-r=name]")
         m = dp.locator(".modal")
         m.locator("[data-r=name]").fill(RECIPE)
+        m.locator("[data-cr-more] > summary").click()   # ?v=42: description, tags, visibility and notes are under More options
         m.locator("[data-r=description]").fill("Steep a silver herb.")
         m.locator('[data-pick="output"] [data-pick-q]').fill(DRAUGHT)
         D.wait(lambda: m.locator(f'[data-pick="output"] [data-pick-sel] option[value="{draught}"]').count() == 1)
@@ -204,32 +205,44 @@ def run(t):
         no_read_yet = not any("get_character_recipes" in u for u in P.urls)
         pp.locator('[data-inv="tab"][data-tab="crafting"]').click()
         ok = P.wait(lambda: pp.locator("[data-crafting] [data-craft-manuals]").count() == 1, 20000)
-        tools = pp.locator("[data-craft-tools]").inner_text() if ok else ""
+        tools = pp.locator('[data-craft-step="tool"]').inner_text() if ok else ""
         hidden_before = pp.locator(f'[data-recipe="{rid}"]').count() == 0
-        check("CF-06b Inventory -> Crafting is a sub-tab read only when opened: tools carried (Herbalism kit), the recipe book with Learn, the secret recipe not shown yet",
-              ok and no_read_yet and "Herbalism" in tools and hidden_before and MANUAL in pp.locator("[data-craft-manuals]").inner_text(),
+        # ?v=42: step 1 lists the tools that have recipes (only 'No tool needed' before the secret recipe is learned)
+        check("CF-06b Inventory -> Crafting is a sub-tab read only when opened: step 1 (tools with recipes), the recipe book with Learn, the secret recipe not shown yet",
+              ok and no_read_yet and "No tool needed" in tools and "Herbalism" not in tools and hidden_before and MANUAL in pp.locator("[data-craft-manuals]").inner_text(),
               (no_read_yet, tools[:200], hidden_before, P.errors[:3]))
         pp.locator(f'[data-craft-manuals] [data-cr="learn"]').click()
+        P.wait(lambda: pp.locator('[data-craft-tool-choice="herbalism-kit"]').count() == 1, 20000)
+        pp.locator('[data-craft-tool-choice="herbalism-kit"]').click()
         ok = P.wait(lambda: pp.locator(f'[data-crafting] [data-recipe="{rid}"]').count() == 1, 20000)
+        if ok:
+            pp.locator(f'[data-recipe="{rid}"] [data-cr="pick"]').click()
+            P.wait(lambda: pp.locator(f'[data-recipe="{rid}"] [data-cr="craft"]').count() == 1)
         card = pp.locator(f'[data-recipe="{rid}"]').inner_text() if ok else ""
-        check("CF-07 after reading the book the recipe is listed (learned for good, source manual, the book kept) with have / need 1 / 1, the tool present and DC 15",
-              ok and DRAUGHT in card and "1 / 1" in card and "Herbalism" in card and "you have it" in card and "DC 15" in card
+        tool_on = pp.locator('[data-craft-tool-choice="herbalism-kit"]').get_attribute("aria-pressed") == "true"
+        check("CF-07 after reading the book the recipe is listed under the Herbalism kit (learned for good, source manual, the book kept) with have / need 1 / 1 and DC 15",
+              ok and DRAUGHT in card and "1 / 1" in card and tool_on and "DC 15" in card
               and q(f"select source from public.character_known_recipes where character_id = '{cha}' and recipe_id = '{rid}'").strip() == "manual"
               and q(f"select count(*) from public.inventory_items where item_id = '{manual}'").strip() == "1"
               and pp.locator(f'[data-recipe="{rid}"] [data-cr="craft"]').is_enabled(),
               card[:300] or (P.errors[:3], pp.evaluate("() => document.querySelector('[data-crafting]')?.innerText || ''")[:300]))
+        pp.locator('[data-craft-tool-choice="__none"]').click()
+        P.wait(lambda: pp.locator(f'[data-recipe="{rid2}"]').count() == 1)
         card2 = pp.locator(f'[data-recipe="{rid2}"]').inner_text() if pp.locator(f'[data-recipe="{rid2}"]').count() else ""
+        pp.locator('[data-craft-tool-choice="herbalism-kit"]').click()
+        P.wait(lambda: pp.locator(f'[data-recipe="{rid}"]').count() == 1)
+        if pp.locator(f'[data-recipe="{rid}"] [data-cr="craft"]').count() == 0:
+            pp.locator(f'[data-recipe="{rid}"] [data-cr="pick"]').click()
         moss_row = q(f"select ii.id from public.inventory_items ii join public.inventories i on i.id = ii.inventory_id where i.character_id = '{cha}' and ii.item_id = '{moss}'").strip()
         st_m, r_m = pa.rpc("start_craft_attempt", p_character=cha, p_recipe=rid2, p_selected=[{"seq": 1, "inventory_item_id": moss_row, "quantity": 1}],
                            p_roll_total=None, p_request_id=str(uuid.uuid4()))
         check("CF-07b an unidentified ingredient never counts: the second recipe shows 0 / 1 and 'Missing ingredients'; a direct start with the disguised herb is refused with the fixed message",
               "a grey fluff" in card2 and "0 / 1" in card2 and "Missing ingredients" in card2 and st_m == 400 and "know what this ingredient is" in json.dumps(r_m),
               (card2[:200], st_m, str(r_m)[:200]))
+        pp.wait_for_selector(f'[data-recipe="{rid}"] [data-cr-in="roll"]')
+        dialog_dc = "DC 15" in pp.locator(f'[data-recipe="{rid}"]').inner_text()
+        pp.locator(f'[data-recipe="{rid}"] [data-cr-in="roll"]').fill("16")
         pp.locator(f'[data-recipe="{rid}"] [data-cr="craft"]').click()
-        pp.wait_for_selector(".modal [data-cr-roll]")
-        dialog_dc = "DC 15" in pp.locator(".modal").inner_text()
-        pp.locator(".modal [data-cr-roll]").fill("16")
-        pp.locator(".modal [data-cr-go]").click()
         ok = P.wait(lambda: pp.locator(f'[data-recipe="{rid}"] [data-craft-status="pending"]').count() == 1, 15000)
         check("CF-08 the player types the d20 total (the dialog shows the DC): the attempt waits for the DM, nothing used yet",
               ok and dialog_dc and q(f"select status || '|' || roll_total from public.crafting_attempts where character_id = '{cha}'").strip() == "pending|16"

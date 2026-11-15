@@ -124,6 +124,7 @@ def run(t):
         dp.wait_for_selector(".modal [data-r=name]")
         m = dp.locator(".modal")
         m.locator("[data-r=name]").fill(RECIPE)
+        m.locator("[data-cr-more] > summary").click()   # ?v=42: the enhancement kind and the base marker are under More options
         m.locator("[data-r=kind]").select_option("enhancement")
         m.locator("[data-r=enhance_modifier_id]").select_option(mod)
         row1 = m.locator("[data-ing]").nth(0)
@@ -156,17 +157,19 @@ def run(t):
         P.wait(lambda: DUST in pp.locator("#panel-inventory").inner_text(), 15000)
         pp.locator('[data-inv="tab"][data-tab="crafting"]').click()
         ok = P.wait(lambda: pp.locator(f'[data-crafting] [data-recipe="{rid}"]').count() == 1, 20000)
+        if ok:   # ?v=42 simple flow: the Smith's tools group is the only one; open the recipe
+            pp.locator(f'[data-recipe="{rid}"] [data-cr="pick"]').click()
+            P.wait(lambda: pp.locator(f'[data-recipe="{rid}"] [data-cr="craft"]').count() == 1)
         card = pp.locator(f'[data-recipe="{rid}"]').inner_text() if ok else ""
         craft_btn = pp.locator(f'[data-recipe="{rid}"] [data-cr="craft"]')
         check("WE-03 the player's recipe card: 'enhances the base item' with the enhancement and its effects, the base line marked, Craft enabled",
               ok and "enhances the base item" in card and RUNE in card and "Attack +1" in card and "Damage +2" in card
               and "base item" in card and pp.locator(f'[data-recipe="{rid}"] [data-craft-base]').count() == 1 and craft_btn.is_enabled(),
               card[:300] or P.errors[:3])
+        # ?v=42: the base is picked automatically when one row fits (a select appears only for several)
+        base_opts = pp.locator(f'[data-recipe="{rid}"] [data-cr-in="base"] option').evaluate_all("os => os.map(o => o.value)")
+        pp.locator(f'[data-recipe="{rid}"] [data-cr-in="roll"]').fill("15")
         craft_btn.click()
-        pp.wait_for_selector(".modal [data-cr-roll]")
-        base_opts = pp.locator('.modal [data-cr-ing="1"] option').evaluate_all("os => os.map(o => o.value)")
-        pp.locator(".modal [data-cr-roll]").fill("15")
-        pp.locator(".modal [data-cr-go]").click()
         ok = P.wait(lambda: q(f"select status from public.crafting_attempts where character_id = '{cha}'").strip() == "pending", 15000)
         dp.goto(APP + "#/dm/overview")
         D.wait(lambda: dp.locator('[data-dm-section="crafting"]').count() == 1)
@@ -177,7 +180,7 @@ def run(t):
         att.locator('[data-crd="approve"]').click()
         ok2 = D.wait(lambda: q(f"select status || '|' || outcome from public.crafting_attempts where character_id = '{cha}'").strip() == "applied|success")
         check("WE-04 the dialog offers the longsword for the base line; the roll 15 waits for the DM, who confirms the suggested Success",
-              ok and base_opts == [sword] and "Suggested: Success" in at and ok2, (base_opts, at[:200]))
+              ok and base_opts in ([], [sword]) and "Suggested: Success" in at and ok2, (base_opts, at[:200]))
 
         # ---- WE-05: the same row is enhanced, the inventory card shows it -----------------------------------------------------
         ok = P.wait(lambda: pp.locator(f'[data-modifier="{mod}"]').count() >= 1, 20000)
