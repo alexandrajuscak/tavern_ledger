@@ -190,7 +190,7 @@ def run():
         # in-page: the icon unit tests + weaponCardHTML on a synthetic masked row with a +2 item bonus
         r = ap.evaluate("() => import('/supabase/tests/js/weapon_icons.test.mjs').then((m) => m.run()).catch((e) => ({ error: e.message }))")
         check(f"T9 icon unit tests: {r.get('total')} cases, fails {r.get('fails')}", not r.get("error") and not r.get("fails") and r.get("total", 0) >= 15, r)
-        r = ap.evaluate("""() => import('/js/weapon-card.js?v=41').then((m) => {
+        r = ap.evaluate("""() => import('/js/weapon-card.js?v=42').then((m) => {
           const w = { inventory_item_id: 'x', item_id: null, name: 'Longbow', slot_id: 'main_hand', weapon_group: 'martial', is_ranged: true,
             properties: ['ammunition', 'heavy', 'two-handed'], range_normal: 150, range_max: 600, ability: 'dex', ability_modifier: 2,
             proficient: true, proficiency_bonus: 2, attack_bonus: 6, damage: '1d8 + 4', damage_dice: '1d8', damage_type: 'piercing',

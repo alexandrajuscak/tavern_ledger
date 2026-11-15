@@ -1,16 +1,16 @@
 // Inventory tab: summary, equipment slots, item list, item detail and the catalog picker.
 // All data comes from inventory-api.js; after every change the authoritative state is re-read from the server
 // (no client-side simulation of splits, merges or quantities).
-import * as api from './inventory-api.js?v=41';
-import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=41';
-import { openHomebrewForm } from './homebrew-form.js?v=41';
-import { galleryIcon } from './item-icon-gallery.js?v=41';
-import { isAnyDM } from './store.js?v=41';
-import { icon, ITEM_ICONS } from './icons.js?v=41';
-import { sectionHead } from './section.js?v=41';
-import { CRAFTING } from './config.js?v=41';
-import { customIconUrl } from './custom-icons.js?v=41';
-import { effectText, castingText } from './item-effects.js?v=41';
+import * as api from './inventory-api.js?v=42';
+import { $, esc, toast, confirmDialog, openModal, debounce, focusKeyOf, focusByKey, takePendingFocusKey } from './utils.js?v=42';
+import { openHomebrewForm } from './homebrew-form.js?v=42';
+import { galleryIcon } from './item-icon-gallery.js?v=42';
+import { isAnyDM } from './store.js?v=42';
+import { icon, ITEM_ICONS } from './icons.js?v=42';
+import { sectionHead } from './section.js?v=42';
+import { CRAFTING } from './config.js?v=42';
+import { customIconUrl } from './custom-icons.js?v=42';
+import { effectText, castingText } from './item-effects.js?v=42';
 
 /** A modifier's label: its name when readable (api.modifierName), else the id made readable ("weapon-plus-1" -> "Weapon +1");
  *  a campaign enhancement ('cm-…') whose name is not readable is just "Enhancement". */
@@ -233,7 +233,7 @@ export function mountInventory(el, opts) {
   const craftingTab = () => craftingAllowed() && s.tab === 'crafting';
   const craftingActs = () => craftingAllowed() && (opts.crafting?.canCraft ? !!opts.crafting.canCraft() : true);
   function withCrafting(fn) {
-    craftingLoad ||= import('./crafting.js?v=41').then((m) => {
+    craftingLoad ||= import('./crafting.js?v=42').then((m) => {
       if (s.destroyed) return null;
       crafting ||= m.createPlayerCrafting({ characterId: opts.characterId, onInventoryChanged: () => scheduleRefresh(),
         canCraft: () => craftingActs(), isDm: () => !!opts.crafting?.isDm?.() });

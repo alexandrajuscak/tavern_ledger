@@ -10,10 +10,10 @@
 // * The icon (js/weapon-icons.js) and the magic bonus tag use only what the viewer may see: a masked copy gets its decoy's icon.
 // * The name opens a details dialog (openWeaponDetail), like the name of a spell card: properties explained, range / reach, both
 //   damage grips, the item text. No extra read: it shows the same data as the card.
-import { esc, openModal } from './utils.js?v=41';
-import { icon } from './icons.js?v=41';
-import { effectText } from './item-effects.js?v=41';
-import { weaponIconKey, weaponIsKnown } from './weapon-icons.js?v=41';
+import { esc, openModal } from './utils.js?v=42';
+import { icon } from './icons.js?v=42';
+import { effectText } from './item-effects.js?v=42';
+import { weaponIconKey, weaponIsKnown } from './weapon-icons.js?v=42';
 
 const fmt = (n) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`);
 const cap = (s) => String(s || '').replace(/^\w/, (c) => c.toUpperCase());
