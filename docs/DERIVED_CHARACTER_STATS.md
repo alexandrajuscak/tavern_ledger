@@ -88,18 +88,52 @@ requirement is not met`, never below 0. The stored base speed is not changed.
 | `proficient`, `proficiency` | match by the specific item (or its base item) first, then the weapon group |
 | `attack_disadvantage` | true while wearing armor or a shield without proficiency |
 
-**Weapon cards (Play → Attacks, R-A, `js/weapon-card.js`).** Each equipped weapon is a card in the style of the spell cards: icon,
-name, slot, damage-type chip, property chips (group, finesse, versatile with its two-handed dice, reach, thrown / ranged range),
-rarity / magic / attunement / infusion / modifier tags, To hit and Damage, the item description and the player's notes, and the
-unchanged "How this is calculated" breakdown. Rules:
-- The numbers come only from `equipped_weapon_attacks`; nothing is recomputed in the browser.
+**Weapon cards (Play → Attacks, R-A, T7 `?v=40`, `js/weapon-card.js`, `js/weapon-icons.js`).** Each equipped weapon is a card
+in the style of the spell cards. At a glance: icon, name, slot, damage-type chip, property chips (group, finesse, light,
+versatile with its two-handed dice, heavy, two-handed, loading, thrown …), **Reach 5 ft** for a melee weapon (Reach (10 ft) with
+the reach property), **Range normal / long** for ranged and thrown weapons, a **Magic +N** tag (or "+N to hit, +M damage") for the
+weapon's own bonus, rarity / magic / attunement / infusion / modifier tags, To hit and Damage, the item description and the player's
+notes, the weapon blocks (R-D2) and the unchanged "How this is calculated" breakdown. Like a spell card, the **name opens a details
+dialog** (`openWeaponDetail`): type, To hit, Damage, two-handed dice, ability rule, reach, range, proficiency, slot, each property
+explained, description, notes. Rules:
+- The numbers come only from `equipped_weapon_attacks`; nothing is recomputed in the browser. The dialog reads nothing either.
 - The item facts come only from the masked inventory data the sheet already has (the Inventory panel's rows and the
   character's knowledge read). An unidentified or partly identified copy shows its decoy name and description and the revealed
   facts only, never the derived `name` (that is the catalog name). Without the panel's data (fluent path before the Inventory tab
   was opened) the card shows the stored row's name only and gets the rest when the inventory loads; it never fetches anything.
-- An equipped item in a hand whose catalog row the player cannot read (`hidden_item`) gets a card with its decoy and no numbers.
-- Three empty slots for R-D: `weaponActionsHTML`, `weaponSpecialHTML`, `weaponConditionHTML` (return `''` today).
-- Hooks kept for tests: `.entry.derived-weapon[data-weapon]`, `[data-attack-bonus]`, one `details[data-details]` / `<summary>`.
+- An equipped item in a hand whose catalog row the player cannot read (`hidden_item`) gets a card with its decoy and no numbers
+  (unchanged; in practice every unidentified campaign weapon of a player takes this path).
+- The magic tag sums the breakdown parts whose `source_id` is this inventory row (catalog effects, modifiers such as +1,
+  infusions), never global bonuses. It is shown only for a copy the viewer knows.
+- **Mastery is not shown:** no weapon mastery data exists in the derived read, the inventory view or the catalog (weapon mastery
+  only appears as class / feat text). Adding it would need data and a read change, out of scope for a frontend release.
+- Weapon blocks "Weapon actions", "Special", "Condition" (R-D2) come from derived `weapon_blocks`, absent for an unknown copy.
+- Hooks kept for tests: `.entry.derived-weapon[data-weapon]`, `[data-attack-bonus]`, one `details[data-details]` / `<summary>`;
+  new: `[data-action=weapon-detail][data-wpn-id]` (name button), `[data-wpn-magic]`, `.modal [data-wpn-detail]`.
+
+**Weapon card icons (`js/weapon-icons.js`, pure, unit test `supabase/tests/js/weapon_icons.test.mjs`).** Only icons already in
+the repo (the repo has no per-weapon art; candidates from outside the repo need the owner's licence check first). Resolution:
+1. the DM's uploaded icon (`custom_icon`, docs/CUSTOM_ICONS.md), sent by the server only for a copy the viewer knows;
+2. the item's own gallery key (`items.icon_key`, picked in the homebrew / Content editor), known copy only;
+3. the base weapon map below, by the catalog item id;
+4. the category: firearm group → `item.firearm`, ranged → `item.ammunition`, melee by damage type (slashing → sword,
+   piercing → spear head, bludgeoning → hammer);
+5. the generic weapon icon `item.weapons`.
+
+Steps 2–4 run only when the derived row has an `item_id` (the server nulls it for a masked copy) **and** the masked inventory view
+does not say `known: false`. The derived row of a masked copy still carries the true group, damage type and range, so even step 4
+would leak: a masked copy gets only its decoy face's icon (`info.icon` from the masked inventory row) or the generic icon. The
+weapon's name is never used for the icon. No database field, no extra query, no payload change.
+
+| Icon (registry key → file) | Weapons |
+|---|---|
+| `slot.main-hand` → `equipment-slots/main-hand.webp` (sword) | longsword, shortsword, greatsword, rapier, scimitar, double-bladed scimitar; melee slashing fallback |
+| `slot.off-hand` → `equipment-slots/off-hand.webp` (dagger) | dagger |
+| `spell.damage.slashing` → `damage-types/slashing.webp` (broad blade) | handaxe, battleaxe, greataxe, glaive, halberd, sickle, whip |
+| `spell.damage.piercing` → `damage-types/piercing.webp` (spear head) | spear, javelin, pike, lance, trident, yklwa, war pick, morningstar; melee piercing fallback |
+| `item.weapons` → `items/weapons.webp` (war hammer) | club, greatclub, mace, maul, warhammer, light hammer, flail, quarterstaff; melee bludgeoning fallback; generic |
+| `item.ammunition` → `items/ammunition.webp` (arrows) | longbow, shortbow, light / hand / heavy crossbow, dart, sling, blowgun, hoopak; ranged fallback |
+| `item.firearm` → `items/firearm.webp` (flintlock) | palm pistol, pistol, musket, pepperbox, blunderbuss, bad news, hand mortar; firearm group fallback |
 
 ## Warnings
 

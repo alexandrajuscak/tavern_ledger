@@ -3,6 +3,8 @@
 Since `?v=30` (migration `20261114000200_custom_item_icons`) a DM can give any item of their campaign their own picture.
 It replaces the item's icon for everyone in that campaign who **knows** the item: inventory list, weapon cards on the Play
 tab and DM Space. The built-in icon gallery (`docs/CUSTOM_ITEM_ICONS.md`) is unchanged and stays the default.
+On a weapon card it comes first in the icon chain (own icon → gallery key → base weapon map → category → generic, see
+`docs/DERIVED_CHARACTER_STATS.md` "Weapon card icons"); this is the per-item icon override for weapons, no extra field exists.
 
 ## Upload or replace an icon
 
