@@ -166,7 +166,7 @@ def run(t):
               ok and "enhances the base item" in card and RUNE in card and "Attack +1" in card and "Damage +2" in card
               and "base item" in card and pp.locator(f'[data-recipe="{rid}"] [data-craft-base]').count() == 1 and craft_btn.is_enabled(),
               card[:300] or P.errors[:3])
-        # ?v=42: the base is picked automatically when one row fits (a select appears only for several)
+        # ?v=42: exactly one row fits (the longsword), so no base select is shown and it is used automatically (WE-05: the same row)
         base_opts = pp.locator(f'[data-recipe="{rid}"] [data-cr-in="base"] option').evaluate_all("os => os.map(o => o.value)")
         pp.locator(f'[data-recipe="{rid}"] [data-cr-in="roll"]').fill("15")
         craft_btn.click()
@@ -179,8 +179,8 @@ def run(t):
         at = att.inner_text() if att.count() else ""
         att.locator('[data-crd="approve"]').click()
         ok2 = D.wait(lambda: q(f"select status || '|' || outcome from public.crafting_attempts where character_id = '{cha}'").strip() == "applied|success")
-        check("WE-04 the dialog offers the longsword for the base line; the roll 15 waits for the DM, who confirms the suggested Success",
-              ok and base_opts in ([], [sword]) and "Suggested: Success" in at and ok2, (base_opts, at[:200]))
+        check("WE-04 the only fitting base (the longsword) is used without a choice; the roll 15 waits for the DM, who confirms the suggested Success",
+              ok and base_opts == [] and "Suggested: Success" in at and ok2, (base_opts, at[:200]))
 
         # ---- WE-05: the same row is enhanced, the inventory card shows it -----------------------------------------------------
         ok = P.wait(lambda: pp.locator(f'[data-modifier="{mod}"]').count() >= 1, 20000)
