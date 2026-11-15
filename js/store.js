@@ -1,7 +1,7 @@
-import { supabase, announceGovernance } from './supabase.js?v=39';
-import { toast, friendlyError } from './utils.js?v=39';
-import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=39';
-import { fetchView } from './read-layer.js?v=39';
+import { supabase, announceGovernance } from './supabase.js?v=40';
+import { toast, friendlyError } from './utils.js?v=40';
+import { CLASS_HIT_DIE, NOTE_KINDS, dieSize } from './dnd.js?v=40';
+import { fetchView } from './read-layer.js?v=40';
 
 export const state = {
   session: null,

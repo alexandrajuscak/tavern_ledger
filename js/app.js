@@ -1,26 +1,26 @@
-import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment, authArrival } from './supabase.js?v=39';
+import { supabase, isConfigured, isLocalOrigin, redirectUrl, environment, authArrival } from './supabase.js?v=40';
 import {
   PASSWORD_MIN, emailFlowsEnabled, pendingLink, takeHashError, isLinkErrorCode, linkErrorText, recoveryFor, resendConfirmation,
   renderForgot, renderLinkContinue, renderSetPassword,
-} from './auth-links.js?v=39';
+} from './auth-links.js?v=40';
 import {
   state, isAdmin, isAnyDM, isCampaignDM, myCampaigns, campaignMembers, profileName,
   loadProfile, loadCampaigns, createCampaign, updateCampaign, deleteCampaign, setMember, removeMember,
   updateProfile, listCharacters, listCharacterBadges, createCharacter, loadBundle, loadCharacterView, saver,
-} from './store.js?v=39';
-import { getDerivedStats, getProficiencies } from './inventory-api.js?v=39';
-import { icon, classIcon, iconSrc } from './icons.js?v=39';
-import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=39';
-import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=39';
-import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=39';
-import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=39';
-import { mountCombat, unmountCombat, combatEnabled } from './combat.js?v=39';
-import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=39';
-import { openLineagePicker } from './lineage-ui.js?v=39';
-import { getCharacterLineage } from './lineage-api.js?v=39';
-import { openAddClass } from './class-setup.js?v=39';
-import { getClassSummary } from './class-api.js?v=39';
-import { startUnitsDisplay } from './units.js?v=39';
+} from './store.js?v=40';
+import { getDerivedStats, getProficiencies } from './inventory-api.js?v=40';
+import { icon, classIcon, iconSrc } from './icons.js?v=40';
+import { $, $$, esc, toast, openModal, confirmDialog, cacheGet, cacheSet, cacheClear, cacheClearPrefix, friendlyError } from './utils.js?v=40';
+import { mountSheet, unmountSheet, activeTabKey } from './sheet.js?v=40';
+import { fluentEnabled, prefetchView, cancelPrefetches, clearReadCaches, markFluentBroken, isFluentUnavailable } from './read-layer.js?v=40';
+import { mountDmSpace, unmountDmSpace } from './dm-space.js?v=40';
+import { mountCombat, unmountCombat, combatEnabled } from './combat.js?v=40';
+import { importCharacter, parseCharacterJson, getLastImportReport } from './transfer.js?v=40';
+import { openLineagePicker } from './lineage-ui.js?v=40';
+import { getCharacterLineage } from './lineage-api.js?v=40';
+import { openAddClass } from './class-setup.js?v=40';
+import { getClassSummary } from './class-api.js?v=40';
+import { startUnitsDisplay } from './units.js?v=40';
 
 const app = $('#app');
 let routeToken = 0; // guards against out-of-order async renders
