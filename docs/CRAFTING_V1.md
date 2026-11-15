@@ -1,11 +1,12 @@
-# Crafting (v1 + v2)
+# Crafting (v1 + v2 + simple crafting)
 
 Players turn ingredients from their inventory into items, following recipes the DM writes. The player rolls at the table and
 types the total; the DM confirms or corrects it. The server never rolls dice.
 
 Migrations `20261113000100_crafting_v1.sql` (rollback `supabase/rollback/rollback_crafting_v1.sql`),
 `20261114000900_crafting_v2.sql` (rollback `supabase/rollback/rollback_crafting_v2.sql`) and `20261114001000_weapon_enhancement.sql`
-(rollback `supabase/rollback/rollback_weapon_enhancement.sql`, see "Weapon enhancement"). Frontend `js/crafting.js`.
+(rollback `supabase/rollback/rollback_weapon_enhancement.sql`, see "Weapon enhancement") and `20261115000100_crafting_simple.sql`
+(rollback `supabase/rollback/rollback_crafting_simple.sql`, see "Simple crafting"). Frontend `js/crafting.js`.
 Earlier design notes: [POTION_AND_HERBAL_CRAFTING_DESIGN.md](POTION_AND_HERBAL_CRAFTING_DESIGN.md). What v2 added is summarized in
 "Crafting v2" below.
 
@@ -374,11 +375,124 @@ a player attach an official modifier through raw REST. A player gets a modifier 
 Rollback: `supabase/rollback/rollback_modifier_guard.sql` (the exact previous trigger body). Tests:
 `supabase/tests/classes/modifier_guard_tests.sql` (MG1–MG18).
 
+## Simple crafting (migration 20261115000100, `?v=42`)
+
+"As simple and comfortable as possible, like BG3 alchemy." The model above is kept; the complexity left the everyday UI, not the
+data. Every v2 table, column and RPC still works; old clients (`start_craft_attempt`) behave exactly as before.
+
+### Turning it on or off for a campaign
+
+Unchanged: the frontend flag `CRAFTING` stays `'on'`, and each campaign's DM sets **DM Space → Campaign rules → Inventory → Crafting**
+to **Player managed** (on) or **Disabled** (off). See "Turning crafting on for a campaign" above.
+
+### The player (Inventory → Crafting, 2–3 clicks)
+
+1. **Choose a tool**: one button per tool the character carries (a known row) that has recipes, plus **No tool needed** for recipes
+   without a tool (no check, or a skill check). A tool with recipes that the character does not carry is not a choice; a line says
+   "Recipes for tools you do not carry: …".
+2. **Choose a recipe**: every recipe of that tool, with each ingredient's have / need ("missing N" in the warning colour) and a chip
+   "can make N" or "Missing ingredients". Clicking a recipe opens it.
+3. **How many**: a − / + stepper from 1 to the most the character can make now (at most 20). Shown only when more than one is possible.
+4. **Craft** (or **Send to my DM** when the DM confirms). A recipe with a DC shows the DC and asks for the d20 total (and optionally a
+   natural 20 / 1) in the same row. No dialog, no stack choice.
+
+Intermediates (plant → extract / salts) are ordinary items: an extract made by one recipe is an ingredient of the next.
+Recipe books, "New recipe learned" and recent attempts stay below (recipe books open when something is left to learn).
+
+**Stacks are picked automatically** (`pickStacks` in `js/crafting.js`, from the read's candidates): only known rows, and for a
+used-up line only rows that may be used up (never equipped, attuned, a quest item, a container with contents or an item with its
+own charges). Lines are filled disjointly (a stack serves one line): the base of an enhancement first, then used-up lines, then kept
+lines (tools); within a line the **smallest stack first** (ties by row id), so partial stacks are used up before full ones. The
+server re-checks everything.
+
+**Quantity N** (`start_craft_batch`, design (a) of the brief): ONE attempt with `batches = N`, one request id, all or nothing. Every
+used-up line needs N × its quantity, a kept line (a tool, the enhancement base) once. Success makes N × the result; a critical
+success adds the bonus quantity **once** (one roll for the whole batch); a failure's junk result is N ×; "lose half" halves the
+whole selection. For a recipe the DM confirms, the batch is one pending attempt (the rule "one pending attempt per character and
+recipe" stays) and the DM answers it with one outcome. An enhancement recipe is crafted one at a time.
+
+**Roll**: the simple start asks for a roll only when the recipe has a **DC**. A tool without a DC only has to be in the bag. (The old
+`start_craft_attempt` still asks for a roll whenever the recipe has a check.) A natural 20 / 1 is accepted only with a DC.
+
+**Charged items are never used up** (also through the old start, approvals and "learn from a used-up scroll"): `_craft_row_free`
+and the read's free flag exclude a row with `charges_max` / `charges_current` > 0 and a row whose item has its own uses (a per-rest
+spell grant, a weapon action with uses).
+
+**Double click**: the Craft button is disabled while the request is in flight, and one request id is kept per intent (recipe,
+quantity, stacks, roll) until it succeeds, so a repeated click or a retry after a lost answer replays the first attempt.
+
+**Who crafts**: the character's owner (the campaign rule must allow it); a DM's own character crafts like any player's. The
+campaign's DM viewing a player's character sees the same Crafting tab **read-only** (what the character has and misses, read with
+`get_character_recipes`, which allows the DM) and a link **Edit recipes in DM Space**; there is no crafting on behalf of a player
+(the player RPCs stay owner-only).
+
+### The DM (DM Space → Crafting → + New recipe / Duplicate)
+
+The editor shows: **template** (new recipes only), **Name**, **Tool** (a tool, a skill check, or "No tool needed"; writes
+`check_key`), **Ingredients** (item + quantity), **Result** (item + quantity), **DC** (optional), **I confirm every attempt**,
+**Known only**. Defaults of a NEW recipe: instant (no approval), no DC, visible to all. A DC turns on (and locks) "I confirm every
+attempt" (the existing constraint `requires_dm_approval or check_dc is null`), and a DC without a tool asks for a skill or a tool.
+
+Everything else stays under one collapsed **More options**: description, who knows it (known / discoverable / secret), result
+details (enhancement kind, label for players who do not know the item, arrives unidentified, critical result and bonus, failure rule,
+junk result and its quantity, time note), per ingredient the type (item / tag), "Used up" and the player label, recipe items
+(teachers) and the DM's notes. More options opens by itself for an enhancement recipe, a secret recipe, a recipe with recipe items
+or with tag / labelled / kept ingredients. Every field stays in the form, so saving never wipes a value it does not show (the junk
+result's quantity is now sent too; before ?v=42 the editor reset it to 1 on every save).
+
+**Mapping of the old fields**
+
+| Simple editor | Stored as |
+|---|---|
+| Tool | `check_key` (a Tool item: the character must carry it; a skill: a check without a tool) |
+| DC | `check_dc` (needs `check_key`) |
+| I confirm every attempt | `requires_dm_approval` (always true with a DC) |
+| Known only off / on | `visibility = 'known'` / `'discoverable'`; a `secret` recipe stays `secret` (the checkbox shows it, locked; change it under More options) |
+| Quantity N (player) | `crafting_attempts.batches` |
+
+Existing recipes are not changed by the release (no data migration; column defaults unchanged): an existing recipe keeps its approval,
+DC and visibility.
+
+**Templates** (frontend constants `RECIPE_TEMPLATES`, never written until Save, no seeds, no items created): Plant extract
+(herbalism kit, 2 × your plant → your extract), Potion of Healing from an extract (herbalism kit → the official Potion of Healing),
+Mineral salts (alchemist's supplies, 2 × your raw material → your salts), Acid from salts (→ Acid (vial)), Antitoxin from an extract
+(→ Antitoxin (vial)). The DM picks their own herb / extract / salts items (a hint says what to choose; make them in DM Space →
+Content). Short neutral wording, SRD items by id only.
+
+**Duplicate** (every recipe, also archived ones): a new draft "Copy of …" with the editable fields (tool, DC, approval, visibility,
+ingredients, result, advanced fields, notes); never the attempts, the known rows or the recipe items (teachers), so a book does not
+start teaching the copy by itself.
+
+The queue card shows "× N" for a batch attempt (`_craft_attempt_dm.batches`).
+
+### Server (migration 20261115000100)
+
+- `crafting_attempts.batches int not null default 1 check (1..20)`: every existing attempt is 1 and behaves as before.
+- `start_craft_batch(character, recipe, selected, batches, roll, request_id, natural, note)`: a NEW function (an overload of
+  `start_craft_attempt` with an extra defaulted argument would make the old 7-argument call ambiguous). Same checks in the same
+  order as `start_craft_attempt` (knowledge first with the one fixed text, fit, stack quantity, free rows, base, tool, one pending
+  attempt per character and recipe, the 4242 locks before the first write, idempotent on the request id) plus the batch rules above.
+- `_craft_apply` (body of 20261114001000) reads `batches`; `_craft_row_free`, `_craft_recipes_player` exclude charged rows;
+  `_craft_attempt_dm` lists `batches`. New helper `_craft_item_has_uses` (not executable by `authenticated`).
+- Rollback `supabase/rollback/rollback_crafting_simple.sql`: the exact previous bodies, drops the new function, the helper and the
+  column. It **refuses** (raises, changes nothing) while any attempt has `batches <> 1`. Deploy order for a rollback: the ?v=41
+  frontend first, then the file.
+
+### Tests
+
+`supabase/tests/classes/crafting_simple_tests.sql` (S1–S11: instant craft without a roll, double click, refusals, N batches from
+several stacks, the chain plant → extract → potion, the production-shaped recipe through the old and the new start (pending → DM
+approve, critical success with 2 batches), the archived one untouched, charged / attuned / quest / equipped rows and items with
+uses never used up, the unidentified ingredient (byte-identical read, fixed refusal), the DM reads but cannot craft, the rule off,
+grants). Browser: `supabase/tests/browser/crafting_simple_ui_test.py` (template, duplicate, tool → recipe → 2 → Craft, the chain,
+the DM's read-only view); `crafting_ui_test.py` and `weapon_enhancement_ui_test.py` follow the new flow.
+
 ## Known limits
 
 
-- One stack per ingredient line in the player dialog. The server accepts several, but the dialog offers only stacks large
-  enough on their own. `have` may count a stack that also fits another line.
+- Since ?v=42 the stacks are picked automatically and may span several stacks per line, but a stack serves one line only: `have`
+  may count a stack that also fits another line, so "can make N" is the greedy result (smallest stack first), not an optimum.
+- A batch has one roll and one outcome for all N (a DM can reject and ask for smaller batches).
 - Recipes cannot be deleted, only archived (they reference items).
 - A recipe edited after an attempt is checked against its current ingredients at approval. An attempt that no longer fits
   becomes `apply_failed`, and the DM can reject it.
